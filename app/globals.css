@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Light mode (default) - Vibe colors */
+  :root {
+    --background: #FFFFFF;
+    --foreground: #323338;
+  }
+
+  /* Dark mode - Vibe colors */
+  .dark {
+    --background: #181B34;
+    --foreground: #FFFFFF;
+  }
+
+  * {
+    @apply antialiased;
+  }
+
+  body {
+    @apply bg-light-background text-light-text-primary;
+    @apply dark:bg-dark-background dark:text-dark-text-primary;
+    @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Improved heading typography */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold;
+    font-feature-settings: 'ss01' on, 'cv05' on;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Font weight utilities following Vibe */
+  .font-light {
+    font-weight: 300;
+  }
+
+  .font-normal {
+    font-weight: 400;
+  }
+
+  .font-medium {
+    font-weight: 500;
+  }
+
+  .font-semibold {
+    font-weight: 600;
+  }
+
+  .font-bold {
+    font-weight: 700;
+  }
+}
