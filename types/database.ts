@@ -34,6 +34,91 @@ export type Database = {
   }
   public: {
     Tables: {
+      gift_group_members: {
+        Row: {
+          contribution_amount: number | null
+          gift_group_id: string
+          has_paid: boolean | null
+          id: string
+          joined_at: string | null
+          user_id: string
+        }
+        Insert: {
+          contribution_amount?: number | null
+          gift_group_id: string
+          has_paid?: boolean | null
+          id?: string
+          joined_at?: string | null
+          user_id: string
+        }
+        Update: {
+          contribution_amount?: number | null
+          gift_group_id?: string
+          has_paid?: boolean | null
+          id?: string
+          joined_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gift_group_members_gift_group_id_fkey"
+            columns: ["gift_group_id"]
+            isOneToOne: false
+            referencedRelation: "gift_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gift_groups: {
+        Row: {
+          created_at: string | null
+          created_by: string
+          current_amount: number | null
+          description: string | null
+          group_id: string
+          id: string
+          is_active: boolean | null
+          name: string
+          target_amount: number | null
+          target_user_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by: string
+          current_amount?: number | null
+          description?: string | null
+          group_id: string
+          id?: string
+          is_active?: boolean | null
+          name: string
+          target_amount?: number | null
+          target_user_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string
+          current_amount?: number | null
+          description?: string | null
+          group_id?: string
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          target_amount?: number | null
+          target_user_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gift_groups_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       group_members: {
         Row: {
           group_id: string | null
@@ -146,6 +231,47 @@ export type Database = {
           },
         ]
       }
+      messages: {
+        Row: {
+          attachment_url: string | null
+          content: string
+          created_at: string | null
+          gift_group_id: string
+          id: string
+          is_edited: boolean | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          attachment_url?: string | null
+          content: string
+          created_at?: string | null
+          gift_group_id: string
+          id?: string
+          is_edited?: boolean | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          attachment_url?: string | null
+          content?: string
+          created_at?: string | null
+          gift_group_id?: string
+          id?: string
+          is_edited?: boolean | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_gift_group_id_fkey"
+            columns: ["gift_group_id"]
+            isOneToOne: false
+            referencedRelation: "gift_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profile_info: {
         Row: {
           category: string
@@ -209,6 +335,63 @@ export type Database = {
         }
         Relationships: []
       }
+      wishlist_items: {
+        Row: {
+          category: string | null
+          claimed_at: string | null
+          claimed_by: string | null
+          created_at: string | null
+          description: string | null
+          id: string
+          image_url: string | null
+          price: number | null
+          priority: string | null
+          privacy_settings: Json
+          purchased: boolean | null
+          purchased_at: string | null
+          title: string
+          updated_at: string | null
+          url: string | null
+          user_id: string
+        }
+        Insert: {
+          category?: string | null
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          price?: number | null
+          priority?: string | null
+          privacy_settings?: Json
+          purchased?: boolean | null
+          purchased_at?: string | null
+          title: string
+          updated_at?: string | null
+          url?: string | null
+          user_id: string
+        }
+        Update: {
+          category?: string | null
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          price?: number | null
+          priority?: string | null
+          privacy_settings?: Json
+          purchased?: boolean | null
+          purchased_at?: string | null
+          title?: string
+          updated_at?: string | null
+          url?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -222,12 +405,24 @@ export type Database = {
         }
         Returns: boolean
       }
+      can_view_wishlist_item: {
+        Args: {
+          item_owner_id: string
+          privacy_settings: Json
+          viewer_id: string
+        }
+        Returns: boolean
+      }
       get_shared_groups: {
         Args: { user_a: string; user_b: string }
         Returns: {
           group_id: string
           group_type: Database["public"]["Enums"]["group_type"]
         }[]
+      }
+      is_group_member: {
+        Args: { check_group_id: string; check_user_id: string }
+        Returns: boolean
       }
     }
     Enums: {
