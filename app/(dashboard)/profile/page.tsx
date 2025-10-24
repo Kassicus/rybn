@@ -114,6 +114,7 @@ export default async function ProfilePage() {
                 label={item.field_name.replace(/_/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase())}
                 value={item.field_value}
                 privacyLevel={item.privacy_settings?.default}
+                isDate={true}
               />
             ))}
           </div>

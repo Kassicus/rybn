@@ -144,6 +144,7 @@ export default async function UserProfilePage({
                 value={item.field_value}
                 privacyLevel={item.privacy_settings?.default}
                 isVisible={true}
+                isDate={true}
               />
             ))}
           </div>

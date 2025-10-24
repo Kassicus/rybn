@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
 import { Text } from "@/components/ui/text";
 import { PrivacyBadge } from "@/components/privacy/PrivacyBadge";
+import { formatProfileDate } from "@/lib/utils/dates";
 import type { PrivacyLevel } from "@/types/privacy";
 
 interface ProfileFieldProps {
@@ -8,6 +9,7 @@ interface ProfileFieldProps {
   value?: string | null;
   privacyLevel?: PrivacyLevel;
   isVisible?: boolean;
+  isDate?: boolean;
   className?: string;
 }
 
@@ -16,6 +18,7 @@ export function ProfileField({
   value,
   privacyLevel,
   isVisible = true,
+  isDate = false,
   className = "",
 }: ProfileFieldProps) {
   if (!isVisible) {
@@ -31,6 +34,9 @@ export function ProfileField({
     );
   }
 
+  // Format the value if it's a date
+  const displayValue = isDate && value ? formatProfileDate(value) : value;
+
   return (
     <div className={className}>
       <div className="flex items-center justify-between mb-2">
@@ -40,7 +46,7 @@ export function ProfileField({
         {privacyLevel && <PrivacyBadge level={privacyLevel} showLabel={false} />}
       </div>
       <Text className="font-medium">
-        {value || <span className="text-light-text-secondary dark:text-dark-text-secondary">Not set</span>}
+        {displayValue || <span className="text-light-text-secondary dark:text-dark-text-secondary">Not set</span>}
       </Text>
     </div>
   );
