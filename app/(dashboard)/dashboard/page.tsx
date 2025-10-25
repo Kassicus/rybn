@@ -4,9 +4,11 @@ import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { getMyGroups } from "@/lib/actions/groups";
 import { getMyWishlist } from "@/lib/actions/wishlist";
-import { getMyGiftGroups } from "@/lib/actions/gifts";
-import { GiftGroupCard } from "@/components/gifts/GiftGroupCard";
+import { getMyGroupGifts } from "@/lib/actions/gifts";
+import { GroupGiftCard } from "@/components/gifts/GiftGroupCard";
+import { GiftExchangeCard } from "@/components/gift-exchange/GiftExchangeCard";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 // Simple Group Card Component
 function GroupCard({ group }: { group: any }) {
@@ -69,22 +71,65 @@ function WishlistCard({ item }: { item: any }) {
 
 export default async function DashboardPage() {
   // Fetch data
+  const supabase = await createClient();
+  const adminClient = createAdminClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return null;
+  }
+
   const { data: groups = [] } = await getMyGroups();
   const { data: wishlistItems = [] } = await getMyWishlist();
-  const { data: giftGroups = [] } = await getMyGiftGroups();
-  const supabase = await createClient();
+  const { data: groupGifts = [] } = await getMyGroupGifts();
 
-  // Get member counts for gift groups
-  const giftGroupsWithCounts = await Promise.all(
-    giftGroups.slice(0, 3).map(async (giftGroup) => {
-      const { count } = await supabase
-        .from("gift_group_members")
+  // Extract group IDs
+  const groupIds = groups.map((g) => g.id);
+
+  // Get member counts for group gifts using admin client
+  const groupGiftsWithCounts = await Promise.all(
+    groupGifts.slice(0, 3).map(async (groupGift) => {
+      const { count } = await adminClient
+        .from("group_gift_members")
         .select("*", { count: "exact", head: true })
-        .eq("gift_group_id", giftGroup.id);
+        .eq("group_gift_id", groupGift.id);
 
       return {
-        ...giftGroup,
+        ...groupGift,
         memberCount: count || 0,
+      };
+    })
+  );
+
+  // Get gift exchanges for user's groups
+  const { data: allExchanges = [] } = await supabase
+    .from("gift_exchanges")
+    .select("*")
+    .in("group_id", groupIds.length > 0 ? groupIds : [""])
+    .eq("is_active", true)
+    .order("created_at", { ascending: false });
+
+  // Get participant counts and participation status for each exchange
+  const exchangesWithData = await Promise.all(
+    allExchanges.slice(0, 3).map(async (exchange) => {
+      const { count } = await supabase
+        .from("gift_exchange_participants")
+        .select("*", { count: "exact", head: true })
+        .eq("exchange_id", exchange.id)
+        .eq("opted_in", true);
+
+      const { data: myParticipation } = await supabase
+        .from("gift_exchange_participants")
+        .select("id")
+        .eq("exchange_id", exchange.id)
+        .eq("user_id", user.id)
+        .eq("opted_in", true)
+        .single();
+
+      return {
+        ...exchange,
+        participantCount: count || 0,
+        isParticipating: !!myParticipation,
       };
     })
   );
@@ -92,7 +137,8 @@ export default async function DashboardPage() {
   // Limit to 3 items for preview
   const previewGroups = groups.slice(0, 3);
   const previewWishlist = wishlistItems.slice(0, 3);
-  const previewGiftGroups = giftGroupsWithCounts;
+  const previewGroupGifts = groupGiftsWithCounts;
+  const previewGiftExchanges = exchangesWithData;
 
   return (
     <div className="space-y-10">
@@ -186,10 +232,10 @@ export default async function DashboardPage() {
         )}
       </div>
 
-      {/* Gift Groups Section */}
+      {/* Group Gifts Section */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <Heading level="h2">Gift Groups</Heading>
+          <Heading level="h2">Group Gifts</Heading>
           <div className="flex items-center gap-2">
             <Link href="/gifts/create">
               <Button variant="secondary" size="small">
@@ -197,10 +243,10 @@ export default async function DashboardPage() {
                 Create
               </Button>
             </Link>
-            {giftGroups.length > 3 && (
+            {groupGifts.length > 3 && (
               <Link href="/gifts">
                 <Button variant="tertiary" size="small">
-                  See All ({giftGroups.length})
+                  See All ({groupGifts.length})
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
@@ -208,23 +254,69 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        {previewGiftGroups.length > 0 ? (
+        {previewGroupGifts.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {previewGiftGroups.map((giftGroup) => (
-              <GiftGroupCard
-                key={giftGroup.id}
-                giftGroup={giftGroup}
-                memberCount={giftGroup.memberCount}
+            {previewGroupGifts.map((groupGift) => (
+              <GroupGiftCard
+                key={groupGift.id}
+                groupGift={groupGift}
+                memberCount={groupGift.memberCount}
               />
             ))}
           </div>
         ) : (
           <div className="p-8 rounded-lg border border-light-border dark:border-dark-border border-dashed text-center">
-            <Text variant="secondary">No gift groups yet</Text>
+            <Text variant="secondary">No group gifts yet</Text>
             <Link href="/gifts/create">
               <Button variant="primary" size="small" className="mt-3">
                 <Plus className="w-4 h-4" />
-                Create Your First Gift Group
+                Create Your First Group Gift
+              </Button>
+            </Link>
+          </div>
+        )}
+      </div>
+
+      {/* Gift Exchange Section */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <Heading level="h2">Gift Exchanges</Heading>
+          <div className="flex items-center gap-2">
+            <Link href="/gift-exchange/create">
+              <Button variant="secondary" size="small">
+                <Plus className="w-4 h-4" />
+                Create
+              </Button>
+            </Link>
+            {allExchanges.length > 3 && (
+              <Link href="/gift-exchange">
+                <Button variant="tertiary" size="small">
+                  See All ({allExchanges.length})
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+
+        {previewGiftExchanges.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {previewGiftExchanges.map((exchange) => (
+              <GiftExchangeCard
+                key={exchange.id}
+                exchange={exchange}
+                participantCount={exchange.participantCount}
+                isParticipating={exchange.isParticipating}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="p-8 rounded-lg border border-light-border dark:border-dark-border border-dashed text-center">
+            <Text variant="secondary">No gift exchanges yet</Text>
+            <Link href="/gift-exchange/create">
+              <Button variant="primary" size="small" className="mt-3">
+                <Plus className="w-4 h-4" />
+                Create Your First Gift Exchange
               </Button>
             </Link>
           </div>

@@ -2,61 +2,61 @@ import { Gift, Plus } from "lucide-react";
 import Link from "next/link";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
-import { GiftGroupCard } from "@/components/gifts/GiftGroupCard";
-import { getMyGiftGroups } from "@/lib/actions/gifts";
-import { createClient } from "@/lib/supabase/server";
+import { GroupGiftCard } from "@/components/gifts/GiftGroupCard";
+import { getMyGroupGifts } from "@/lib/actions/gifts";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export default async function GiftsPage() {
-  const { data: giftGroups = [] } = await getMyGiftGroups();
-  const supabase = await createClient();
+  const { data: groupGifts = [] } = await getMyGroupGifts();
+  const adminClient = createAdminClient();
 
-  // Get member counts for each gift group
-  const giftGroupsWithCounts = await Promise.all(
-    giftGroups.map(async (giftGroup) => {
-      const { count } = await supabase
-        .from("gift_group_members")
+  // Get member counts for each group gift using admin client
+  const groupGiftsWithCounts = await Promise.all(
+    groupGifts.map(async (groupGift) => {
+      const { count } = await adminClient
+        .from("group_gift_members")
         .select("*", { count: "exact", head: true })
-        .eq("gift_group_id", giftGroup.id);
+        .eq("group_gift_id", groupGift.id);
 
       return {
-        ...giftGroup,
+        ...groupGift,
         memberCount: count || 0,
       };
     })
   );
 
-  // Separate active and inactive gift groups
-  const activeGiftGroups = giftGroupsWithCounts.filter((gg) => gg.is_active);
-  const inactiveGiftGroups = giftGroupsWithCounts.filter((gg) => !gg.is_active);
+  // Separate active and inactive group gifts
+  const activeGroupGifts = groupGiftsWithCounts.filter((gg) => gg.is_active);
+  const inactiveGroupGifts = groupGiftsWithCounts.filter((gg) => !gg.is_active);
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <Heading level="h1">Gift Groups</Heading>
+          <Heading level="h1">Group Gifts</Heading>
           <Text variant="secondary" className="mt-1">
-            Coordinate group gifts with friends and family
+            Pool money together with friends and family for group gifts
           </Text>
         </div>
         <Link href="/gifts/create">
           <Button variant="primary">
             <Plus className="w-4 h-4" />
-            New Gift Group
+            New Group Gift
           </Button>
         </Link>
       </div>
 
-      {/* Active Gift Groups */}
-      {activeGiftGroups.length > 0 ? (
+      {/* Active Group Gifts */}
+      {activeGroupGifts.length > 0 ? (
         <div className="space-y-4">
-          <Heading level="h3">Active Gift Groups</Heading>
+          <Heading level="h3">Active Group Gifts</Heading>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {activeGiftGroups.map((giftGroup) => (
-              <GiftGroupCard
-                key={giftGroup.id}
-                giftGroup={giftGroup}
-                memberCount={giftGroup.memberCount}
+            {activeGroupGifts.map((groupGift) => (
+              <GroupGiftCard
+                key={groupGift.id}
+                groupGift={groupGift}
+                memberCount={groupGift.memberCount}
               />
             ))}
           </div>
@@ -67,30 +67,30 @@ export default async function GiftsPage() {
             <Gift className="w-8 h-8 text-primary" />
           </div>
           <Heading level="h3" className="mb-2">
-            No gift groups yet
+            No group gifts yet
           </Heading>
           <Text variant="secondary" className="max-w-md mb-6">
-            Create a gift group to coordinate with others on a group gift. Pool money together and plan the perfect present!
+            Create a group gift to pool money together with others. Coordinate contributions and plan the perfect present!
           </Text>
           <Link href="/gifts/create">
             <Button variant="primary">
               <Plus className="w-4 h-4" />
-              Create Your First Gift Group
+              Create Your First Group Gift
             </Button>
           </Link>
         </div>
       )}
 
-      {/* Inactive Gift Groups */}
-      {inactiveGiftGroups.length > 0 && (
+      {/* Inactive Group Gifts */}
+      {inactiveGroupGifts.length > 0 && (
         <div className="space-y-4">
-          <Heading level="h3">Inactive Gift Groups</Heading>
+          <Heading level="h3">Inactive Group Gifts</Heading>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {inactiveGiftGroups.map((giftGroup) => (
-              <GiftGroupCard
-                key={giftGroup.id}
-                giftGroup={giftGroup}
-                memberCount={giftGroup.memberCount}
+            {inactiveGroupGifts.map((groupGift) => (
+              <GroupGiftCard
+                key={groupGift.id}
+                groupGift={groupGift}
+                memberCount={groupGift.memberCount}
               />
             ))}
           </div>

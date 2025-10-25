@@ -3,12 +3,12 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
-import type { GiftGroupFormData, ContributionUpdateData } from "@/lib/schemas/gifts";
+import type { GroupGiftFormData, ContributionUpdateData } from "@/lib/schemas/gifts";
 
 /**
- * Create a new gift coordination group
+ * Create a new group gift
  */
-export async function createGiftGroup(formData: GiftGroupFormData) {
+export async function createGroupGift(formData: GroupGiftFormData) {
   // Use regular client for auth check
   const supabase = await createClient();
 
@@ -30,15 +30,15 @@ export async function createGiftGroup(formData: GiftGroupFormData) {
     .single();
 
   if (!membership) {
-    return { error: "You must be a member of this group to create a gift group" };
+    return { error: "You must be a member of this group to create a group gift" };
   }
 
-  // Use admin client to create the gift group (bypasses RLS)
+  // Use admin client to create the group gift (bypasses RLS)
   // This is safe because we've already validated the user above
   const adminClient = createAdminClient();
 
-  const { data: giftGroup, error: giftGroupError } = await adminClient
-    .from("gift_groups")
+  const { data: groupGift, error: groupGiftError } = await adminClient
+    .from("group_gifts")
     .insert({
       name: formData.name,
       description: formData.description || null,
@@ -51,37 +51,38 @@ export async function createGiftGroup(formData: GiftGroupFormData) {
     .select()
     .single();
 
-  if (giftGroupError) {
-    return { error: giftGroupError.message };
+  if (groupGiftError) {
+    return { error: groupGiftError.message };
   }
 
   // Auto-add the creator as a member using admin client
   const { error: memberError } = await adminClient
-    .from("gift_group_members")
+    .from("group_gift_members")
     .insert({
-      gift_group_id: giftGroup.id,
+      group_gift_id: groupGift.id,
       user_id: user.id,
       contribution_amount: 0,
       has_paid: false,
     });
 
   if (memberError) {
-    // If adding member fails, try to clean up the gift group
-    await adminClient.from("gift_groups").delete().eq("id", giftGroup.id);
-    return { error: "Failed to create gift group membership" };
+    // If adding member fails, try to clean up the group gift
+    await adminClient.from("group_gifts").delete().eq("id", groupGift.id);
+    return { error: "Failed to create group gift membership" };
   }
 
   revalidatePath("/gifts");
   revalidatePath(`/groups/${formData.group_id}`);
 
-  return { data: giftGroup };
+  return { data: groupGift };
 }
 
 /**
- * Get all gift groups the user is a member of
+ * Get all group gifts the user is a member of
  */
-export async function getMyGiftGroups() {
+export async function getMyGroupGifts() {
   const supabase = await createClient();
+  const adminClient = createAdminClient();
 
   const {
     data: { user },
@@ -91,15 +92,15 @@ export async function getMyGiftGroups() {
     return { data: [] };
   }
 
-  // Get gift groups where user is a member
-  const { data: memberships, error } = await supabase
-    .from("gift_group_members")
+  // Get group gifts where user is a member using admin client
+  const { data: memberships, error } = await adminClient
+    .from("group_gift_members")
     .select(`
-      gift_group_id,
+      group_gift_id,
       contribution_amount,
       has_paid,
       joined_at,
-      gift_groups (
+      group_gifts (
         id,
         name,
         description,
@@ -120,20 +121,20 @@ export async function getMyGiftGroups() {
   }
 
   // Transform the data
-  const giftGroups = memberships?.map((m) => ({
-    ...m.gift_groups,
+  const groupGifts = memberships?.map((m) => ({
+    ...m.group_gifts,
     my_contribution: m.contribution_amount,
     my_has_paid: m.has_paid,
     my_joined_at: m.joined_at,
   })) || [];
 
-  return { data: giftGroups };
+  return { data: groupGifts };
 }
 
 /**
- * Get gift groups for a specific group
+ * Get group gifts for a specific group
  */
-export async function getGiftGroupsByGroup(groupId: string) {
+export async function getGroupGiftsByGroup(groupId: string) {
   const supabase = await createClient();
 
   const {
@@ -156,9 +157,9 @@ export async function getGiftGroupsByGroup(groupId: string) {
     return { error: "You must be a member of this group" };
   }
 
-  // Get all gift groups for this group
-  const { data: giftGroups, error } = await supabase
-    .from("gift_groups")
+  // Get all group gifts for this group
+  const { data: groupGifts, error } = await supabase
+    .from("group_gifts")
     .select("*")
     .eq("group_id", groupId)
     .order("created_at", { ascending: false });
@@ -167,14 +168,16 @@ export async function getGiftGroupsByGroup(groupId: string) {
     return { error: error.message };
   }
 
-  return { data: giftGroups || [] };
+  return { data: groupGifts || [] };
 }
 
 /**
- * Get a specific gift group with members and messages
+ * Get a specific group gift with members and messages
  */
-export async function getGiftGroupById(giftGroupId: string) {
+export async function getGroupGiftById(groupGiftId: string) {
+  // Use regular client for auth, admin client for data (to bypass RLS recursion)
   const supabase = await createClient();
+  const adminClient = createAdminClient();
 
   const {
     data: { user },
@@ -184,42 +187,42 @@ export async function getGiftGroupById(giftGroupId: string) {
     return { error: "Not authenticated" };
   }
 
-  // Get gift group
-  const { data: giftGroup, error: giftGroupError } = await supabase
-    .from("gift_groups")
+  // Get group gift using admin client (bypasses RLS)
+  const { data: groupGift, error: groupGiftError } = await adminClient
+    .from("group_gifts")
     .select("*")
-    .eq("id", giftGroupId)
+    .eq("id", groupGiftId)
     .single();
 
-  if (giftGroupError) {
-    return { error: giftGroupError.message };
+  if (groupGiftError) {
+    return { error: groupGiftError.message };
   }
 
-  // Check if user is a member
-  const { data: membership } = await supabase
-    .from("gift_group_members")
+  // Check if user is a member using admin client
+  const { data: membership } = await adminClient
+    .from("group_gift_members")
     .select("*")
-    .eq("gift_group_id", giftGroupId)
+    .eq("group_gift_id", groupGiftId)
     .eq("user_id", user.id)
     .single();
 
   if (!membership) {
-    return { error: "You are not a member of this gift group" };
+    return { error: "You are not a member of this group gift" };
   }
 
-  // Get all members
-  const { data: members, error: membersError } = await supabase
-    .from("gift_group_members")
+  // Get all members using admin client (to see all members, not just yourself)
+  const { data: members, error: membersError } = await adminClient
+    .from("group_gift_members")
     .select("id, user_id, contribution_amount, has_paid, joined_at")
-    .eq("gift_group_id", giftGroupId);
+    .eq("group_gift_id", groupGiftId);
 
   if (membersError) {
     return { error: membersError.message };
   }
 
-  // Get user profiles for all members
+  // Get user profiles for all members using admin client
   const memberIds = members.map((m) => m.user_id);
-  const { data: profiles } = await supabase
+  const { data: profiles } = await adminClient
     .from("user_profiles")
     .select("id, username, display_name, avatar_url")
     .in("id", memberIds);
@@ -232,18 +235,18 @@ export async function getGiftGroupById(giftGroupId: string) {
 
   return {
     data: {
-      ...giftGroup,
-      gift_group_members: membersWithProfiles,
+      ...groupGift,
+      group_gift_members: membersWithProfiles,
       my_membership: membership,
     },
   };
 }
 
 /**
- * Update user's contribution to a gift group
+ * Update user's contribution to a group gift
  */
 export async function updateMyContribution(
-  giftGroupId: string,
+  groupGiftId: string,
   data: ContributionUpdateData
 ) {
   const supabase = await createClient();
@@ -258,28 +261,28 @@ export async function updateMyContribution(
 
   // Update the membership
   const { error } = await supabase
-    .from("gift_group_members")
+    .from("group_gift_members")
     .update({
       contribution_amount: data.contribution_amount,
       has_paid: data.has_paid,
     })
-    .eq("gift_group_id", giftGroupId)
+    .eq("group_gift_id", groupGiftId)
     .eq("user_id", user.id);
 
   if (error) {
     return { error: error.message };
   }
 
-  revalidatePath(`/gifts/${giftGroupId}`);
+  revalidatePath(`/gifts/${groupGiftId}`);
   revalidatePath("/gifts");
 
   return { success: true };
 }
 
 /**
- * Add members to a gift group
+ * Add members to a group gift
  */
-export async function addMembersToGiftGroup(giftGroupId: string, userIds: string[]) {
+export async function addMembersToGroupGift(groupGiftId: string, userIds: string[]) {
   const supabase = await createClient();
 
   const {
@@ -290,42 +293,42 @@ export async function addMembersToGiftGroup(giftGroupId: string, userIds: string
     return { error: "Not authenticated" };
   }
 
-  // Verify user is the creator of the gift group
-  const { data: giftGroup } = await supabase
-    .from("gift_groups")
+  // Verify user is the creator of the group gift
+  const { data: groupGift } = await supabase
+    .from("group_gifts")
     .select("created_by")
-    .eq("id", giftGroupId)
+    .eq("id", groupGiftId)
     .single();
 
-  if (!giftGroup || giftGroup.created_by !== user.id) {
-    return { error: "Only the creator can add members to this gift group" };
+  if (!groupGift || groupGift.created_by !== user.id) {
+    return { error: "Only the creator can add members to this group gift" };
   }
 
   // Add members
   const membersToAdd = userIds.map((userId) => ({
-    gift_group_id: giftGroupId,
+    group_gift_id: groupGiftId,
     user_id: userId,
     contribution_amount: 0,
     has_paid: false,
   }));
 
   const { error } = await supabase
-    .from("gift_group_members")
+    .from("group_gift_members")
     .insert(membersToAdd);
 
   if (error) {
     return { error: error.message };
   }
 
-  revalidatePath(`/gifts/${giftGroupId}`);
+  revalidatePath(`/gifts/${groupGiftId}`);
 
   return { success: true };
 }
 
 /**
- * Leave a gift group
+ * Leave a group gift
  */
-export async function leaveGiftGroup(giftGroupId: string) {
+export async function leaveGroupGift(groupGiftId: string) {
   const supabase = await createClient();
 
   const {
@@ -337,21 +340,21 @@ export async function leaveGiftGroup(giftGroupId: string) {
   }
 
   // Check if user is the creator
-  const { data: giftGroup } = await supabase
-    .from("gift_groups")
+  const { data: groupGift } = await supabase
+    .from("group_gifts")
     .select("created_by")
-    .eq("id", giftGroupId)
+    .eq("id", groupGiftId)
     .single();
 
-  if (giftGroup?.created_by === user.id) {
-    return { error: "Creators cannot leave the gift group. Delete the group instead." };
+  if (groupGift?.created_by === user.id) {
+    return { error: "Creators cannot leave the group gift. Delete it instead." };
   }
 
   // Remove the member
   const { error } = await supabase
-    .from("gift_group_members")
+    .from("group_gift_members")
     .delete()
-    .eq("gift_group_id", giftGroupId)
+    .eq("group_gift_id", groupGiftId)
     .eq("user_id", user.id);
 
   if (error) {
@@ -363,10 +366,11 @@ export async function leaveGiftGroup(giftGroupId: string) {
 }
 
 /**
- * Delete a gift group (creator only)
+ * Delete a group gift (creator only)
  */
-export async function deleteGiftGroup(giftGroupId: string) {
+export async function deleteGroupGift(groupGiftId: string) {
   const supabase = await createClient();
+  const adminClient = createAdminClient();
 
   const {
     data: { user },
@@ -376,39 +380,39 @@ export async function deleteGiftGroup(giftGroupId: string) {
     return { error: "Not authenticated" };
   }
 
-  // Verify user is the creator
-  const { data: giftGroup } = await supabase
-    .from("gift_groups")
+  // Verify user is the creator using admin client
+  const { data: groupGift } = await adminClient
+    .from("group_gifts")
     .select("created_by, group_id")
-    .eq("id", giftGroupId)
+    .eq("id", groupGiftId)
     .single();
 
-  if (!giftGroup || giftGroup.created_by !== user.id) {
-    return { error: "Only the creator can delete this gift group" };
+  if (!groupGift || groupGift.created_by !== user.id) {
+    return { error: "Only the creator can delete this group gift" };
   }
 
-  // Delete the gift group (cascade will handle members and messages)
-  const { error } = await supabase
-    .from("gift_groups")
+  // Delete the group gift using admin client (cascade will handle members and messages)
+  const { error } = await adminClient
+    .from("group_gifts")
     .delete()
-    .eq("id", giftGroupId);
+    .eq("id", groupGiftId);
 
   if (error) {
     return { error: error.message };
   }
 
   revalidatePath("/gifts");
-  revalidatePath(`/groups/${giftGroup.group_id}`);
+  revalidatePath(`/groups/${groupGift.group_id}`);
 
   return { success: true };
 }
 
 /**
- * Update gift group details (creator only)
+ * Update group gift details (creator only)
  */
-export async function updateGiftGroup(
-  giftGroupId: string,
-  updates: Partial<GiftGroupFormData>
+export async function updateGroupGift(
+  groupGiftId: string,
+  updates: Partial<GroupGiftFormData>
 ) {
   const supabase = await createClient();
 
@@ -421,28 +425,101 @@ export async function updateGiftGroup(
   }
 
   // Verify user is the creator
-  const { data: giftGroup } = await supabase
-    .from("gift_groups")
+  const { data: groupGift } = await supabase
+    .from("group_gifts")
     .select("created_by")
-    .eq("id", giftGroupId)
+    .eq("id", groupGiftId)
     .single();
 
-  if (!giftGroup || giftGroup.created_by !== user.id) {
-    return { error: "Only the creator can update this gift group" };
+  if (!groupGift || groupGift.created_by !== user.id) {
+    return { error: "Only the creator can update this group gift" };
   }
 
-  // Update the gift group
+  // Update the group gift
   const { error } = await supabase
-    .from("gift_groups")
+    .from("group_gifts")
     .update(updates)
-    .eq("id", giftGroupId);
+    .eq("id", groupGiftId);
 
   if (error) {
     return { error: error.message };
   }
 
-  revalidatePath(`/gifts/${giftGroupId}`);
+  revalidatePath(`/gifts/${groupGiftId}`);
   revalidatePath("/gifts");
 
   return { success: true };
+}
+
+/**
+ * Get available users from the parent group who can be invited to the group gift
+ */
+export async function getAvailableGroupMembers(groupGiftId: string) {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: "Not authenticated" };
+  }
+
+  // Get the group gift with its group_id
+  const { data: groupGift, error: groupGiftError } = await supabase
+    .from("group_gifts")
+    .select("group_id, created_by")
+    .eq("id", groupGiftId)
+    .single();
+
+  if (groupGiftError || !groupGift) {
+    return { error: "Group gift not found" };
+  }
+
+  // Verify user is the creator
+  if (groupGift.created_by !== user.id) {
+    return { error: "Only the creator can manage members" };
+  }
+
+  // Get all members of the parent group
+  const { data: groupMembers, error: groupMembersError } = await supabase
+    .from("group_members")
+    .select("user_id")
+    .eq("group_id", groupGift.group_id);
+
+  if (groupMembersError) {
+    return { error: groupMembersError.message };
+  }
+
+  // Get current group gift members
+  const { data: currentMembers, error: currentMembersError } = await supabase
+    .from("group_gift_members")
+    .select("user_id")
+    .eq("group_gift_id", groupGiftId);
+
+  if (currentMembersError) {
+    return { error: currentMembersError.message };
+  }
+
+  // Filter out users already in the group gift
+  const currentMemberIds = new Set(currentMembers?.map((m) => m.user_id) || []);
+  const availableUserIds = groupMembers
+    ?.map((gm) => gm.user_id)
+    .filter((userId) => !currentMemberIds.has(userId)) || [];
+
+  if (availableUserIds.length === 0) {
+    return { data: [] };
+  }
+
+  // Get user profiles for available members
+  const { data: profiles, error: profilesError } = await supabase
+    .from("user_profiles")
+    .select("id, username, display_name, avatar_url")
+    .in("id", availableUserIds);
+
+  if (profilesError) {
+    return { error: profilesError.message };
+  }
+
+  return { data: profiles || [] };
 }

@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import type { MessageFormData, MessageEditData } from "@/lib/schemas/gifts";
 
 /**
- * Send a message to a gift group
+ * Send a message to a group gift
  */
 export async function sendMessage(data: MessageFormData) {
   const supabase = await createClient();
@@ -19,23 +19,23 @@ export async function sendMessage(data: MessageFormData) {
     return { error: "Not authenticated" };
   }
 
-  // Verify user is a member of the gift group
+  // Verify user is a member of the group gift
   const { data: membership } = await supabase
-    .from("gift_group_members")
+    .from("group_gift_members")
     .select("id")
-    .eq("gift_group_id", data.gift_group_id)
+    .eq("group_gift_id", data.group_gift_id)
     .eq("user_id", user.id)
     .single();
 
   if (!membership) {
-    return { error: "You must be a member of this gift group to send messages" };
+    return { error: "You must be a member of this group gift to send messages" };
   }
 
   // Create the message
   const { data: message, error: messageError } = await supabase
     .from("messages")
     .insert({
-      gift_group_id: data.gift_group_id,
+      group_gift_id: data.group_gift_id,
       user_id: user.id,
       content: data.content,
       attachment_url: data.attachment_url || null,
@@ -48,15 +48,15 @@ export async function sendMessage(data: MessageFormData) {
     return { error: messageError.message };
   }
 
-  revalidatePath(`/gifts/${data.gift_group_id}`);
+  revalidatePath(`/gifts/${data.group_gift_id}`);
 
   return { data: message };
 }
 
 /**
- * Get messages for a gift group
+ * Get messages for a group gift
  */
-export async function getMessages(giftGroupId: string, limit = 50, offset = 0) {
+export async function getMessages(groupGiftId: string, limit = 50, offset = 0) {
   const supabase = await createClient();
 
   const {
@@ -67,23 +67,23 @@ export async function getMessages(giftGroupId: string, limit = 50, offset = 0) {
     return { error: "Not authenticated" };
   }
 
-  // Verify user is a member of the gift group
+  // Verify user is a member of the group gift
   const { data: membership } = await supabase
-    .from("gift_group_members")
+    .from("group_gift_members")
     .select("id")
-    .eq("gift_group_id", giftGroupId)
+    .eq("group_gift_id", groupGiftId)
     .eq("user_id", user.id)
     .single();
 
   if (!membership) {
-    return { error: "You must be a member of this gift group to view messages" };
+    return { error: "You must be a member of this group gift to view messages" };
   }
 
   // Get messages
   const { data: messages, error } = await supabase
     .from("messages")
     .select("id, user_id, content, attachment_url, is_edited, created_at, updated_at")
-    .eq("gift_group_id", giftGroupId)
+    .eq("group_gift_id", groupGiftId)
     .order("created_at", { ascending: true })
     .range(offset, offset + limit - 1);
 
@@ -124,7 +124,7 @@ export async function editMessage(messageId: string, data: MessageEditData) {
   // Get the message to verify ownership
   const { data: message, error: fetchError } = await supabase
     .from("messages")
-    .select("user_id, gift_group_id")
+    .select("user_id, group_gift_id")
     .eq("id", messageId)
     .single();
 
@@ -149,7 +149,7 @@ export async function editMessage(messageId: string, data: MessageEditData) {
     return { error: updateError.message };
   }
 
-  revalidatePath(`/gifts/${message.gift_group_id}`);
+  revalidatePath(`/gifts/${message.group_gift_id}`);
 
   return { success: true };
 }
@@ -171,7 +171,7 @@ export async function deleteMessage(messageId: string) {
   // Get the message to verify ownership
   const { data: message, error: fetchError } = await supabase
     .from("messages")
-    .select("user_id, gift_group_id")
+    .select("user_id, group_gift_id")
     .eq("id", messageId)
     .single();
 
@@ -193,16 +193,16 @@ export async function deleteMessage(messageId: string) {
     return { error: deleteError.message };
   }
 
-  revalidatePath(`/gifts/${message.gift_group_id}`);
+  revalidatePath(`/gifts/${message.group_gift_id}`);
 
   return { success: true };
 }
 
 /**
- * Subscribe to real-time messages for a gift group
+ * Subscribe to real-time messages for a group gift
  * This is a helper function that components can use with Supabase Realtime
  */
-export async function canAccessGiftGroup(giftGroupId: string): Promise<boolean> {
+export async function canAccessGroupGift(groupGiftId: string): Promise<boolean> {
   const supabase = await createClient();
 
   const {
@@ -213,11 +213,11 @@ export async function canAccessGiftGroup(giftGroupId: string): Promise<boolean> 
     return false;
   }
 
-  // Check if user is a member of the gift group
+  // Check if user is a member of the group gift
   const { data: membership } = await supabase
-    .from("gift_group_members")
+    .from("group_gift_members")
     .select("id")
-    .eq("gift_group_id", giftGroupId)
+    .eq("group_gift_id", groupGiftId)
     .eq("user_id", user.id)
     .single();
 

@@ -7,7 +7,7 @@ import Link from "next/link";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createGiftGroup } from "@/lib/actions/gifts";
+import { createGroupGift } from "@/lib/actions/gifts";
 import { getMyGroups } from "@/lib/actions/groups";
 import { useEffect } from "react";
 
@@ -56,7 +56,7 @@ export default function CreateGiftGroupPage() {
     setIsLoading(true);
     setError(null);
 
-    const result = await createGiftGroup({
+    const result = await createGroupGift({
       name: name.trim(),
       description: description.trim() || null,
       group_id: selectedGroupId,
@@ -69,7 +69,8 @@ export default function CreateGiftGroupPage() {
       setError(result.error);
       setIsLoading(false);
     } else if (result.data) {
-      router.push(`/gifts/${result.data.id}`);
+      // Use window.location for a full page reload to ensure auth context is fresh
+      window.location.href = `/gifts/${result.data.id}`;
     }
   };
 
@@ -94,7 +95,7 @@ export default function CreateGiftGroupPage() {
             No groups yet
           </Heading>
           <Text variant="secondary" className="max-w-md mb-6">
-            You need to be a member of a group to create a gift group. Create or join a group first!
+            You need to be a member of a group to create a group gift. Create or join a group first!
           </Text>
           <Link href="/groups">
             <Button variant="primary">Go to Groups</Button>
@@ -113,14 +114,14 @@ export default function CreateGiftGroupPage() {
           className="inline-flex items-center gap-2 text-primary hover:underline mb-4"
         >
           <ArrowLeft className="w-4 h-4" />
-          <Text size="sm">Back to Gift Groups</Text>
+          <Text size="sm">Back to Group Gifts</Text>
         </Link>
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-lg bg-primary-50 dark:bg-primary-900/20 flex items-center justify-center">
             <Gift className="w-6 h-6 text-primary" />
           </div>
           <div>
-            <Heading level="h1">Create Gift Group</Heading>
+            <Heading level="h1">Create Group Gift</Heading>
             <Text variant="secondary" className="mt-1">
               Coordinate a group gift with friends and family
             </Text>
@@ -177,7 +178,7 @@ export default function CreateGiftGroupPage() {
               required
             />
             <Text size="xs" variant="secondary" className="mt-1">
-              Give your gift group a descriptive name
+              Give your group gift a descriptive name
             </Text>
           </div>
 
@@ -241,7 +242,7 @@ export default function CreateGiftGroupPage() {
               className="flex-1"
             >
               <Gift className="w-4 h-4" />
-              Create Gift Group
+              Create Group Gift
             </Button>
           </div>
         </form>

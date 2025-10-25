@@ -23,7 +23,7 @@ interface Member {
 }
 
 interface ContributionTrackerProps {
-  giftGroupId: string;
+  groupGiftId: string;
   members: Member[];
   targetAmount: number | null;
   currentAmount: number | null;
@@ -35,7 +35,7 @@ interface ContributionTrackerProps {
 }
 
 export function ContributionTracker({
-  giftGroupId,
+  groupGiftId,
   members,
   targetAmount,
   currentAmount,
@@ -67,7 +67,7 @@ export function ContributionTracker({
     setIsLoading(true);
     setError(null);
 
-    const result = await updateMyContribution(giftGroupId, {
+    const result = await updateMyContribution(groupGiftId, {
       contribution_amount: contributionAmount,
       has_paid: hasPaid,
     });

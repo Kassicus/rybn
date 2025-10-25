@@ -1,13 +1,13 @@
 /**
- * Gift groups validation schemas using Zod
+ * Group gifts validation schemas using Zod
  */
 
 import { z } from 'zod';
 
 /**
- * Gift group creation/edit schema
+ * Group gift creation/edit schema
  */
-export const giftGroupSchema = z.object({
+export const groupGiftSchema = z.object({
   name: z.string()
     .min(1, 'Name is required')
     .max(200, 'Name must be less than 200 characters'),
@@ -35,10 +35,10 @@ export const giftGroupSchema = z.object({
     .default(true),
 });
 
-export type GiftGroupFormData = z.infer<typeof giftGroupSchema>;
+export type GroupGiftFormData = z.infer<typeof groupGiftSchema>;
 
 /**
- * Gift group member contribution update schema
+ * Group gift member contribution update schema
  */
 export const contributionUpdateSchema = z.object({
   contribution_amount: z.number()
@@ -51,17 +51,17 @@ export const contributionUpdateSchema = z.object({
 export type ContributionUpdateData = z.infer<typeof contributionUpdateSchema>;
 
 /**
- * Gift group member invitation schema
+ * Group gift member invitation schema
  */
-export const giftGroupInviteSchema = z.object({
-  gift_group_id: z.string()
-    .uuid('Invalid gift group ID'),
+export const groupGiftInviteSchema = z.object({
+  group_gift_id: z.string()
+    .uuid('Invalid group gift ID'),
 
   user_ids: z.array(z.string().uuid('Invalid user ID'))
     .min(1, 'At least one user must be selected'),
 });
 
-export type GiftGroupInviteData = z.infer<typeof giftGroupInviteSchema>;
+export type GroupGiftInviteData = z.infer<typeof groupGiftInviteSchema>;
 
 /**
  * Message schema
@@ -71,8 +71,8 @@ export const messageSchema = z.object({
     .min(1, 'Message cannot be empty')
     .max(5000, 'Message must be less than 5000 characters'),
 
-  gift_group_id: z.string()
-    .uuid('Invalid gift group ID'),
+  group_gift_id: z.string()
+    .uuid('Invalid group gift ID'),
 
   attachment_url: z.string()
     .url('Please enter a valid URL')
