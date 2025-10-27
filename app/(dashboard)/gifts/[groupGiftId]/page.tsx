@@ -1,27 +1,29 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Gift, Settings } from "lucide-react";
+import { ArrowLeft, Gift } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ContributionTracker } from "@/components/gifts/ContributionTracker";
 import { ChatWindow } from "@/components/gifts/ChatWindow";
-import { getGiftGroupById } from "@/lib/actions/gifts";
+import { MemberManager } from "@/components/gifts/MemberManager";
+import { GroupGiftSettings } from "@/components/gifts/GroupGiftSettings";
+import { getGroupGiftById } from "@/lib/actions/gifts";
 import { getMessages } from "@/lib/actions/messages";
 import { createClient } from "@/lib/supabase/server";
 
-export default async function GiftGroupDetailPage({
+export default async function GroupGiftDetailPage({
   params,
 }: {
-  params: Promise<{ giftGroupId: string }>;
+  params: Promise<{ groupGiftId: string }>;
 }) {
-  const { giftGroupId } = await params;
+  const { groupGiftId } = await params;
   const supabase = await createClient();
 
-  const { data: giftGroup, error } = await getGiftGroupById(giftGroupId);
-  const { data: messages = [] } = await getMessages(giftGroupId);
+  const { data: groupGift, error } = await getGroupGiftById(groupGiftId);
+  const { data: messages = [] } = await getMessages(groupGiftId);
 
-  if (error || !giftGroup) {
+  if (error || !groupGift) {
     notFound();
   }
 
@@ -33,7 +35,7 @@ export default async function GiftGroupDetailPage({
     notFound();
   }
 
-  const isCreator = giftGroup.created_by === user.id;
+  const isCreator = groupGift.created_by === user.id;
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
@@ -44,7 +46,7 @@ export default async function GiftGroupDetailPage({
           className="inline-flex items-center gap-2 text-primary hover:underline mb-4"
         >
           <ArrowLeft className="w-4 h-4" />
-          <Text size="sm">Back to Gift Groups</Text>
+          <Text size="sm">Back to Group Gifts</Text>
         </Link>
 
         <div className="flex items-start justify-between">
@@ -54,22 +56,22 @@ export default async function GiftGroupDetailPage({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <Heading level="h1">{giftGroup.name}</Heading>
-                {!giftGroup.is_active && (
+                <Heading level="h1">{groupGift.name}</Heading>
+                {!groupGift.is_active && (
                   <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
                     Inactive
                   </span>
                 )}
               </div>
-              {giftGroup.description && (
+              {groupGift.description && (
                 <Text variant="secondary" className="mt-1">
-                  {giftGroup.description}
+                  {groupGift.description}
                 </Text>
               )}
               <div className="flex items-center gap-2 mt-2">
                 <Text size="sm" variant="secondary">
-                  {giftGroup.gift_group_members?.length || 0}{" "}
-                  {giftGroup.gift_group_members?.length === 1 ? "member" : "members"}
+                  {groupGift.group_gift_members?.length || 0}{" "}
+                  {groupGift.group_gift_members?.length === 1 ? "member" : "members"}
                 </Text>
                 {isCreator && (
                   <>
@@ -84,12 +86,24 @@ export default async function GiftGroupDetailPage({
           </div>
 
           {isCreator && (
-            <Button variant="secondary" size="small">
-              <Settings className="w-4 h-4" />
-              Settings
-            </Button>
+            <GroupGiftSettings
+              groupGiftId={groupGift.id}
+              groupGiftName={groupGift.name}
+              isCreator={isCreator}
+            />
           )}
         </div>
+      </div>
+
+      <Separator />
+
+      {/* Members Section */}
+      <div>
+        <MemberManager
+          groupGiftId={groupGift.id}
+          currentMembers={groupGift.group_gift_members || []}
+          isCreator={isCreator}
+        />
       </div>
 
       <Separator />
@@ -99,19 +113,19 @@ export default async function GiftGroupDetailPage({
         {/* Left Column - Contribution Tracker */}
         <div>
           <ContributionTracker
-            giftGroupId={giftGroup.id}
-            members={giftGroup.gift_group_members || []}
-            targetAmount={giftGroup.target_amount}
-            currentAmount={giftGroup.current_amount}
+            groupGiftId={groupGift.id}
+            members={groupGift.group_gift_members || []}
+            targetAmount={groupGift.target_amount}
+            currentAmount={groupGift.current_amount}
             currentUserId={user.id}
-            myMembership={giftGroup.my_membership}
+            myMembership={groupGift.my_membership}
           />
         </div>
 
         {/* Right Column - Chat */}
         <div>
           <ChatWindow
-            giftGroupId={giftGroup.id}
+            groupGiftId={groupGift.id}
             initialMessages={messages}
             currentUserId={user.id}
           />

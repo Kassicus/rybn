@@ -23,7 +23,7 @@ interface Member {
 }
 
 interface ContributionTrackerProps {
-  giftGroupId: string;
+  groupGiftId: string;
   members: Member[];
   targetAmount: number | null;
   currentAmount: number | null;
@@ -35,7 +35,7 @@ interface ContributionTrackerProps {
 }
 
 export function ContributionTracker({
-  giftGroupId,
+  groupGiftId,
   members,
   targetAmount,
   currentAmount,
@@ -67,7 +67,7 @@ export function ContributionTracker({
     setIsLoading(true);
     setError(null);
 
-    const result = await updateMyContribution(giftGroupId, {
+    const result = await updateMyContribution(groupGiftId, {
       contribution_amount: contributionAmount,
       has_paid: hasPaid,
     });
@@ -140,7 +140,7 @@ export function ContributionTracker({
         {isEditing ? (
           <div className="space-y-4">
             {error && (
-              <div className="p-3 rounded bg-error-light border border-error">
+              <div className="p-3 rounded bg-error-light dark:bg-error-dark border border-error">
                 <Text variant="error" size="sm">
                   {error}
                 </Text>
@@ -217,8 +217,8 @@ export function ContributionTracker({
               </Text>
               <span className={`px-2 py-1 rounded text-xs font-medium ${
                 myMembership.has_paid
-                  ? "bg-success-light text-success"
-                  : "bg-warning-light text-warning"
+                  ? "bg-success-light dark:bg-success-dark text-success"
+                  : "bg-warning-light dark:bg-warning-dark text-warning"
               }`}>
                 {myMembership.has_paid ? "Paid" : "Pending"}
               </span>
@@ -272,11 +272,11 @@ export function ContributionTracker({
                   {formatCurrency(member.contribution_amount || 0)}
                 </Text>
                 {member.has_paid ? (
-                  <span className="px-2 py-1 rounded text-xs font-medium bg-success-light text-success">
+                  <span className="px-2 py-1 rounded text-xs font-medium bg-success-light dark:bg-success-dark text-success">
                     Paid
                   </span>
                 ) : (
-                  <span className="px-2 py-1 rounded text-xs font-medium bg-warning-light text-warning">
+                  <span className="px-2 py-1 rounded text-xs font-medium bg-warning-light dark:bg-warning-dark text-warning">
                     Pending
                   </span>
                 )}

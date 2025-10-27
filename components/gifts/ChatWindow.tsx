@@ -26,13 +26,13 @@ interface Message {
 }
 
 interface ChatWindowProps {
-  giftGroupId: string;
+  groupGiftId: string;
   initialMessages: Message[];
   currentUserId: string;
 }
 
 export function ChatWindow({
-  giftGroupId,
+  groupGiftId,
   initialMessages,
   currentUserId,
 }: ChatWindowProps) {
@@ -52,14 +52,14 @@ export function ChatWindow({
     const supabase = createClient();
 
     const channel = supabase
-      .channel(`gift-group-${giftGroupId}`)
+      .channel(`group-gift-${groupGiftId}`)
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "messages",
-          filter: `gift_group_id=eq.${giftGroupId}`,
+          filter: `group_gift_id=eq.${groupGiftId}`,
         },
         async (payload) => {
           console.log("New message received:", payload);
@@ -91,7 +91,7 @@ export function ChatWindow({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [giftGroupId]);
+  }, [groupGiftId]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,7 +105,7 @@ export function ChatWindow({
     setNewMessage(""); // Clear input immediately
 
     const result = await sendMessage({
-      gift_group_id: giftGroupId,
+      group_gift_id: groupGiftId,
       content: messageContent,
       attachment_url: null,
     });
@@ -243,7 +243,7 @@ export function ChatWindow({
       {/* Input */}
       <div className="p-4 border-t border-light-border dark:border-dark-border bg-light-background-hover dark:bg-dark-background-hover">
         {error && (
-          <div className="mb-3 p-2 rounded bg-error-light border border-error">
+          <div className="mb-3 p-2 rounded bg-error-light dark:bg-error-dark border border-error">
             <Text variant="error" size="sm">
               {error}
             </Text>
