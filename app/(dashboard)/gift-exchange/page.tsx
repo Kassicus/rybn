@@ -4,9 +4,11 @@ import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { GiftExchangeCard } from "@/components/gift-exchange/GiftExchangeCard";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export default async function GiftExchangePage() {
   const supabase = await createClient();
+  const adminClient = createAdminClient();
 
   const {
     data: { user },
@@ -64,16 +66,16 @@ export default async function GiftExchangePage() {
     .in("group_id", groupIds)
     .order("created_at", { ascending: false });
 
-  // Get participant counts and participation status for each exchange
+  // Get participant counts and participation status for each exchange using admin client
   const exchangesWithData = await Promise.all(
     allExchanges.map(async (exchange) => {
-      const { count } = await supabase
+      const { count } = await adminClient
         .from("gift_exchange_participants")
         .select("*", { count: "exact", head: true })
         .eq("exchange_id", exchange.id)
         .eq("opted_in", true);
 
-      const { data: myParticipation } = await supabase
+      const { data: myParticipation } = await adminClient
         .from("gift_exchange_participants")
         .select("id")
         .eq("exchange_id", exchange.id)

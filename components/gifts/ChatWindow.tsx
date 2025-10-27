@@ -243,7 +243,7 @@ export function ChatWindow({
       {/* Input */}
       <div className="p-4 border-t border-light-border dark:border-dark-border bg-light-background-hover dark:bg-dark-background-hover">
         {error && (
-          <div className="mb-3 p-2 rounded bg-error-light border border-error">
+          <div className="mb-3 p-2 rounded bg-error-light dark:bg-error-dark border border-error">
             <Text variant="error" size="sm">
               {error}
             </Text>

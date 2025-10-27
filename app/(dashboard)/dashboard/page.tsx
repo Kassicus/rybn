@@ -55,8 +55,8 @@ function WishlistCard({ item }: { item: any }) {
           )}
           {item.priority && (
             <span className={`px-2 py-1 rounded text-xs font-medium capitalize ${
-              item.priority === 'must-have' ? 'bg-error-light text-error' :
-              item.priority === 'high' ? 'bg-warning-light text-warning' :
+              item.priority === 'must-have' ? 'bg-error-light dark:bg-error-dark text-error' :
+              item.priority === 'high' ? 'bg-warning-light dark:bg-warning-dark text-warning' :
               item.priority === 'medium' ? 'bg-primary-light text-primary' :
               'bg-light-background-hover dark:bg-dark-background-hover text-light-text-secondary dark:text-dark-text-secondary'
             }`}>

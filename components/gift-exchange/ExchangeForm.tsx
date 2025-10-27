@@ -33,15 +33,16 @@ export function ExchangeForm({ groupId }: ExchangeFormProps) {
     if (result.error) {
       setError(result.error);
       setIsLoading(false);
-    } else {
-      router.push(`/gift-exchange/${result.data?.id}`);
+    } else if (result.data) {
+      // Use window.location for a full page reload to ensure auth context is fresh
+      window.location.href = `/gift-exchange/${result.data.id}`;
     }
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {error && (
-        <div className="p-4 rounded-lg bg-error-light border border-error">
+        <div className="p-4 rounded-lg bg-error-light dark:bg-error-dark border border-error">
           <Text variant="error">{error}</Text>
         </div>
       )}

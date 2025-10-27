@@ -69,7 +69,7 @@ export function GiftExchangeCard({
                   {typeLabel}
                 </span>
                 {exchange.assignments_generated && (
-                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-success-light text-success">
+                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-success-light dark:bg-success-dark text-success">
                     Assigned
                   </span>
                 )}

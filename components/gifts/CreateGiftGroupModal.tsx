@@ -92,7 +92,7 @@ export function CreateGiftGroupModal({
           </div>
 
           {error && (
-            <div className="p-3 rounded bg-error-light border border-error">
+            <div className="p-3 rounded bg-error-light dark:bg-error-dark border border-error">
               <Text variant="error" size="sm">
                 {error}
               </Text>

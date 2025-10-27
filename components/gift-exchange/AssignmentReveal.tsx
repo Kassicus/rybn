@@ -107,8 +107,8 @@ export function AssignmentReveal({
             </Link>
           </div>
 
-          <div className="p-3 rounded bg-warning-light border border-warning">
-            <Text size="sm" className="text-warning-dark">
+          <div className="p-3 rounded bg-warning-light dark:bg-warning-dark border border-warning">
+            <Text size="sm" className="text-warning">
               🤫 Remember: This is a secret! Don&apos;t tell anyone who you&apos;re assigned to.
             </Text>
           </div>

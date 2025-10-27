@@ -4,10 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
-import { UserPlus, UserMinus, Shuffle, AlertTriangle } from "lucide-react";
+import { UserPlus, Shuffle, AlertTriangle } from "lucide-react";
 import {
   joinGiftExchange,
-  leaveGiftExchange,
   generateGiftExchangeAssignments,
 } from "@/lib/actions/gift-exchange";
 
@@ -38,8 +37,6 @@ export function GiftExchangeActions({
     !assignmentsGenerated &&
     (!registrationDeadline || new Date(registrationDeadline) > new Date());
 
-  const canLeave = isParticipating && !assignmentsGenerated;
-
   const canGenerateAssignments =
     isCreator && !assignmentsGenerated && participantCount >= 3;
 
@@ -48,24 +45,6 @@ export function GiftExchangeActions({
     setError(null);
 
     const result = await joinGiftExchange(exchangeId);
-
-    if (result.error) {
-      setError(result.error);
-      setIsLoading(false);
-    } else {
-      router.refresh();
-    }
-  };
-
-  const handleLeave = async () => {
-    if (!confirm("Are you sure you want to leave this gift exchange?")) {
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    const result = await leaveGiftExchange(exchangeId);
 
     if (result.error) {
       setError(result.error);
@@ -94,7 +73,7 @@ export function GiftExchangeActions({
   return (
     <div className="space-y-4">
       {error && (
-        <div className="p-4 rounded-lg bg-error-light border border-error">
+        <div className="p-4 rounded-lg bg-error-light dark:bg-error-dark border border-error">
           <Text variant="error">{error}</Text>
         </div>
       )}
@@ -112,17 +91,6 @@ export function GiftExchangeActions({
           </Button>
         )}
 
-        {canLeave && (
-          <Button
-            variant="destructive"
-            onClick={handleLeave}
-            disabled={isLoading}
-          >
-            <UserMinus className="w-4 h-4" />
-            Leave Exchange
-          </Button>
-        )}
-
         {canGenerateAssignments && !showConfirmGenerate && (
           <Button
             variant="primary"
@@ -137,19 +105,19 @@ export function GiftExchangeActions({
       </div>
 
       {canGenerateAssignments && showConfirmGenerate && (
-        <div className="p-6 rounded-lg border-2 border-warning bg-warning-light">
+        <div className="p-6 rounded-lg border-2 border-warning bg-warning-light dark:bg-warning-dark">
           <div className="flex gap-3 mb-4">
-            <AlertTriangle className="w-6 h-6 text-warning-dark flex-shrink-0" />
+            <AlertTriangle className="w-6 h-6 text-warning flex-shrink-0" />
             <div className="flex-1">
-              <Text className="font-semibold text-warning-dark mb-2">
+              <Text className="font-semibold text-warning mb-2">
                 Generate Assignments?
               </Text>
-              <Text size="sm" className="text-warning-dark">
+              <Text size="sm" variant="secondary">
                 This will randomly assign each participant to give a gift to another
                 participant. Once generated, assignments cannot be changed and no one
                 else can join.
               </Text>
-              <Text size="sm" className="text-warning-dark mt-2">
+              <Text size="sm" variant="secondary" className="mt-2">
                 Current participants: <strong>{participantCount}</strong>
               </Text>
             </div>
@@ -186,8 +154,8 @@ export function GiftExchangeActions({
       )}
 
       {registrationDeadline && new Date(registrationDeadline) < new Date() && !assignmentsGenerated && (
-        <div className="p-4 rounded-lg bg-warning-light border border-warning">
-          <Text size="sm" className="text-warning-dark">
+        <div className="p-4 rounded-lg bg-warning-light dark:bg-warning-dark border border-warning">
+          <Text size="sm" className="text-warning">
             ⚠️ Registration deadline has passed. No new participants can join.
           </Text>
         </div>

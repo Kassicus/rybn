@@ -69,7 +69,7 @@ export function GroupGiftSettings({
             </div>
 
             {error && (
-              <div className="mb-4 p-3 rounded bg-error-light border border-error">
+              <div className="mb-4 p-3 rounded bg-error-light dark:bg-error-dark border border-error">
                 <Text variant="error" size="sm">
                   {error}
                 </Text>
@@ -97,15 +97,15 @@ export function GroupGiftSettings({
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="p-4 rounded-lg border-2 border-error bg-error-light">
-                  <Heading level="h4" className="mb-2 text-error-dark">
+                <div className="p-4 rounded-lg border-2 border-error bg-error-light dark:bg-error-dark">
+                  <Heading level="h4" className="mb-2 text-error">
                     Are you absolutely sure?
                   </Heading>
-                  <Text size="sm" className="text-error-dark mb-2">
+                  <Text size="sm" variant="secondary" className="mb-2">
                     This will permanently delete <strong>{groupGiftName}</strong> and
                     remove all members and contributions.
                   </Text>
-                  <Text size="sm" className="text-error-dark">
+                  <Text size="sm" variant="secondary">
                     This action cannot be undone.
                   </Text>
                 </div>

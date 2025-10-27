@@ -123,7 +123,9 @@ export async function getGiftExchangesByGroup(groupId: string) {
  * Get a specific gift exchange with participants
  */
 export async function getGiftExchangeById(exchangeId: string) {
+  // Use regular client for auth, admin client for data (to bypass RLS recursion)
   const supabase = await createClient();
+  const adminClient = createAdminClient();
 
   const {
     data: { user },
@@ -133,8 +135,8 @@ export async function getGiftExchangeById(exchangeId: string) {
     return { error: "Not authenticated" };
   }
 
-  // Get gift exchange
-  const { data: exchange, error: exchangeError } = await supabase
+  // Get gift exchange using admin client (bypasses RLS)
+  const { data: exchange, error: exchangeError } = await adminClient
     .from("gift_exchanges")
     .select("*")
     .eq("id", exchangeId)
@@ -144,8 +146,8 @@ export async function getGiftExchangeById(exchangeId: string) {
     return { error: exchangeError.message };
   }
 
-  // Verify user is a member of the group
-  const { data: membership } = await supabase
+  // Verify user is a member of the group using admin client
+  const { data: membership } = await adminClient
     .from("group_members")
     .select("id")
     .eq("group_id", exchange.group_id)
@@ -156,8 +158,8 @@ export async function getGiftExchangeById(exchangeId: string) {
     return { error: "You must be a member of the group" };
   }
 
-  // Get all participants
-  const { data: participants, error: participantsError } = await supabase
+  // Get all participants using admin client (bypasses self-referencing RLS)
+  const { data: participants, error: participantsError } = await adminClient
     .from("gift_exchange_participants")
     .select("*")
     .eq("exchange_id", exchangeId);
@@ -166,9 +168,9 @@ export async function getGiftExchangeById(exchangeId: string) {
     return { error: participantsError.message };
   }
 
-  // Get user profiles for all participants
+  // Get user profiles for all participants using admin client
   const participantIds = participants.map((p) => p.user_id);
-  const { data: profiles } = await supabase
+  const { data: profiles } = await adminClient
     .from("user_profiles")
     .select("id, username, display_name, avatar_url")
     .in("id", participantIds);
@@ -440,6 +442,48 @@ export async function updateMyParticipation(
   }
 
   revalidatePath(`/gift-exchange/${exchangeId}`);
+
+  return { success: true };
+}
+
+/**
+ * Delete a gift exchange (creator only)
+ */
+export async function deleteGiftExchange(exchangeId: string) {
+  const supabase = await createClient();
+  const adminClient = createAdminClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: "Not authenticated" };
+  }
+
+  // Verify user is the creator using admin client
+  const { data: exchange } = await adminClient
+    .from("gift_exchanges")
+    .select("created_by, group_id")
+    .eq("id", exchangeId)
+    .single();
+
+  if (!exchange || exchange.created_by !== user.id) {
+    return { error: "Only the creator can delete this gift exchange" };
+  }
+
+  // Delete the gift exchange using admin client (cascade will handle participants)
+  const { error } = await adminClient
+    .from("gift_exchanges")
+    .delete()
+    .eq("id", exchangeId);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  revalidatePath("/gift-exchange");
+  revalidatePath(`/groups/${exchange.group_id}`);
 
   return { success: true };
 }

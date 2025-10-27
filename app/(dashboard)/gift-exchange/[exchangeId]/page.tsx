@@ -6,6 +6,7 @@ import { Separator } from "@/components/ui/separator";
 import { ParticipantList } from "@/components/gift-exchange/ParticipantList";
 import { AssignmentReveal } from "@/components/gift-exchange/AssignmentReveal";
 import { GiftExchangeActions } from "@/components/gift-exchange/GiftExchangeActions";
+import { GiftExchangeSettings } from "@/components/gift-exchange/GiftExchangeSettings";
 import { getGiftExchangeById, getMyAssignment } from "@/lib/actions/gift-exchange";
 import { createClient } from "@/lib/supabase/server";
 import { format } from "date-fns";
@@ -96,7 +97,7 @@ export default async function GiftExchangeDetailPage({
                   {typeLabel}
                 </span>
                 {exchange.assignments_generated && (
-                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-success-light text-success">
+                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-success-light dark:bg-success-dark text-success">
                     Assigned
                   </span>
                 )}
@@ -108,6 +109,14 @@ export default async function GiftExchangeDetailPage({
               </div>
             </div>
           </div>
+
+          <GiftExchangeSettings
+            exchangeId={exchange.id}
+            exchangeName={exchange.name}
+            isCreator={isCreator}
+            isParticipating={isParticipating}
+            assignmentsGenerated={exchange.assignments_generated}
+          />
         </div>
       </div>
 

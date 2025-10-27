@@ -30,16 +30,19 @@ const config: Config = {
           DEFAULT: "#00C875",
           hover: "#00B36B",
           light: "#E6FCF5",
+          dark: "#003D2E",
         },
         error: {
           DEFAULT: "#E2445C",
           hover: "#D63A52",
           light: "#FFEBEE",
+          dark: "#3D0A15",
         },
         warning: {
           DEFAULT: "#FDAB3D",
           hover: "#FC9D26",
           light: "#FFF4E5",
+          dark: "#3D2810",
         },
         // Light mode
         light: {

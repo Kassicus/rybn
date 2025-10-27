@@ -132,7 +132,7 @@ export default function CreateGiftGroupPage() {
       {/* Form */}
       <div className="p-6 rounded-lg border border-light-border dark:border-dark-border bg-light-background dark:bg-dark-background-secondary">
         {error && (
-          <div className="mb-6 p-3 rounded bg-error-light border border-error">
+          <div className="mb-6 p-3 rounded bg-error-light dark:bg-error-dark border border-error">
             <Text variant="error" size="sm">
               {error}
             </Text>

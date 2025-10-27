@@ -34,7 +34,7 @@ export function GroupGiftCard({ groupGift, memberCount = 0 }: GroupGiftCardProps
           <div className="flex items-center gap-3 flex-1">
             <div className={`w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 ${
               isComplete
-                ? "bg-success-light dark:bg-success/20"
+                ? "bg-success-light dark:bg-success-dark dark:bg-success/20"
                 : "bg-primary-50 dark:bg-primary-900/20"
             }`}>
               <Gift className={`w-6 h-6 ${

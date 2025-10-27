@@ -92,7 +92,7 @@ export default function CreateGroupPage() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {error && (
-          <div className="p-3 rounded bg-error-light border border-error">
+          <div className="p-3 rounded bg-error-light dark:bg-error-dark border border-error">
             <Text variant="error" size="sm">
               {error}
             </Text>

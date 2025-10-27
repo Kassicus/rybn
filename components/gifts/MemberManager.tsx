@@ -165,7 +165,7 @@ export function MemberManager({
             </div>
 
             {error && (
-              <div className="mb-4 p-3 rounded bg-error-light border border-error">
+              <div className="mb-4 p-3 rounded bg-error-light dark:bg-error-dark border border-error">
                 <Text variant="error" size="sm">
                   {error}
                 </Text>
