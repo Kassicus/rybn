@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import type { MessageFormData, MessageEditData } from "@/lib/schemas/gifts";
 
@@ -9,6 +10,7 @@ import type { MessageFormData, MessageEditData } from "@/lib/schemas/gifts";
  */
 export async function sendMessage(data: MessageFormData) {
   const supabase = await createClient();
+  const adminClient = createAdminClient();
 
   const {
     data: { user },
@@ -19,8 +21,8 @@ export async function sendMessage(data: MessageFormData) {
     return { error: "Not authenticated" };
   }
 
-  // Verify user is a member of the group gift
-  const { data: membership } = await supabase
+  // Verify user is a member of the group gift using admin client to bypass RLS
+  const { data: membership } = await adminClient
     .from("group_gift_members")
     .select("id")
     .eq("group_gift_id", data.group_gift_id)
@@ -31,8 +33,8 @@ export async function sendMessage(data: MessageFormData) {
     return { error: "You must be a member of this group gift to send messages" };
   }
 
-  // Create the message
-  const { data: message, error: messageError } = await supabase
+  // Create the message using admin client to bypass RLS (we've already verified membership)
+  const { data: message, error: messageError } = await adminClient
     .from("messages")
     .insert({
       group_gift_id: data.group_gift_id,
@@ -58,6 +60,7 @@ export async function sendMessage(data: MessageFormData) {
  */
 export async function getMessages(groupGiftId: string, limit = 50, offset = 0) {
   const supabase = await createClient();
+  const adminClient = createAdminClient();
 
   const {
     data: { user },
@@ -67,8 +70,8 @@ export async function getMessages(groupGiftId: string, limit = 50, offset = 0) {
     return { error: "Not authenticated" };
   }
 
-  // Verify user is a member of the group gift
-  const { data: membership } = await supabase
+  // Verify user is a member of the group gift using admin client to bypass RLS
+  const { data: membership } = await adminClient
     .from("group_gift_members")
     .select("id")
     .eq("group_gift_id", groupGiftId)
@@ -79,8 +82,8 @@ export async function getMessages(groupGiftId: string, limit = 50, offset = 0) {
     return { error: "You must be a member of this group gift to view messages" };
   }
 
-  // Get messages
-  const { data: messages, error } = await supabase
+  // Get messages using admin client to bypass RLS (we've already verified membership)
+  const { data: messages, error } = await adminClient
     .from("messages")
     .select("id, user_id, content, attachment_url, is_edited, created_at, updated_at")
     .eq("group_gift_id", groupGiftId)
@@ -91,9 +94,9 @@ export async function getMessages(groupGiftId: string, limit = 50, offset = 0) {
     return { error: error.message };
   }
 
-  // Get user profiles for message senders
+  // Get user profiles for message senders using admin client
   const userIds = [...new Set(messages?.map((m) => m.user_id) || [])];
-  const { data: profiles } = await supabase
+  const { data: profiles } = await adminClient
     .from("user_profiles")
     .select("id, username, display_name, avatar_url")
     .in("id", userIds);
@@ -204,6 +207,7 @@ export async function deleteMessage(messageId: string) {
  */
 export async function canAccessGroupGift(groupGiftId: string): Promise<boolean> {
   const supabase = await createClient();
+  const adminClient = createAdminClient();
 
   const {
     data: { user },
@@ -213,8 +217,8 @@ export async function canAccessGroupGift(groupGiftId: string): Promise<boolean> 
     return false;
   }
 
-  // Check if user is a member of the group gift
-  const { data: membership } = await supabase
+  // Check if user is a member of the group gift using admin client to bypass RLS
+  const { data: membership } = await adminClient
     .from("group_gift_members")
     .select("id")
     .eq("group_gift_id", groupGiftId)

@@ -3,7 +3,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { WishlistItemFormData } from "@/lib/schemas/wishlist";
-import type { GroupType } from "@/types/privacy";
 
 /**
  * Get the current user's wishlist
@@ -146,6 +145,7 @@ export async function updateWishlistItem(itemId: string, formData: WishlistItemF
   }
 
   revalidatePath("/wishlist");
+  revalidatePath(`/wishlist/${itemId}`);
   return { data: item };
 }
 

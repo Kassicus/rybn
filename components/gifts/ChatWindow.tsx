@@ -113,10 +113,34 @@ export function ChatWindow({
     if (result.error) {
       setError(result.error);
       setNewMessage(messageContent); // Restore message on error
+      setIsSending(false);
+      return;
+    }
+
+    // Optimistically add the message to the UI immediately
+    if (result.data) {
+      // Fetch current user profile
+      const supabase = createClient();
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("id, username, display_name, avatar_url")
+        .eq("id", currentUserId)
+        .single();
+
+      const newMsg: Message = {
+        ...result.data,
+        user_profiles: profile,
+      } as Message;
+
+      // Add message if it doesn't already exist (avoid duplicates from real-time)
+      setMessages((prev) => {
+        const exists = prev.some(m => m.id === newMsg.id);
+        if (exists) return prev;
+        return [...prev, newMsg];
+      });
     }
 
     setIsSending(false);
-    // The message will be added via real-time subscription
   };
 
   const formatMessageTime = (timestamp: string | null) => {
