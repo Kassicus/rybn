@@ -11,9 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Heading, Text } from "@/components/ui/text";
-import { GroupTypeSelector } from "@/components/privacy/GroupTypeSelector";
+import { WishlistPrivacySelector } from "@/components/wishlist/WishlistPrivacySelector";
 import { FormSection } from "@/components/profile/FormSection";
-import type { GroupType } from "@/types/privacy";
+import type { PrivacyLevel } from "@/types/privacy";
 
 export default function AddWishlistItemPage() {
   const router = useRouter();
@@ -30,12 +30,14 @@ export default function AddWishlistItemPage() {
     resolver: zodResolver(wishlistItemSchema),
     defaultValues: {
       priority: 'medium',
-      visible_to_group_types: [],
+      visible_to_group_types: ['family', 'friends', 'work', 'custom'],
+      restrict_to_group: null,
     },
   });
 
   const selectedPriority = watch("priority");
-  const visibleToGroupTypes = watch("visible_to_group_types") || [];
+  const visibleToGroupTypes = watch("visible_to_group_types") || ['family', 'friends', 'work', 'custom'];
+  const restrictToGroup = watch("restrict_to_group") || null;
 
   const onSubmit = async (data: WishlistItemFormData) => {
     setIsLoading(true);
@@ -185,14 +187,12 @@ export default function AddWishlistItemPage() {
         </FormSection>
 
         {/* Privacy Settings */}
-        <FormSection title="Privacy Settings" description="Who can see this item?">
-          <GroupTypeSelector
-            value={visibleToGroupTypes}
-            onChange={(groupTypes) => setValue("visible_to_group_types", groupTypes, { shouldDirty: true })}
-            label="Who can see this wishlist item?"
-            description="Select which types of groups can view this item. Leave all unchecked to keep it private."
-          />
-        </FormSection>
+        <WishlistPrivacySelector
+          visibleToGroupTypes={visibleToGroupTypes}
+          restrictToGroup={restrictToGroup}
+          onVisibleToGroupTypesChange={(groupTypes) => setValue("visible_to_group_types", groupTypes, { shouldDirty: true })}
+          onRestrictToGroupChange={(groupId) => setValue("restrict_to_group", groupId, { shouldDirty: true })}
+        />
 
         {/* Form actions */}
         <div className="flex gap-3 pt-4">

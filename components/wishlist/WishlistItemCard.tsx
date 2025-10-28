@@ -18,6 +18,7 @@ interface WishlistItem {
   category?: string | null;
   privacy_settings: {
     visibleToGroupTypes: GroupType[];
+    restrictToGroup?: string | null;
   };
   claimed_by?: string | null;
   purchased?: boolean;
@@ -40,8 +41,9 @@ export function WishlistItemCard({ item, isOwnWishlist = false }: WishlistItemCa
   const priorityInfo = PRIORITY_INFO[item.priority];
   const PriorityIcon = priorityIcons[item.priority];
 
-  const visibleGroups = item.privacy_settings?.visibleToGroupTypes || [];
-  const isPrivate = visibleGroups.length === 0;
+  const visibleToGroupTypes = item.privacy_settings?.visibleToGroupTypes || [];
+  const restrictToGroup = item.privacy_settings?.restrictToGroup;
+  const isPrivate = visibleToGroupTypes.length === 0 && !restrictToGroup;
 
   return (
     <Link href={`/wishlist/${item.id}`}>
@@ -107,18 +109,15 @@ export function WishlistItemCard({ item, isOwnWishlist = false }: WishlistItemCa
 
                   {/* Privacy indicator */}
                   <div className="flex items-center gap-1">
-                    {isPrivate ? (
-                      <>
-                        <Lock className="w-3 h-3 text-gray-500" />
-                        <Text size="xs" variant="secondary">Private</Text>
-                      </>
-                    ) : (
-                      <>
-                        <Text size="xs" variant="secondary">
-                          Visible to: {visibleGroups.map(t => GROUP_TYPES[t].label).join(', ')}
-                        </Text>
-                      </>
-                    )}
+                    <Lock className="w-3 h-3 text-gray-500" />
+                    <Text size="xs" variant="secondary">
+                      {isPrivate
+                        ? 'Private'
+                        : restrictToGroup
+                        ? 'Restricted to 1 group'
+                        : `Visible to: ${visibleToGroupTypes.map(t => GROUP_TYPES[t].label).join(', ')}`
+                      }
+                    </Text>
                   </div>
                 </div>
               </div>

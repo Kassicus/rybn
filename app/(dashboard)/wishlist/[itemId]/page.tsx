@@ -26,6 +26,7 @@ interface WishlistItem {
   category?: string | null;
   privacy_settings: {
     visibleToGroupTypes: GroupType[];
+    restrictToGroup?: string | null;
   };
   claimed_by?: string | null;
   purchased?: boolean;
@@ -94,8 +95,9 @@ export default function WishlistItemDetailPage({
   const priorityInfo = PRIORITY_INFO[item.priority];
   const PriorityIcon = priorityIcons[item.priority];
 
-  const visibleGroups = item.privacy_settings?.visibleToGroupTypes || [];
-  const isPrivate = visibleGroups.length === 0;
+  const visibleToGroupTypes = item.privacy_settings?.visibleToGroupTypes || [];
+  const restrictToGroup = item.privacy_settings?.restrictToGroup;
+  const isPrivate = visibleToGroupTypes.length === 0 && !restrictToGroup;
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
@@ -197,16 +199,16 @@ export default function WishlistItemDetailPage({
         <div className="p-4 rounded-lg border border-light-border dark:border-dark-border bg-light-background-hover dark:bg-dark-background-hover">
           <Heading level="h4" className="mb-2">Privacy</Heading>
           <div className="flex items-center gap-2">
-            {isPrivate ? (
-              <>
-                <Lock className="w-4 h-4 text-gray-500" />
-                <Text variant="secondary">This item is private</Text>
-              </>
-            ) : (
-              <Text variant="secondary">
-                Visible to: {visibleGroups.map(t => GROUP_TYPES[t].label).join(', ')}
-              </Text>
-            )}
+            <Lock className="w-4 h-4 text-gray-500" />
+            <Text variant="secondary">
+              {isPrivate ? (
+                '🔒 Private: Only you can see this item'
+              ) : restrictToGroup ? (
+                '🔐 Restricted to a specific group'
+              ) : (
+                `✓ Visible to: ${visibleToGroupTypes.map(t => GROUP_TYPES[t].label).join(', ')} groups`
+              )}
+            </Text>
           </div>
         </div>
 

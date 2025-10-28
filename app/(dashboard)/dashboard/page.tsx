@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Plus } from "lucide-react";
+import { ArrowRight, Plus, Lock } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { getMyGroups } from "@/lib/actions/groups";
@@ -9,6 +9,8 @@ import { GroupGiftCard } from "@/components/gifts/GiftGroupCard";
 import { GiftExchangeCard } from "@/components/gift-exchange/GiftExchangeCard";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { GROUP_TYPES } from "@/types/privacy";
+import type { GroupType } from "@/types/privacy";
 
 // Simple Group Card Component
 function GroupCard({ group }: { group: any }) {
@@ -38,16 +40,20 @@ function GroupCard({ group }: { group: any }) {
 
 // Simple Wishlist Card Component
 function WishlistCard({ item }: { item: any }) {
+  const visibleToGroupTypes = item.privacy_settings?.visibleToGroupTypes || [];
+  const restrictToGroup = item.privacy_settings?.restrictToGroup;
+  const isPrivate = visibleToGroupTypes.length === 0 && !restrictToGroup;
+
   return (
     <Link href={`/wishlist`}>
-      <div className="p-4 rounded-lg border border-light-border dark:border-dark-border hover:border-primary dark:hover:border-primary transition-colors bg-light-background dark:bg-dark-background-secondary h-full">
+      <div className="p-4 rounded-lg border border-light-border dark:border-dark-border hover:border-primary dark:hover:border-primary transition-colors bg-light-background dark:bg-dark-background-secondary h-full flex flex-col">
         <Heading level="h4" className="mb-2 line-clamp-1">{item.title}</Heading>
         {item.description && (
           <Text variant="secondary" size="sm" className="line-clamp-2 mb-3">
             {item.description}
           </Text>
         )}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 mb-3">
           {item.price && (
             <Text className="font-semibold text-primary">
               ${parseFloat(item.price).toFixed(2)}
@@ -63,6 +69,19 @@ function WishlistCard({ item }: { item: any }) {
               {item.priority}
             </span>
           )}
+        </div>
+        <hr className="border-t border-light-border dark:border-dark-border mb-3" />
+        {/* Privacy indicator */}
+        <div className="flex items-center gap-1.5">
+          <Lock className="w-3 h-3 text-light-text-secondary dark:text-dark-text-secondary" />
+          <Text size="xs" variant="secondary">
+            {isPrivate
+              ? 'Private'
+              : restrictToGroup
+              ? 'Restricted to 1 group'
+              : `${visibleToGroupTypes.map((t: GroupType) => GROUP_TYPES[t].label).join(', ')}`
+            }
+          </Text>
         </div>
       </div>
     </Link>

@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Heading, Text } from "@/components/ui/text";
-import { GroupTypeSelector } from "@/components/privacy/GroupTypeSelector";
+import { WishlistPrivacySelector } from "@/components/wishlist/WishlistPrivacySelector";
 import { FormSection } from "@/components/profile/FormSection";
 import { deleteWishlistItem, updateWishlistItem } from "@/lib/actions/wishlist";
 import { wishlistItemSchema, type WishlistItemFormData, PRIORITY_INFO } from "@/lib/schemas/wishlist";
@@ -29,6 +29,7 @@ interface WishlistItemSettingsProps {
     category?: string | null;
     privacy_settings: {
       visibleToGroupTypes: GroupType[];
+      restrictToGroup?: string | null;
     };
   };
 }
@@ -62,12 +63,14 @@ export function WishlistItemSettings({
       image_url: item.image_url || undefined,
       priority: item.priority,
       category: item.category || undefined,
-      visible_to_group_types: item.privacy_settings?.visibleToGroupTypes || [],
+      visible_to_group_types: item.privacy_settings?.visibleToGroupTypes || ['family', 'friends', 'work', 'custom'],
+      restrict_to_group: item.privacy_settings?.restrictToGroup || null,
     },
   });
 
   const selectedPriority = watch("priority");
-  const visibleToGroupTypes = watch("visible_to_group_types") || [];
+  const visibleToGroupTypes = watch("visible_to_group_types") || ['family', 'friends', 'work', 'custom'];
+  const restrictToGroup = watch("restrict_to_group") || null;
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -323,14 +326,12 @@ export function WishlistItemSettings({
                 </FormSection>
 
                 {/* Privacy Settings */}
-                <FormSection title="Privacy Settings" description="Who can see this item?">
-                  <GroupTypeSelector
-                    value={visibleToGroupTypes}
-                    onChange={(groupTypes) => setValue("visible_to_group_types", groupTypes, { shouldDirty: true })}
-                    label="Who can see this wishlist item?"
-                    description="Select which types of groups can view this item. Leave all unchecked to keep it private."
-                  />
-                </FormSection>
+                <WishlistPrivacySelector
+                  visibleToGroupTypes={visibleToGroupTypes}
+                  restrictToGroup={restrictToGroup}
+                  onVisibleToGroupTypesChange={(groupTypes) => setValue("visible_to_group_types", groupTypes, { shouldDirty: true })}
+                  onRestrictToGroupChange={(groupId) => setValue("restrict_to_group", groupId, { shouldDirty: true })}
+                />
 
                 {/* Form actions */}
                 <div className="flex gap-3 pt-4">

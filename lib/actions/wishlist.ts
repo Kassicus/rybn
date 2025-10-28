@@ -89,8 +89,8 @@ export async function createWishlistItem(formData: WishlistItemFormData) {
       priority: formData.priority,
       category: formData.category || null,
       privacy_settings: {
-        visibleToGroupTypes: formData.visible_to_group_types || [],
-        overrides: {},
+        visibleToGroupTypes: formData.visible_to_group_types || ['family', 'friends', 'work', 'custom'],
+        restrictToGroup: formData.restrict_to_group || null,
       },
     })
     .select()
@@ -130,8 +130,8 @@ export async function updateWishlistItem(itemId: string, formData: WishlistItemF
       priority: formData.priority,
       category: formData.category || null,
       privacy_settings: {
-        visibleToGroupTypes: formData.visible_to_group_types || [],
-        overrides: {},
+        visibleToGroupTypes: formData.visible_to_group_types || ['family', 'friends', 'work', 'custom'],
+        restrictToGroup: formData.restrict_to_group || null,
       },
       updated_at: new Date().toISOString(),
     })
