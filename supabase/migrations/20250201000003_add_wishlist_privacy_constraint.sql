@@ -12,10 +12,10 @@ ALTER TABLE wishlist_items ADD CONSTRAINT valid_wishlist_privacy_settings
     -- Must have visibleToGroupTypes array
     privacy_settings ? 'visibleToGroupTypes' AND
     jsonb_typeof(privacy_settings->'visibleToGroupTypes') = 'array' AND
-    -- restrictToGroup must be a string or null if present
+    -- restrictToGroup must be a string, null JSON value, or absent
     (
       NOT (privacy_settings ? 'restrictToGroup') OR
-      privacy_settings->'restrictToGroup' IS NULL OR
+      jsonb_typeof(privacy_settings->'restrictToGroup') = 'null' OR
       jsonb_typeof(privacy_settings->'restrictToGroup') = 'string'
     )
   );
