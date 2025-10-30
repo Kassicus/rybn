@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type {
   PrivacyLevel,
   PrivacySettings,
+  LegacyPrivacySettings,
   ViewerContext,
   GroupType,
   ProfileCategory,
@@ -26,11 +27,11 @@ export const privacySettingsSchema = z.object({
 });
 
 /**
- * Normalize privacy settings to ensure consistency
+ * Normalize legacy privacy settings to ensure consistency
  */
-export function normalizePrivacySettings(
+export function normalizeLegacyPrivacySettings(
   settings: unknown
-): PrivacySettings {
+): LegacyPrivacySettings {
   const result = privacySettingsSchema.safeParse(settings);
 
   if (!result.success) {
@@ -42,12 +43,12 @@ export function normalizePrivacySettings(
 }
 
 /**
- * Clean up privacy overrides for deleted/left groups
+ * Clean up legacy privacy overrides for deleted/left groups
  */
-export function cleanPrivacyOverrides(
-  settings: PrivacySettings,
+export function cleanLegacyPrivacyOverrides(
+  settings: LegacyPrivacySettings,
   activeGroupIds: string[]
-): PrivacySettings {
+): LegacyPrivacySettings {
   const activeGroupIdSet = new Set(activeGroupIds);
 
   const cleanedOverrides = Object.fromEntries(
@@ -58,6 +59,29 @@ export function cleanPrivacyOverrides(
 
   return {
     default: settings.default,
+    overrides: cleanedOverrides,
+  };
+}
+
+/**
+ * Clean up new privacy overrides for deleted/left groups
+ */
+export function cleanPrivacyOverrides(
+  settings: PrivacySettings,
+  activeGroupIds: string[]
+): PrivacySettings {
+  const activeGroupIdSet = new Set(activeGroupIds);
+
+  const cleanedOverrides = settings.overrides
+    ? Object.fromEntries(
+        Object.entries(settings.overrides).filter(([groupId]) =>
+          activeGroupIdSet.has(groupId)
+        )
+      )
+    : {};
+
+  return {
+    visibleToGroupTypes: settings.visibleToGroupTypes,
     overrides: cleanedOverrides,
   };
 }
@@ -147,7 +171,7 @@ function checkPrivacyLevelAcrossGroups(
 }
 
 /**
- * Determine if a viewer can see a specific field based on privacy settings
+ * Determine if a viewer can see a specific field based on legacy privacy settings
  *
  * Privacy hierarchy (from most to least restrictive):
  * - private: Only owner can view
@@ -156,9 +180,9 @@ function checkPrivacyLevelAcrossGroups(
  * - family: Anyone in a 'family' type group can view
  * - public: Everyone can view
  */
-export function canViewField(
+export function canViewLegacyField(
   fieldOwnerId: string,
-  privacySettings: PrivacySettings,
+  privacySettings: LegacyPrivacySettings,
   viewer: ViewerContext
 ): boolean {
   // Owner can always view their own fields
@@ -188,10 +212,10 @@ export function canViewField(
 }
 
 /**
- * Get effective privacy level for a field in a specific group
+ * Get effective privacy level for a field in a specific group (legacy)
  */
 export function getEffectivePrivacyLevel(
-  privacySettings: PrivacySettings,
+  privacySettings: LegacyPrivacySettings,
   groupId: string
 ): PrivacyLevel {
   return privacySettings.overrides[groupId] ?? privacySettings.default;
@@ -208,10 +232,10 @@ export function arePrivacyLevelsEqual(
 }
 
 /**
- * Get a human-readable description of who can see a field
+ * Get a human-readable description of who can see a field (legacy format)
  */
-export function getPrivacyDescription(
-  privacySettings: PrivacySettings,
+export function getLegacyPrivacyDescription(
+  privacySettings: LegacyPrivacySettings,
   userGroups: { id: string; name: string; type: GroupType }[]
 ): string {
   const { default: defaultLevel, overrides } = privacySettings;
@@ -236,7 +260,7 @@ export function getPrivacyDescription(
   const groupsWithOverrides = userGroups.filter(g => overrides[g.id]);
 
   if (groupsWithOverrides.length === 0) {
-    return getPrivacyDescription({ default: defaultLevel, overrides: {} }, userGroups);
+    return getLegacyPrivacyDescription({ default: defaultLevel, overrides: {} }, userGroups);
   }
 
   const overrideDescriptions = groupsWithOverrides.map(g => {
@@ -245,4 +269,27 @@ export function getPrivacyDescription(
   });
 
   return `Default: ${defaultLevel}, ${overrideDescriptions.join(', ')}`;
+}
+
+/**
+ * Get a human-readable description of who can see a field (new format)
+ */
+export function getPrivacyDescription(
+  privacySettings: PrivacySettings,
+  userGroups: { id: string; name: string; type: GroupType }[]
+): string {
+  const { visibleToGroupTypes, overrides } = privacySettings;
+
+  // If no group types selected, it's private
+  if (visibleToGroupTypes.length === 0) {
+    return 'Only you';
+  }
+
+  // If all group types are selected, it's visible to everyone in groups
+  if (visibleToGroupTypes.length === 4) {
+    return 'Anyone in your groups';
+  }
+
+  // Return selected group types
+  return `Visible to: ${visibleToGroupTypes.join(', ')} groups`;
 }

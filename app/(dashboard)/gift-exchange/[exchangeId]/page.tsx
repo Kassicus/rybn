@@ -214,7 +214,7 @@ export default async function GiftExchangeDetailPage({
         {/* Right Column - Assignment (if participating and assigned) */}
         <div>
           {isParticipating && exchange.assignments_generated && (
-            <AssignmentReveal assignedUser={assignedUser} budgetRange={budget || undefined} />
+            <AssignmentReveal assignedUser={assignedUser || null} budgetRange={budget || undefined} />
           )}
 
           {isParticipating && !exchange.assignments_generated && (

@@ -124,7 +124,7 @@ export function AssignmentReveal({
           <Text variant="secondary" className="mb-4">
             Click &quot;Reveal&quot; above to see who you&apos;re giving a gift to
           </Text>
-          <Text size="xs" variant="secondary" className="italic">
+          <Text size="sm" variant="secondary" className="italic">
             Make sure no one is looking over your shoulder! 👀
           </Text>
         </div>

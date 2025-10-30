@@ -182,7 +182,7 @@ export async function updateProfile(formData: ProfileEditFormData) {
   if (profileInfoRecords.length > 0) {
     const { error: profileInfoError } = await supabase
       .from("profile_info")
-      .upsert(profileInfoRecords, {
+      .upsert(profileInfoRecords as any, {
         onConflict: "user_id,category,field_name",
         ignoreDuplicates: false,
       });

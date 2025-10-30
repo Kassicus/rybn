@@ -88,7 +88,7 @@ export function GroupGiftCard({ groupGift, memberCount = 0 }: GroupGiftCardProps
             </Text>
           </div>
 
-          {groupGift.my_contribution !== undefined && groupGift.my_contribution > 0 && (
+          {groupGift.my_contribution !== undefined && groupGift.my_contribution !== null && groupGift.my_contribution > 0 && (
             <div className="flex items-center gap-1.5">
               <DollarSign className="w-4 h-4 text-light-text-secondary dark:text-dark-text-secondary" />
               <Text size="sm" variant="secondary">

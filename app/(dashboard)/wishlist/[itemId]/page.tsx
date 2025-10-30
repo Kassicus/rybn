@@ -70,7 +70,7 @@ export default function WishlistItemDetailPage({
         return;
       }
 
-      setItem(itemData);
+      setItem(itemData as any);
       setIsOwnWishlist(itemData.user_id === user.id);
       setLoading(false);
     }

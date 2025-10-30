@@ -59,7 +59,8 @@ export const giftExchangeSchema = z.object({
     .default(true),
 }).refine(
   (data) => {
-    if (data.budget_min !== null && data.budget_max !== null) {
+    if (data.budget_min !== null && data.budget_min !== undefined &&
+        data.budget_max !== null && data.budget_max !== undefined) {
       return data.budget_min <= data.budget_max;
     }
     return true;
@@ -108,7 +109,7 @@ export const assignmentOptionsSchema = z.object({
   allow_self_assignment: z.boolean()
     .default(false),
 
-  exclusions: z.record(z.array(z.string().uuid()))
+  exclusions: z.record(z.string(), z.array(z.string().uuid()))
     .optional(),
 });
 

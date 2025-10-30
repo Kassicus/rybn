@@ -192,7 +192,7 @@ export function ExchangeForm({ groupId }: ExchangeFormProps) {
               })
             }
           />
-          <Text size="xs" variant="secondary" className="mt-1">
+          <Text size="sm" variant="secondary" className="mt-1">
             When should people stop being able to join?
           </Text>
         </div>

@@ -127,7 +127,7 @@ export function ContributionTracker({
           <Heading level="h4">Your Contribution</Heading>
           {!isEditing && (
             <Button
-              variant="ghost"
+              variant="tertiary"
               size="small"
               onClick={() => setIsEditing(true)}
             >

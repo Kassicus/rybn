@@ -124,7 +124,7 @@ export function MemberManager({
               <div className="flex-1">
                 <Text className="font-medium">{displayName}</Text>
                 {profile?.username && profile.display_name && (
-                  <Text size="xs" variant="secondary">
+                  <Text size="sm" variant="secondary">
                     @{profile.username}
                   </Text>
                 )}
@@ -136,7 +136,7 @@ export function MemberManager({
                   </Text>
                 )}
                 {member.has_paid && (
-                  <Text size="xs" className="text-success">
+                  <Text size="sm" className="text-success">
                     ✓ Paid
                   </Text>
                 )}
@@ -207,7 +207,7 @@ export function MemberManager({
                         <div className="flex-1 text-left">
                           <Text className="font-medium">{displayName}</Text>
                           {user.username && user.display_name && (
-                            <Text size="xs" variant="secondary">
+                            <Text size="sm" variant="secondary">
                               @{user.username}
                             </Text>
                           )}

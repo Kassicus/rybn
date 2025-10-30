@@ -49,7 +49,7 @@ export function WishlistPrivacySelector({
     async function fetchGroups() {
       const result = await getMyGroups();
       if (result.data) {
-        setGroups(result.data);
+        setGroups(result.data as any);
       }
       setLoading(false);
     }

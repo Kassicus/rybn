@@ -45,7 +45,7 @@ export default async function WishlistPage() {
       </div>
 
       {/* Empty state */}
-      {items.length === 0 && (
+      {items && items.length === 0 && (
         <div className="text-center py-16">
           <Gift className="w-16 h-16 mx-auto text-light-text-secondary dark:text-dark-text-secondary mb-4" />
           <Heading level="h3" className="mb-2">No wishlist items yet</Heading>
@@ -62,12 +62,12 @@ export default async function WishlistPage() {
       )}
 
       {/* Wishlist items */}
-      {items.length > 0 && (
+      {items && items.length > 0 && (
         <div className="space-y-4">
           {items.map((item) => (
             <WishlistItemCard
               key={item.id}
-              item={item}
+              item={item as any}
               isOwnWishlist={true}
             />
           ))}

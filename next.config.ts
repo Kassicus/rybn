@@ -2,10 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // Temporarily disable TypeScript checking during build to test Next.js 16
-  // Re-enable after fixing pre-existing TypeScript errors
+  // TypeScript checking is now enabled - all errors fixed!
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
   // React Compiler (requires babel-plugin-react-compiler package)
   // Uncomment after installing: npm install -D babel-plugin-react-compiler

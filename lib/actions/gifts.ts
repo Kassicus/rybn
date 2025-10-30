@@ -523,3 +523,6 @@ export async function getAvailableGroupMembers(groupGiftId: string) {
 
   return { data: profiles || [] };
 }
+
+// Export alias for backward compatibility
+export { createGroupGift as createGiftGroup };

@@ -74,7 +74,7 @@ function WishlistCard({ item }: { item: any }) {
         {/* Privacy indicator */}
         <div className="flex items-center gap-1.5">
           <Lock className="w-3 h-3 text-light-text-secondary dark:text-dark-text-secondary" />
-          <Text size="xs" variant="secondary">
+          <Text size="sm" variant="secondary">
             {isPrivate
               ? 'Private'
               : restrictToGroup
@@ -130,7 +130,7 @@ export default async function DashboardPage() {
 
   // Get participant counts and participation status for each exchange
   const exchangesWithData = await Promise.all(
-    allExchanges.slice(0, 3).map(async (exchange) => {
+    (allExchanges || []).slice(0, 3).map(async (exchange) => {
       const { count } = await supabase
         .from("gift_exchange_participants")
         .select("*", { count: "exact", head: true })
@@ -307,10 +307,10 @@ export default async function DashboardPage() {
                 Create
               </Button>
             </Link>
-            {allExchanges.length > 3 && (
+            {(allExchanges || []).length > 3 && (
               <Link href="/gift-exchange">
                 <Button variant="tertiary" size="small">
-                  See All ({allExchanges.length})
+                  See All ({(allExchanges || []).length})
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>

@@ -150,7 +150,7 @@ export function CreateGiftGroupModal({
                   className="pl-10"
                 />
               </div>
-              <Text size="xs" variant="secondary" className="mt-1">
+              <Text size="sm" variant="secondary" className="mt-1">
                 Optional - Set a fundraising goal
               </Text>
             </div>

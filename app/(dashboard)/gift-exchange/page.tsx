@@ -68,7 +68,7 @@ export default async function GiftExchangePage() {
 
   // Get participant counts and participation status for each exchange using admin client
   const exchangesWithData = await Promise.all(
-    allExchanges.map(async (exchange) => {
+    (allExchanges || []).map(async (exchange) => {
       const { count } = await adminClient
         .from("gift_exchange_participants")
         .select("*", { count: "exact", head: true })

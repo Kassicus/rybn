@@ -110,7 +110,7 @@ export function WishlistItemCard({ item, isOwnWishlist = false }: WishlistItemCa
                   {/* Privacy indicator */}
                   <div className="flex items-center gap-1">
                     <Lock className="w-3 h-3 text-gray-500" />
-                    <Text size="xs" variant="secondary">
+                    <Text size="sm" variant="secondary">
                       {isPrivate
                         ? 'Private'
                         : restrictToGroup

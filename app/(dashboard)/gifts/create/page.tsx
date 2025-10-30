@@ -158,7 +158,7 @@ export default function CreateGiftGroupPage() {
                 </option>
               ))}
             </select>
-            <Text size="xs" variant="secondary" className="mt-1">
+            <Text size="sm" variant="secondary" className="mt-1">
               Choose which group this gift coordination is for
             </Text>
           </div>
@@ -177,7 +177,7 @@ export default function CreateGiftGroupPage() {
               maxLength={200}
               required
             />
-            <Text size="xs" variant="secondary" className="mt-1">
+            <Text size="sm" variant="secondary" className="mt-1">
               Give your group gift a descriptive name
             </Text>
           </div>
@@ -196,7 +196,7 @@ export default function CreateGiftGroupPage() {
               rows={4}
               className="w-full px-3 py-2 rounded-md border border-light-border dark:border-dark-border bg-light-background dark:bg-dark-background text-light-text-primary dark:text-dark-text-primary placeholder:text-light-text-secondary dark:placeholder:text-dark-text-secondary focus:outline-none focus:ring-2 focus:ring-primary resize-none"
             />
-            <Text size="xs" variant="secondary" className="mt-1">
+            <Text size="sm" variant="secondary" className="mt-1">
               Optional - Add details about the gift or occasion
             </Text>
           </div>
@@ -219,7 +219,7 @@ export default function CreateGiftGroupPage() {
                 className="pl-10"
               />
             </div>
-            <Text size="xs" variant="secondary" className="mt-1">
+            <Text size="sm" variant="secondary" className="mt-1">
               Optional - Set a fundraising goal for the group
             </Text>
           </div>

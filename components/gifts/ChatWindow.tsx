@@ -224,7 +224,7 @@ export function ChatWindow({
                             <span className="text-primary ml-1">(You)</span>
                           )}
                         </Text>
-                        <Text size="xs" variant="secondary">
+                        <Text size="sm" variant="secondary">
                           {formatMessageTime(message.created_at)}
                         </Text>
                       </div>
@@ -245,7 +245,7 @@ export function ChatWindow({
                       </Text>
                       {message.is_edited && (
                         <Text
-                          size="xs"
+                          size="sm"
                           variant="secondary"
                           className={`mt-1 italic ${
                             isCurrentUser ? "text-white/70" : ""
