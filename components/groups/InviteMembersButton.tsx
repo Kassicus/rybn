@@ -20,6 +20,7 @@ export function InviteMembersButton({
   const [email, setEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
   const handleSendInvite = async () => {
@@ -30,6 +31,7 @@ export function InviteMembersButton({
 
     setIsLoading(true);
     setError(null);
+    setWarning(null);
     setSuccess(false);
 
     const result = await sendGroupInvitation({
@@ -41,12 +43,16 @@ export function InviteMembersButton({
     if (result.error) {
       setError(result.error);
     } else {
+      if (result.warning) {
+        setWarning(result.warning);
+      }
       setSuccess(true);
       setEmail("");
       setTimeout(() => {
         setSuccess(false);
+        setWarning(null);
         setIsOpen(false);
-      }, 2000);
+      }, 4000); // Longer timeout to show warning
     }
 
     setIsLoading(false);
@@ -95,10 +101,18 @@ export function InviteMembersButton({
             </div>
           )}
 
+          {warning && (
+            <div className="p-3 rounded bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-500">
+              <Text size="sm" className="text-yellow-800 dark:text-yellow-200">
+                ⚠️ {warning}
+              </Text>
+            </div>
+          )}
+
           {success && (
             <div className="p-3 rounded bg-success-light dark:bg-success-dark border border-success">
               <Text variant="success" size="sm">
-                Invitation sent successfully!
+                {warning ? "Invitation created (but check warning above)" : "Invitation sent successfully!"}
               </Text>
             </div>
           )}

@@ -87,6 +87,9 @@ export async function sendGroupInvitation(data: {
   }
 
   // Send invitation email
+  let emailSent = false;
+  let emailError = null;
+
   try {
     await sendGroupInviteEmail({
       toEmail: data.email,
@@ -94,12 +97,18 @@ export async function sendGroupInvitation(data: {
       inviterName: user.user_metadata?.username || user.email || "A friend",
       inviteToken: token,
     });
+    emailSent = true;
   } catch (error) {
     console.error("Failed to send invite email:", error);
+    emailError = error instanceof Error ? error.message : "Unknown error";
     // Don't fail the invitation creation if email fails
   }
 
-  return { data: invitation };
+  return {
+    data: invitation,
+    emailSent,
+    warning: !emailSent ? `Invitation created but email failed to send: ${emailError}` : undefined
+  };
 }
 
 export async function acceptInvitation(token: string) {
