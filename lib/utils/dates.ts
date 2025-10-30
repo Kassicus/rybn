@@ -80,3 +80,23 @@ export function isValidDateString(dateString: string | null | undefined): boolea
     return false;
   }
 }
+
+/**
+ * Formats a number as currency
+ * @param amount - Amount to format
+ * @param currency - Currency code (defaults to USD)
+ * @returns Formatted currency string like "$123.45"
+ */
+export function formatCurrency(
+  amount: number | null | undefined,
+  currency: string = 'USD'
+): string {
+  if (amount === null || amount === undefined) return '$0.00';
+
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}

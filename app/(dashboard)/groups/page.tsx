@@ -18,7 +18,7 @@ export default async function GroupsPage() {
     return (
       <div className="space-y-4">
         <Heading level="h1">Groups</Heading>
-        <div className="p-4 rounded bg-error-light border border-error">
+        <div className="p-4 rounded bg-error-light dark:bg-error-dark border border-error">
           <Text variant="error">{error}</Text>
         </div>
       </div>

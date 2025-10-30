@@ -53,8 +53,8 @@ export function DashboardNav({ user }: DashboardNavProps) {
     { href: "/dashboard", label: "Dashboard", icon: Home },
     { href: "/groups", label: "Groups", icon: Users },
     { href: "/wishlist", label: "Wishlist", icon: ListChecks },
-    { href: "/gifts", label: "Gifts", icon: Gift },
-    { href: "/secret-santa", label: "Secret Santa", icon: Calendar },
+    { href: "/gifts", label: "Group Gifts", icon: Gift },
+    { href: "/gift-exchange", label: "Gift Exchange", icon: Calendar },
   ];
 
   return (

@@ -88,7 +88,7 @@ export function InviteMembersButton({
           </div>
 
           {error && (
-            <div className="p-3 rounded bg-error-light border border-error">
+            <div className="p-3 rounded bg-error-light dark:bg-error-dark border border-error">
               <Text variant="error" size="sm">
                 {error}
               </Text>
@@ -96,7 +96,7 @@ export function InviteMembersButton({
           )}
 
           {success && (
-            <div className="p-3 rounded bg-success-light border border-success">
+            <div className="p-3 rounded bg-success-light dark:bg-success-dark border border-success">
               <Text variant="success" size="sm">
                 Invitation sent successfully!
               </Text>

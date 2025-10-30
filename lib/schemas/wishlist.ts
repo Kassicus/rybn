@@ -49,9 +49,14 @@ export const wishlistItemSchema = z.object({
     .optional()
     .nullable(),
 
-  // Privacy settings - array of group types that can see this item
+  // Privacy settings - group types that can see this item
   visible_to_group_types: z.array(z.enum(['family', 'friends', 'work', 'custom']))
-    .default([]),
+    .default(['family', 'friends', 'work', 'custom']),
+
+  // Optional: Restrict to a single specific group (group ID)
+  restrict_to_group: z.string().uuid().nullable()
+    .optional()
+    .default(null),
 });
 
 export type WishlistItemFormData = z.infer<typeof wishlistItemSchema>;

@@ -42,7 +42,7 @@ function AcceptInviteContent() {
   if (!token || error) {
     return (
       <div className="text-center space-y-6">
-        <div className="w-16 h-16 rounded-full bg-error-light flex items-center justify-center mx-auto">
+        <div className="w-16 h-16 rounded-full bg-error-light dark:bg-error-dark flex items-center justify-center mx-auto">
           <Users className="w-8 h-8 text-error" />
         </div>
         <div className="space-y-2">

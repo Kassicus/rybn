@@ -91,7 +91,7 @@ export default async function GroupSettingsPage({
           </Text>
         </div>
 
-        <div className="p-4 rounded-lg border border-error bg-error-light space-y-4">
+        <div className="p-4 rounded-lg border border-error bg-error-light dark:bg-error-dark space-y-4">
           {!isOwner && (
             <div className="flex items-start justify-between">
               <div>
