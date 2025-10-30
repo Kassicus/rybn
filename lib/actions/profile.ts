@@ -394,6 +394,23 @@ export async function setUsername(username: string) {
     return { error: "Username must be at most 20 characters" };
   }
 
+  // First, verify the profile exists
+  const { data: existingProfile, error: checkError } = await supabase
+    .from("user_profiles")
+    .select("id, username")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (checkError) {
+    console.error("Error checking profile:", checkError);
+    return { error: `Database error: ${checkError.message}` };
+  }
+
+  if (!existingProfile) {
+    console.error("Profile not found for user:", user.id);
+    return { error: "Your profile hasn't been created yet. Please wait a moment and try again." };
+  }
+
   // Check if username is available
   const availabilityCheck = await isUsernameAvailable(username, user.id);
   if (availabilityCheck.error) {
@@ -416,14 +433,16 @@ export async function setUsername(username: string) {
     .maybeSingle();
 
   if (profileError) {
+    console.error("Error updating profile:", profileError);
     if (profileError.code === '23505' && profileError.message.includes('username')) {
       return { error: "Username is already taken" };
     }
-    return { error: profileError.message };
+    return { error: `Update failed: ${profileError.message}` };
   }
 
   if (!profile) {
-    return { error: "User profile not found. Please try logging out and logging back in." };
+    console.error("Update returned no rows for user:", user.id);
+    return { error: "Failed to update username. Please try again or contact support." };
   }
 
   revalidatePath("/set-username");
