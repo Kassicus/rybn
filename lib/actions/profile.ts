@@ -362,3 +362,67 @@ export async function isUsernameAvailable(username: string, excludeUserId?: stri
 
   return { data: { available: !data } };
 }
+
+/**
+ * Set username for OAuth users (first-time setup)
+ */
+export async function setUsername(username: string) {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return { error: "Not authenticated" };
+  }
+
+  // Validate username format
+  const usernameRegex = /^[a-zA-Z0-9_-]+$/;
+  if (!usernameRegex.test(username)) {
+    return {
+      error: "Username can only contain letters, numbers, underscores, and hyphens"
+    };
+  }
+
+  if (username.length < 3) {
+    return { error: "Username must be at least 3 characters" };
+  }
+
+  if (username.length > 20) {
+    return { error: "Username must be at most 20 characters" };
+  }
+
+  // Check if username is available
+  const availabilityCheck = await isUsernameAvailable(username, user.id);
+  if (availabilityCheck.error) {
+    return { error: availabilityCheck.error };
+  }
+
+  if (!availabilityCheck.data?.available) {
+    return { error: "Username is already taken" };
+  }
+
+  // Update username
+  const { data: profile, error: profileError } = await supabase
+    .from("user_profiles")
+    .update({
+      username: username,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", user.id)
+    .select()
+    .single();
+
+  if (profileError) {
+    if (profileError.code === '23505' && profileError.message.includes('username')) {
+      return { error: "Username is already taken" };
+    }
+    return { error: profileError.message };
+  }
+
+  revalidatePath("/set-username");
+  revalidatePath("/dashboard");
+  return { data: profile };
+}

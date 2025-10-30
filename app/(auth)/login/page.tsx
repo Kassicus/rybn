@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Heading, Text } from "@/components/ui/text";
 import { Link } from "@/components/ui/link";
+import { OAuthButton } from "@/components/auth/OAuthButton";
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -59,6 +60,19 @@ function LoginForm() {
         <Text variant="secondary">
           Sign in to your Rybn account
         </Text>
+      </div>
+
+      <OAuthButton provider="google" />
+
+      <div className="relative">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-neutral-300 dark:border-neutral-700"></div>
+        </div>
+        <div className="relative flex justify-center text-sm">
+          <span className="px-2 bg-white dark:bg-neutral-900 text-neutral-500">
+            or continue with email
+          </span>
+        </div>
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">

@@ -52,7 +52,26 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Redirect to dashboard if accessing auth pages while authenticated
+  // Check if authenticated user has username set (for OAuth users)
+  const isSetUsernamePage = request.nextUrl.pathname === "/set-username";
+  if (user && !isSetUsernamePage) {
+    // Get user profile to check username
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('username')
+      .eq('id', user.id)
+      .single();
+
+    // If no username, redirect to username setup (except for auth callback)
+    const isAuthCallback = request.nextUrl.pathname === "/auth/callback";
+    if (!profile?.username && !isAuthCallback) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/set-username";
+      return NextResponse.redirect(url);
+    }
+  }
+
+  // Redirect to dashboard if accessing auth pages while authenticated (and has username)
   const authRoutes = ["/login", "/register"];
   const isAuthRoute = authRoutes.some((route) =>
     request.nextUrl.pathname.startsWith(route)
