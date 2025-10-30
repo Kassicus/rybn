@@ -37,7 +37,7 @@ export async function sendGroupInvitation(data: {
   const { data: existingUser } = await supabase
     .from("user_profiles")
     .select("id")
-    .eq("id", user.id)
+    .eq("email", data.email)
     .single();
 
   if (existingUser) {
