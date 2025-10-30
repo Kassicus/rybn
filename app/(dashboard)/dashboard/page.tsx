@@ -11,6 +11,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { GROUP_TYPES } from "@/types/privacy";
 import type { GroupType } from "@/types/privacy";
+import JoinGroupButton from "@/components/groups/JoinGroupButton";
 
 // Simple Group Card Component
 function GroupCard({ group }: { group: any }) {
@@ -174,6 +175,7 @@ export default async function DashboardPage() {
         <div className="flex items-center justify-between">
           <Heading level="h2">Your Groups</Heading>
           <div className="flex items-center gap-2">
+            <JoinGroupButton />
             <Link href="/groups/create">
               <Button variant="secondary" size="small">
                 <Plus className="w-4 h-4" />
@@ -200,12 +202,15 @@ export default async function DashboardPage() {
         ) : (
           <div className="p-8 rounded-lg border border-light-border dark:border-dark-border border-dashed text-center">
             <Text variant="secondary">No groups yet</Text>
-            <Link href="/groups/create">
-              <Button variant="primary" size="small" className="mt-3">
-                <Plus className="w-4 h-4" />
-                Create Your First Group
-              </Button>
-            </Link>
+            <div className="flex items-center justify-center gap-2 mt-3">
+              <JoinGroupButton />
+              <Link href="/groups/create">
+                <Button variant="primary" size="small">
+                  <Plus className="w-4 h-4" />
+                  Create Your First Group
+                </Button>
+              </Link>
+            </div>
           </div>
         )}
       </div>

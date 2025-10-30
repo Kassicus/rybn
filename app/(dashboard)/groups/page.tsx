@@ -3,6 +3,7 @@ import { Plus, Home, Users, Briefcase, Grid } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Heading, Text } from "@/components/ui/text";
 import { getMyGroups } from "@/lib/actions/groups";
+import JoinGroupButton from "@/components/groups/JoinGroupButton";
 
 const groupTypeIcons = {
   family: Home,
@@ -34,12 +35,15 @@ export default async function GroupsPage() {
             Coordinate gifts with family, friends, and more
           </Text>
         </div>
-        <Link href="/groups/create">
-          <Button variant="primary">
-            <Plus className="w-4 h-4" />
-            Create Group
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <JoinGroupButton />
+          <Link href="/groups/create">
+            <Button variant="primary">
+              <Plus className="w-4 h-4" />
+              Create Group
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {groups.length === 0 ? (
@@ -50,14 +54,17 @@ export default async function GroupsPage() {
             </div>
             <Heading level="h3">No groups yet</Heading>
             <Text variant="secondary">
-              Create your first group to start coordinating gifts with others
+              Create your first group or join an existing one to start coordinating gifts with others
             </Text>
-            <Link href="/groups/create">
-              <Button variant="primary" size="large">
-                <Plus className="w-4 h-4" />
-                Create Your First Group
-              </Button>
-            </Link>
+            <div className="flex items-center justify-center gap-2">
+              <JoinGroupButton />
+              <Link href="/groups/create">
+                <Button variant="primary" size="large">
+                  <Plus className="w-4 h-4" />
+                  Create Your First Group
+                </Button>
+              </Link>
+            </div>
           </div>
         </div>
       ) : (
