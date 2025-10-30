@@ -38,7 +38,7 @@ export async function sendGroupInvitation(data: {
     .from("user_profiles")
     .select("id")
     .eq("email", data.email)
-    .single();
+    .maybeSingle();
 
   if (existingUser) {
     const { data: alreadyMember } = await supabase
@@ -46,7 +46,7 @@ export async function sendGroupInvitation(data: {
       .select("id")
       .eq("group_id", data.groupId)
       .eq("user_id", existingUser.id)
-      .single();
+      .maybeSingle();
 
     if (alreadyMember) {
       return { error: "This user is already a member of the group" };
@@ -59,7 +59,7 @@ export async function sendGroupInvitation(data: {
     .select("id, accepted")
     .eq("group_id", data.groupId)
     .eq("email", data.email)
-    .single();
+    .maybeSingle();
 
   // Generate invitation token
   const token = generateInviteToken();
