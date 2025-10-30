@@ -61,29 +61,49 @@ export async function sendGroupInvitation(data: {
     .eq("email", data.email)
     .single();
 
-  if (existingInvite && !existingInvite.accepted) {
-    return { error: "An invitation has already been sent to this email" };
-  }
-
   // Generate invitation token
   const token = generateInviteToken();
   const expiresAt = getInviteExpiration();
 
-  // Create invitation
-  const { data: invitation, error: inviteError } = await supabase
-    .from("invitations")
-    .insert({
-      group_id: data.groupId,
-      email: data.email,
-      invited_by: user.id,
-      token,
-      expires_at: expiresAt.toISOString(),
-    })
-    .select()
-    .single();
+  let invitation;
 
-  if (inviteError) {
-    return { error: inviteError.message };
+  // If there's an existing pending invitation, update it with new token and expiry
+  // Otherwise, create a new invitation
+  if (existingInvite && !existingInvite.accepted) {
+    const { data: updatedInvite, error: updateError } = await supabase
+      .from("invitations")
+      .update({
+        token,
+        expires_at: expiresAt.toISOString(),
+        invited_by: user.id,
+        created_at: new Date().toISOString(), // Update timestamp to reflect resend
+      })
+      .eq("id", existingInvite.id)
+      .select()
+      .single();
+
+    if (updateError) {
+      return { error: updateError.message };
+    }
+    invitation = updatedInvite;
+  } else {
+    // Create new invitation
+    const { data: newInvite, error: inviteError } = await supabase
+      .from("invitations")
+      .insert({
+        group_id: data.groupId,
+        email: data.email,
+        invited_by: user.id,
+        token,
+        expires_at: expiresAt.toISOString(),
+      })
+      .select()
+      .single();
+
+    if (inviteError) {
+      return { error: inviteError.message };
+    }
+    invitation = newInvite;
   }
 
   // Send invitation email
@@ -107,6 +127,7 @@ export async function sendGroupInvitation(data: {
   return {
     data: invitation,
     emailSent,
+    isResend: existingInvite && !existingInvite.accepted ? true : false,
     warning: !emailSent ? `Invitation created but email failed to send: ${emailError}` : undefined
   };
 }

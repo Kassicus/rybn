@@ -22,6 +22,7 @@ export function InviteMembersButton({
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [isResend, setIsResend] = useState(false);
 
   const handleSendInvite = async () => {
     if (!email || !email.includes("@")) {
@@ -46,11 +47,13 @@ export function InviteMembersButton({
       if (result.warning) {
         setWarning(result.warning);
       }
+      setIsResend(result.isResend || false);
       setSuccess(true);
       setEmail("");
       setTimeout(() => {
         setSuccess(false);
         setWarning(null);
+        setIsResend(false);
         setIsOpen(false);
       }, 4000); // Longer timeout to show warning
     }
@@ -112,7 +115,11 @@ export function InviteMembersButton({
           {success && (
             <div className="p-3 rounded bg-success-light dark:bg-success-dark border border-success">
               <Text variant="success" size="sm">
-                {warning ? "Invitation created (but check warning above)" : "Invitation sent successfully!"}
+                {warning
+                  ? "Invitation created (but check warning above)"
+                  : isResend
+                    ? "Invitation resent successfully!"
+                    : "Invitation sent successfully!"}
               </Text>
             </div>
           )}
