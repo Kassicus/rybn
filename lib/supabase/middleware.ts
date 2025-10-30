@@ -60,7 +60,7 @@ export async function updateSession(request: NextRequest) {
       .from('user_profiles')
       .select('username')
       .eq('id', user.id)
-      .single();
+      .maybeSingle();
 
     // If no username, redirect to username setup (except for auth callback)
     const isAuthCallback = request.nextUrl.pathname === "/auth/callback";

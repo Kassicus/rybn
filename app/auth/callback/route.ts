@@ -25,7 +25,7 @@ export async function GET(request: Request) {
         .from('user_profiles')
         .select('username')
         .eq('id', data.user.id)
-        .single();
+        .maybeSingle();
 
       // Determine redirect path
       let redirectPath = next;

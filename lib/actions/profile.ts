@@ -413,13 +413,17 @@ export async function setUsername(username: string) {
     })
     .eq("id", user.id)
     .select()
-    .single();
+    .maybeSingle();
 
   if (profileError) {
     if (profileError.code === '23505' && profileError.message.includes('username')) {
       return { error: "Username is already taken" };
     }
     return { error: profileError.message };
+  }
+
+  if (!profile) {
+    return { error: "User profile not found. Please try logging out and logging back in." };
   }
 
   revalidatePath("/set-username");
