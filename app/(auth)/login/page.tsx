@@ -22,7 +22,24 @@ type LoginFormData = z.infer<typeof loginSchema>;
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams.get("redirectTo") || "/dashboard";
+
+  // Security: Validate redirectTo parameter to prevent open redirect attacks
+  const validateRedirectPath = (path: string | null): string => {
+    if (!path) return "/dashboard";
+
+    // Only allow relative paths that start with /
+    if (!path.startsWith("/")) return "/dashboard";
+
+    // Prevent protocol-relative URLs (//evil.com)
+    if (path.startsWith("//")) return "/dashboard";
+
+    // Prevent data: and javascript: URLs
+    if (path.match(/^(data|javascript|vbscript):/i)) return "/dashboard";
+
+    return path;
+  };
+
+  const redirectTo = validateRedirectPath(searchParams.get("redirectTo"));
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const supabase = createClient();

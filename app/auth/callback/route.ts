@@ -52,11 +52,20 @@ export async function GET(request: Request) {
       const forwardedHost = request.headers.get("x-forwarded-host");
       const isLocalEnv = process.env.NODE_ENV === "development";
 
+      // Security: Validate forwardedHost to prevent open redirect attacks
+      const allowedHosts = [
+        'rybn.app',
+        'www.rybn.app',
+        'localhost:3000'
+      ];
+
       if (isLocalEnv) {
         return NextResponse.redirect(`${origin}${redirectPath}`);
-      } else if (forwardedHost) {
+      } else if (forwardedHost && allowedHosts.includes(forwardedHost)) {
+        // Only redirect if the forwarded host is in our whitelist
         return NextResponse.redirect(`https://${forwardedHost}${redirectPath}`);
       } else {
+        // Default to origin for safety
         return NextResponse.redirect(`${origin}${redirectPath}`);
       }
     }

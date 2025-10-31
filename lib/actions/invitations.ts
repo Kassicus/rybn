@@ -21,6 +21,22 @@ export async function sendGroupInvitation(data: {
     return { error: "Not authenticated" };
   }
 
+  // Security: Rate limiting - check how many invitations this user has sent in the last hour
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { data: recentInvites, error: rateLimitError } = await supabase
+    .from("invitations")
+    .select("id")
+    .eq("invited_by", user.id)
+    .gte("created_at", oneHourAgo);
+
+  if (rateLimitError) {
+    console.error("Rate limit check failed:", rateLimitError);
+  } else if (recentInvites && recentInvites.length >= 10) {
+    return {
+      error: "Rate limit exceeded. You can send up to 10 invitations per hour. Please try again later."
+    };
+  }
+
   // Check if user is a member of the group
   const { data: membership } = await supabase
     .from("group_members")
@@ -178,6 +194,21 @@ export async function acceptInvitation(token: string) {
     return { error: "You are already a member of this group" };
   }
 
+  // Security: Mark invitation as accepted BEFORE adding user to prevent race condition
+  // Use atomic update to ensure only one acceptance per invitation
+  const { error: acceptError } = await supabase
+    .from("invitations")
+    .update({
+      accepted: true,
+      accepted_at: new Date().toISOString(),
+    })
+    .eq("id", invitation.id)
+    .eq("accepted", false); // Only update if not already accepted
+
+  if (acceptError) {
+    return { error: "Failed to accept invitation. It may have already been used." };
+  }
+
   // Add user to group
   const { error: memberError } = await supabase.from("group_members").insert({
     group_id: invitation.group_id,
@@ -186,17 +217,13 @@ export async function acceptInvitation(token: string) {
   });
 
   if (memberError) {
+    // If adding member fails, rollback the acceptance
+    await supabase
+      .from("invitations")
+      .update({ accepted: false, accepted_at: null })
+      .eq("id", invitation.id);
     return { error: memberError.message };
   }
-
-  // Mark invitation as accepted
-  await supabase
-    .from("invitations")
-    .update({
-      accepted: true,
-      accepted_at: new Date().toISOString(),
-    })
-    .eq("id", invitation.id);
 
   return { data: invitation.groups };
 }
