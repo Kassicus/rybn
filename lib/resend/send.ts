@@ -5,11 +5,13 @@ import { DateReminderEmail } from "./templates/DateReminderEmail";
 import { createElement } from "react";
 
 export async function sendWelcomeEmail(email: string, username: string) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://rybn.app';
+
   return await resend.emails.send({
     from: `${EMAIL_FROM_NAME} <${EMAIL_FROM}>`,
     to: email,
     subject: "Welcome to Rybn!",
-    react: createElement(WelcomeEmail, { username }),
+    react: createElement(WelcomeEmail, { username, appUrl }),
   });
 }
 
