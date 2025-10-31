@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Figtree } from "next/font/google";
 import { RybnThemeProvider } from "@/components/vibe/ThemeProvider";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 // Monday.com Vibe uses Figtree (or similar modern sans-serif)
@@ -33,6 +34,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning className={`${figtree.variable} ${inter.variable}`}>
       <body className={figtree.className}>
         <RybnThemeProvider>{children}</RybnThemeProvider>
+        <Analytics />
       </body>
     </html>
   );
