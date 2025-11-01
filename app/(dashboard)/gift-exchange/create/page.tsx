@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
 import { ExchangeForm } from "@/components/gift-exchange/ExchangeForm";
+import { GroupSelector } from "@/components/gift-exchange/GroupSelector";
 import { createClient } from "@/lib/supabase/server";
 
 interface GroupData {
@@ -79,33 +80,11 @@ export default async function CreateGiftExchangePage({
         </Text>
       </div>
 
-      {/* Group Selection (if multiple groups) */}
-      {userGroups.length > 1 && (
-        <div className="p-4 rounded-lg border border-light-border dark:border-dark-border bg-light-background-hover dark:bg-dark-background-hover">
-          <label className="block mb-2">
-            <Text size="sm" className="font-medium">
-              Select Group
-            </Text>
-          </label>
-          <select
-            className="w-full px-3 py-2 rounded border border-light-border dark:border-dark-border bg-light-background dark:bg-dark-background-secondary text-light-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
-            value={selectedGroupId}
-            onChange={(e) => {
-              const newUrl = `/gift-exchange/create?groupId=${e.target.value}`;
-              window.location.href = newUrl;
-            }}
-          >
-            {userGroups.map((ug) => {
-              const group = ug.groups as GroupData;
-              return (
-                <option key={group.id} value={group.id}>
-                  {group.name}
-                </option>
-              );
-            })}
-          </select>
-        </div>
-      )}
+      {/* Group Selection */}
+      <GroupSelector
+        groups={userGroups.map((ug) => ug.groups as GroupData)}
+        selectedGroupId={selectedGroupId}
+      />
 
       {/* Form */}
       <div className="p-6 rounded-lg border border-light-border dark:border-dark-border bg-light-background dark:bg-dark-background-secondary">

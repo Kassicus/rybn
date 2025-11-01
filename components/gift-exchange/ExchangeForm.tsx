@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Heading, Text } from "@/components/ui/text";
 import { createGiftExchange } from "@/lib/actions/gift-exchange";
 import type { GiftExchangeFormData } from "@/lib/schemas/gift-exchange";
+import { Info } from "lucide-react";
 
 interface ExchangeFormProps {
   groupId: string;
@@ -16,6 +17,7 @@ export function ExchangeForm({ groupId }: ExchangeFormProps) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<Partial<GiftExchangeFormData>>({
     group_id: groupId,
@@ -27,6 +29,7 @@ export function ExchangeForm({ groupId }: ExchangeFormProps) {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
+    setSuccess(null);
 
     const result = await createGiftExchange(formData as GiftExchangeFormData);
 
@@ -34,16 +37,42 @@ export function ExchangeForm({ groupId }: ExchangeFormProps) {
       setError(result.error);
       setIsLoading(false);
     } else if (result.data) {
-      // Use window.location for a full page reload to ensure auth context is fresh
-      window.location.href = `/gift-exchange/${result.data.id}`;
+      const participantCount = (result as any).participantCount || 0;
+      setSuccess(`Gift exchange created successfully with ${participantCount} participants!`);
+
+      // Redirect after showing success message
+      setTimeout(() => {
+        window.location.href = `/gift-exchange/${result.data.id}`;
+      }, 1500);
     }
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Info Banner */}
+      <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+        <div className="flex items-start gap-3">
+          <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+          <div>
+            <Text size="sm" className="font-medium text-blue-900 dark:text-blue-100">
+              All group members will be automatically added
+            </Text>
+            <Text variant="secondary" size="sm" className="mt-1">
+              When you create this exchange, all current members of the group will be added as participants. They can opt out later if needed.
+            </Text>
+          </div>
+        </div>
+      </div>
+
       {error && (
         <div className="p-4 rounded-lg bg-error-light dark:bg-error-dark border border-error">
           <Text variant="error">{error}</Text>
+        </div>
+      )}
+
+      {success && (
+        <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+          <Text className="text-green-900 dark:text-green-100">{success}</Text>
         </div>
       )}
 

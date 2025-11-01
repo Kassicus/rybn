@@ -281,9 +281,11 @@ export async function updateMyContribution(
 
 /**
  * Add members to a group gift
+ * Any member of the group gift can invite users from groups they share with
  */
 export async function addMembersToGroupGift(groupGiftId: string, userIds: string[]) {
   const supabase = await createClient();
+  const adminClient = createAdminClient();
 
   const {
     data: { user },
@@ -293,18 +295,62 @@ export async function addMembersToGroupGift(groupGiftId: string, userIds: string
     return { error: "Not authenticated" };
   }
 
-  // Verify user is the creator of the group gift
-  const { data: groupGift } = await supabase
+  // Verify user is a member OR creator of the group gift (using admin client to avoid RLS recursion)
+  const { data: groupGift } = await adminClient
     .from("group_gifts")
-    .select("created_by")
+    .select("created_by, group_id")
     .eq("id", groupGiftId)
     .single();
 
-  if (!groupGift || groupGift.created_by !== user.id) {
-    return { error: "Only the creator can add members to this group gift" };
+  if (!groupGift) {
+    return { error: "Group gift not found" };
   }
 
-  // Add members
+  // Check if user is creator or member
+  const isCreator = groupGift.created_by === user.id;
+  const { data: membership } = await adminClient
+    .from("group_gift_members")
+    .select("id")
+    .eq("group_gift_id", groupGiftId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (!isCreator && !membership) {
+    return { error: "You must be a member of this group gift to invite others" };
+  }
+
+  // Get all groups the inviter is a member of
+  const { data: inviterGroups } = await supabase
+    .from("group_members")
+    .select("group_id")
+    .eq("user_id", user.id);
+
+  if (!inviterGroups || inviterGroups.length === 0) {
+    return { error: "You are not a member of any groups" };
+  }
+
+  const inviterGroupIds = inviterGroups.map(g => g.group_id);
+
+  // Verify all users being invited are from groups the inviter shares
+  const { data: inviteeGroupMemberships } = await supabase
+    .from("group_members")
+    .select("user_id, group_id")
+    .in("user_id", userIds)
+    .in("group_id", inviterGroupIds);
+
+  if (!inviteeGroupMemberships) {
+    return { error: "Failed to verify user memberships" };
+  }
+
+  // Check that each user being invited shares at least one group with the inviter
+  const validUserIds = new Set(inviteeGroupMemberships.map(m => m.user_id));
+  const invalidUsers = userIds.filter(userId => !validUserIds.has(userId));
+
+  if (invalidUsers.length > 0) {
+    return { error: "You can only invite users from groups you're a member of" };
+  }
+
+  // Add members using admin client to avoid RLS recursion
   const membersToAdd = userIds.map((userId) => ({
     group_gift_id: groupGiftId,
     user_id: userId,
@@ -312,7 +358,7 @@ export async function addMembersToGroupGift(groupGiftId: string, userIds: string
     has_paid: false,
   }));
 
-  const { error } = await supabase
+  const { error } = await adminClient
     .from("group_gift_members")
     .insert(membersToAdd);
 
@@ -452,10 +498,12 @@ export async function updateGroupGift(
 }
 
 /**
- * Get available users from the parent group who can be invited to the group gift
+ * Get available users from all groups the current user is in who can be invited to the group gift
+ * Any member of the group gift can invite users from groups they share with
  */
 export async function getAvailableGroupMembers(groupGiftId: string) {
   const supabase = await createClient();
+  const adminClient = createAdminClient();
 
   const {
     data: { user },
@@ -465,8 +513,8 @@ export async function getAvailableGroupMembers(groupGiftId: string) {
     return { error: "Not authenticated" };
   }
 
-  // Get the group gift with its group_id
-  const { data: groupGift, error: groupGiftError } = await supabase
+  // Get the group gift info (using admin client to avoid RLS issues)
+  const { data: groupGift, error: groupGiftError } = await adminClient
     .from("group_gifts")
     .select("group_id, created_by")
     .eq("id", groupGiftId)
@@ -476,23 +524,47 @@ export async function getAvailableGroupMembers(groupGiftId: string) {
     return { error: "Group gift not found" };
   }
 
-  // Verify user is the creator
-  if (groupGift.created_by !== user.id) {
-    return { error: "Only the creator can manage members" };
+  // Verify user is a member or creator of the group gift
+  const isCreator = groupGift.created_by === user.id;
+  const { data: membership } = await adminClient
+    .from("group_gift_members")
+    .select("id")
+    .eq("group_gift_id", groupGiftId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (!isCreator && !membership) {
+    return { error: "You must be a member of this group gift to manage members" };
   }
 
-  // Get all members of the parent group
+  // Get all groups the current user is a member of
+  const { data: userGroups, error: userGroupsError } = await supabase
+    .from("group_members")
+    .select("group_id")
+    .eq("user_id", user.id);
+
+  if (userGroupsError) {
+    return { error: userGroupsError.message };
+  }
+
+  if (!userGroups || userGroups.length === 0) {
+    return { data: [] };
+  }
+
+  const userGroupIds = userGroups.map(g => g.group_id);
+
+  // Get all members from all groups the user is in
   const { data: groupMembers, error: groupMembersError } = await supabase
     .from("group_members")
     .select("user_id")
-    .eq("group_id", groupGift.group_id);
+    .in("group_id", userGroupIds);
 
   if (groupMembersError) {
     return { error: groupMembersError.message };
   }
 
-  // Get current group gift members
-  const { data: currentMembers, error: currentMembersError } = await supabase
+  // Get current group gift members (using admin client)
+  const { data: currentMembers, error: currentMembersError } = await adminClient
     .from("group_gift_members")
     .select("user_id")
     .eq("group_gift_id", groupGiftId);
@@ -501,11 +573,11 @@ export async function getAvailableGroupMembers(groupGiftId: string) {
     return { error: currentMembersError.message };
   }
 
-  // Filter out users already in the group gift
+  // Filter out users already in the group gift and the current user
   const currentMemberIds = new Set(currentMembers?.map((m) => m.user_id) || []);
-  const availableUserIds = groupMembers
-    ?.map((gm) => gm.user_id)
-    .filter((userId) => !currentMemberIds.has(userId)) || [];
+  const uniqueUserIds = new Set(groupMembers?.map((gm) => gm.user_id) || []);
+  const availableUserIds = Array.from(uniqueUserIds)
+    .filter((userId) => !currentMemberIds.has(userId) && userId !== user.id);
 
   if (availableUserIds.length === 0) {
     return { data: [] };

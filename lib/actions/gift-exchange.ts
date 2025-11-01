@@ -58,25 +58,42 @@ export async function createGiftExchange(formData: GiftExchangeFormData) {
     return { error: exchangeError.message };
   }
 
-  // Auto-join the creator as a participant
+  // Get all group members to auto-add them as participants
+  const { data: groupMembers, error: membersError } = await supabase
+    .from("group_members")
+    .select("user_id")
+    .eq("group_id", formData.group_id);
+
+  if (membersError || !groupMembers || groupMembers.length === 0) {
+    // Clean up the exchange if we can't get group members
+    await supabase.from("gift_exchanges").delete().eq("id", exchange.id);
+    return { error: "Failed to get group members" };
+  }
+
+  // Auto-add all group members as participants
+  const participants = groupMembers.map((member) => ({
+    exchange_id: exchange.id,
+    user_id: member.user_id,
+    opted_in: true,
+  }));
+
   const { error: participantError } = await supabase
     .from("gift_exchange_participants")
-    .insert({
-      exchange_id: exchange.id,
-      user_id: user.id,
-      opted_in: true,
-    });
+    .insert(participants);
 
   if (participantError) {
-    // Clean up the exchange if adding participant fails
+    // Clean up the exchange if adding participants fails
     await supabase.from("gift_exchanges").delete().eq("id", exchange.id);
-    return { error: "Failed to create participant record" };
+    return { error: "Failed to create participant records" };
   }
 
   revalidatePath("/gift-exchange");
   revalidatePath(`/groups/${formData.group_id}`);
 
-  return { data: exchange };
+  return {
+    data: exchange,
+    participantCount: participants.length,
+  };
 }
 
 /**

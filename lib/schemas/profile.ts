@@ -170,14 +170,14 @@ export function formDataToProfileInfo(
   category: string;
   field_name: string;
   field_value: string | null;
-  privacy_settings: { visibleToGroupTypes: string[]; overrides?: Record<string, string[]> };
+  privacy_settings: { visibleToGroupTypes: string[]; restrictToGroup: null };
 }> {
   const records: Array<{
     user_id: string;
     category: string;
     field_name: string;
     field_value: string | null;
-    privacy_settings: { visibleToGroupTypes: string[]; overrides?: Record<string, string[]> };
+    privacy_settings: { visibleToGroupTypes: string[]; restrictToGroup: null };
   }> = [];
 
   // Get the visible group types from the form
@@ -198,7 +198,7 @@ export function formDataToProfileInfo(
         field_value: value,
         privacy_settings: {
           visibleToGroupTypes,
-          overrides: {},
+          restrictToGroup: null,
         },
       });
     }
@@ -220,7 +220,7 @@ export function formDataToProfileInfo(
         field_value: value,
         privacy_settings: {
           visibleToGroupTypes,
-          overrides: {},
+          restrictToGroup: null,
         },
       });
     }
@@ -241,7 +241,7 @@ export function formDataToProfileInfo(
         field_value: value,
         privacy_settings: {
           visibleToGroupTypes,
-          overrides: {},
+          restrictToGroup: null,
         },
       });
     }
@@ -263,7 +263,7 @@ export function formDataToProfileInfo(
         field_value: value,
         privacy_settings: {
           visibleToGroupTypes,
-          overrides: {},
+          restrictToGroup: null,
         },
       });
     }
@@ -282,7 +282,7 @@ export function formDataToProfileInfo(
         field_value: value,
         privacy_settings: {
           visibleToGroupTypes,
-          overrides: {},
+          restrictToGroup: null,
         },
       });
     }
