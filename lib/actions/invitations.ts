@@ -184,7 +184,10 @@ export async function sendGroupInvitation(data: {
   };
 }
 
-export async function acceptInvitation(token: string) {
+export async function acceptInvitation(token: string): Promise<
+  | { error: string; data?: never }
+  | { data: any; error?: never }
+> {
   console.log("acceptInvitation called with token:", token);
 
   const supabase = await createClient();

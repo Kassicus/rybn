@@ -11,7 +11,10 @@ export async function signupFromInvitation(data: {
   email: string;
   password: string;
   username: string;
-}) {
+}): Promise<
+  | { error: string; success?: never; user?: never; session?: never }
+  | { success: true; user: any; session: any; error?: never }
+> {
   try {
     const adminClient = createAdminClient();
 
