@@ -1,4 +1,15 @@
 import * as React from "react";
+import {
+  Html,
+  Head,
+  Body,
+  Container,
+  Section,
+  Text,
+  Link,
+  Heading,
+  Hr,
+} from "@react-email/components";
 
 interface DateReminderEmailProps {
   recipientName: string;
@@ -27,87 +38,168 @@ export const DateReminderEmail: React.FC<DateReminderEmailProps> = ({
   const emoji = dateType === "birthday" ? "🎂" : "💝";
 
   return (
-    <div style={{ fontFamily: "sans-serif", padding: "20px", maxWidth: "600px" }}>
-      <h1 style={{ color: "#333", fontSize: "24px", marginBottom: "16px" }}>
-        {emoji} {dateTypeLabel} Reminder
-      </h1>
+    <Html>
+      <Head />
+      <Body style={main}>
+        <Container style={container}>
+          <Section style={content}>
+            <Heading style={h1}>
+              {emoji} {dateTypeLabel} Reminder
+            </Heading>
 
-      <p style={{ fontSize: "16px", lineHeight: "1.6", marginBottom: "12px" }}>
-        Hi {recipientName},
-      </p>
+            <Text style={text}>Hi {recipientName},</Text>
 
-      <p style={{ fontSize: "16px", lineHeight: "1.6", marginBottom: "12px" }}>
-        This is a friendly reminder that{" "}
-        <strong>{celebrantName}</strong> from your{" "}
-        <strong>{groupName}</strong> group has a special day coming up:
-      </p>
+            <Text style={text}>
+              This is a friendly reminder that <strong>{celebrantName}</strong> from your{" "}
+              <strong>{groupName}</strong> group has a special day coming up:
+            </Text>
 
-      <div
-        style={{
-          backgroundColor: "#f5f5ff",
-          border: "2px solid #5034FF",
-          borderRadius: "8px",
-          padding: "20px",
-          marginBottom: "20px",
-        }}
-      >
-        <p style={{ margin: "0 0 8px 0", fontSize: "18px", fontWeight: "bold", color: "#5034FF" }}>
-          {celebrantName}&apos;s {dateTypeLabel}
-        </p>
-        <p style={{ margin: "0", fontSize: "20px", fontWeight: "bold", color: "#333" }}>
-          {celebrationDate}
-        </p>
-        <p style={{ margin: "8px 0 0 0", fontSize: "14px", color: "#666" }}>
-          Group: {groupName} ({groupType})
-        </p>
-      </div>
+            <Section style={highlightBox}>
+              <Text style={highlightTitle}>
+                {celebrantName}'s {dateTypeLabel}
+              </Text>
+              <Text style={highlightDate}>{celebrationDate}</Text>
+              <Text style={highlightSubtext}>
+                Group: {groupName} ({groupType})
+              </Text>
+            </Section>
 
-      <p style={{ fontSize: "16px", lineHeight: "1.6", marginBottom: "20px" }}>
-        Want to make their day special? Check out their profile and wishlist to find the perfect gift!
-      </p>
+            <Text style={text}>
+              Want to make their day special? Check out their profile and wishlist to find the perfect gift!
+            </Text>
 
-      <div style={{ marginBottom: "20px" }}>
-        <a
-          href={wishlistUrl}
-          style={{
-            backgroundColor: "#5034FF",
-            color: "white",
-            padding: "12px 24px",
-            textDecoration: "none",
-            borderRadius: "4px",
-            display: "inline-block",
-            marginRight: "12px",
-            marginBottom: "8px",
-          }}
-        >
-          View {celebrantName}&apos;s Wishlist
-        </a>
-        <a
-          href={profileUrl}
-          style={{
-            backgroundColor: "white",
-            color: "#5034FF",
-            padding: "12px 24px",
-            textDecoration: "none",
-            borderRadius: "4px",
-            display: "inline-block",
-            border: "2px solid #5034FF",
-          }}
-        >
-          View Profile
-        </a>
-      </div>
+            <Section style={buttonContainer}>
+              <Link href={wishlistUrl} style={buttonPrimary}>
+                View {celebrantName}'s Wishlist
+              </Link>
+              <Link href={profileUrl} style={buttonSecondary}>
+                View Profile
+              </Link>
+            </Section>
 
-      <p style={{ fontSize: "14px", color: "#666", lineHeight: "1.6", marginTop: "30px" }}>
-        You&apos;re receiving this because you&apos;re a member of the{" "}
-        <strong>{groupName}</strong> group and {celebrantName} has shared their {dateType} with the group.
-      </p>
+            <Hr style={hr} />
 
-      <p style={{ marginTop: "40px", color: "#666", fontSize: "14px" }}>
-        Tied together,
-        <br />
-        The Rybn Team
-      </p>
-    </div>
+            <Text style={footerText}>
+              You're receiving this because you're a member of the <strong>{groupName}</strong> group and {celebrantName} has shared their {dateType} with the group.
+            </Text>
+
+            <Text style={footer}>
+              Tied together,
+              <br />
+              The Rybn Team
+            </Text>
+          </Section>
+        </Container>
+      </Body>
+    </Html>
   );
+};
+
+const main = {
+  backgroundColor: "#f6f9fc",
+  fontFamily:
+    '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Ubuntu,sans-serif',
+};
+
+const container = {
+  backgroundColor: "#ffffff",
+  margin: "0 auto",
+  padding: "20px 0 48px",
+  marginBottom: "64px",
+  maxWidth: "600px",
+};
+
+const content = {
+  padding: "0 48px",
+};
+
+const h1 = {
+  color: "#333333",
+  fontSize: "24px",
+  fontWeight: "bold",
+  margin: "40px 0 20px",
+  padding: "0",
+};
+
+const text = {
+  color: "#333333",
+  fontSize: "16px",
+  lineHeight: "26px",
+  margin: "16px 0",
+};
+
+const highlightBox = {
+  backgroundColor: "#f5f5ff",
+  border: "2px solid #5034FF",
+  borderRadius: "8px",
+  padding: "20px",
+  margin: "20px 0",
+};
+
+const highlightTitle = {
+  margin: "0 0 8px 0",
+  fontSize: "18px",
+  fontWeight: "bold",
+  color: "#5034FF",
+};
+
+const highlightDate = {
+  margin: "0",
+  fontSize: "20px",
+  fontWeight: "bold",
+  color: "#333",
+};
+
+const highlightSubtext = {
+  margin: "8px 0 0 0",
+  fontSize: "14px",
+  color: "#666",
+};
+
+const buttonContainer = {
+  padding: "20px 0",
+};
+
+const buttonPrimary = {
+  backgroundColor: "#5034FF",
+  color: "#fff",
+  padding: "12px 24px",
+  textDecoration: "none",
+  borderRadius: "4px",
+  display: "inline-block",
+  marginRight: "12px",
+  marginBottom: "8px",
+  fontSize: "16px",
+  fontWeight: "bold",
+};
+
+const buttonSecondary = {
+  backgroundColor: "#ffffff",
+  color: "#5034FF",
+  padding: "12px 24px",
+  textDecoration: "none",
+  borderRadius: "4px",
+  display: "inline-block",
+  border: "2px solid #5034FF",
+  fontSize: "16px",
+  fontWeight: "bold",
+};
+
+const hr = {
+  borderColor: "#e6ebf1",
+  margin: "30px 0 20px 0",
+};
+
+const footerText = {
+  fontSize: "14px",
+  color: "#666666",
+  lineHeight: "24px",
+  margin: "16px 0",
+};
+
+const footer = {
+  color: "#8898aa",
+  fontSize: "14px",
+  lineHeight: "24px",
+  marginTop: "32px",
 };

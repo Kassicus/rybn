@@ -2,16 +2,20 @@ import { resend, EMAIL_FROM, EMAIL_FROM_NAME } from "./client";
 import { WelcomeEmail } from "./templates/WelcomeEmail";
 import { GroupInviteEmail } from "./templates/GroupInviteEmail";
 import { DateReminderEmail } from "./templates/DateReminderEmail";
-import { createElement } from "react";
+import { render } from "@react-email/render";
 
 export async function sendWelcomeEmail(email: string, username: string) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://rybn.app';
+
+  const emailHtml = await render(
+    <WelcomeEmail username={username} appUrl={appUrl} />
+  );
 
   return await resend.emails.send({
     from: `${EMAIL_FROM_NAME} <${EMAIL_FROM}>`,
     to: email,
     subject: "Welcome to Rybn!",
-    react: createElement(WelcomeEmail, { username, appUrl }),
+    html: emailHtml,
   });
 }
 
@@ -27,16 +31,20 @@ export async function sendGroupInviteEmail(data: {
   // In the future, we can check if the email exists in the database
   const isNewUser = true;
 
+  const emailHtml = await render(
+    <GroupInviteEmail
+      groupName={data.groupName}
+      inviterName={data.inviterName}
+      inviteUrl={inviteUrl}
+      isNewUser={isNewUser}
+    />
+  );
+
   return await resend.emails.send({
     from: `${EMAIL_FROM_NAME} <${EMAIL_FROM}>`,
     to: data.toEmail,
     subject: `You're invited to join ${data.groupName} on Rybn`,
-    react: createElement(GroupInviteEmail, {
-      groupName: data.groupName,
-      inviterName: data.inviterName,
-      inviteUrl,
-      isNewUser,
-    }),
+    html: emailHtml,
   });
 }
 
@@ -57,20 +65,24 @@ export async function sendDateReminderEmail(data: {
   const dateTypeLabel = data.dateType === "birthday" ? "Birthday" : "Anniversary";
   const emoji = data.dateType === "birthday" ? "🎂" : "💝";
 
+  const emailHtml = await render(
+    <DateReminderEmail
+      recipientName={data.recipientName}
+      celebrantName={data.celebrantName}
+      celebrantUsername={data.celebrantUsername}
+      dateType={data.dateType}
+      celebrationDate={data.celebrationDate}
+      groupName={data.groupName}
+      groupType={data.groupType}
+      profileUrl={profileUrl}
+      wishlistUrl={wishlistUrl}
+    />
+  );
+
   return await resend.emails.send({
     from: `${EMAIL_FROM_NAME} <${EMAIL_FROM}>`,
     to: data.toEmail,
     subject: `${emoji} ${data.celebrantName}'s ${dateTypeLabel} - ${data.celebrationDate}`,
-    react: createElement(DateReminderEmail, {
-      recipientName: data.recipientName,
-      celebrantName: data.celebrantName,
-      celebrantUsername: data.celebrantUsername,
-      dateType: data.dateType,
-      celebrationDate: data.celebrationDate,
-      groupName: data.groupName,
-      groupType: data.groupType,
-      profileUrl,
-      wishlistUrl,
-    }),
+    html: emailHtml,
   });
 }

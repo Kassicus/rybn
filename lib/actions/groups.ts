@@ -40,7 +40,7 @@ export async function createGroup(formData: {
       .from("groups")
       .select("id")
       .eq("invite_code", inviteCode)
-      .single();
+      .maybeSingle();
 
     if (!existing) {
       codeExists = false;
@@ -68,10 +68,16 @@ export async function createGroup(formData: {
       created_by: user.id,
     })
     .select()
-    .single();
+    .maybeSingle();
 
   if (groupError) {
-    return { error: groupError.message };
+    console.error("Error creating group:", groupError);
+    return { error: "Failed to create group. Please try again." };
+  }
+
+  if (!group) {
+    console.error("No group returned after insert");
+    return { error: "Failed to create group. Please try again." };
   }
 
   // Revalidate the groups page
@@ -140,10 +146,15 @@ export async function getGroupById(groupId: string) {
     .from("groups")
     .select("*")
     .eq("id", groupId)
-    .single();
+    .maybeSingle();
 
   if (groupError) {
-    return { error: groupError.message };
+    console.error("Error fetching group:", groupError);
+    return { error: "Failed to load group. Please try again." };
+  }
+
+  if (!group) {
+    return { error: "Group not found" };
   }
 
   // Get group members
@@ -201,7 +212,7 @@ export async function leaveGroup(groupId: string) {
     .select("role")
     .eq("group_id", groupId)
     .eq("user_id", user.id)
-    .single();
+    .maybeSingle();
 
   if (membership?.role === "owner") {
     return { error: "Owners cannot leave the group. Transfer ownership or delete the group." };
@@ -239,7 +250,7 @@ export async function deleteGroup(groupId: string) {
     .select("role")
     .eq("group_id", groupId)
     .eq("user_id", user.id)
-    .single();
+    .maybeSingle();
 
   if (membership?.role !== "owner") {
     return { error: "Only the owner can delete this group" };

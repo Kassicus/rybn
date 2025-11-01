@@ -1,8 +1,10 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { generateInviteToken, getInviteExpiration } from "@/lib/utils/groups";
 import { sendGroupInviteEmail } from "@/lib/resend/send";
+import { revalidatePath } from "next/cache";
 
 export async function sendGroupInvitation(data: {
   groupId: string;
@@ -38,12 +40,17 @@ export async function sendGroupInvitation(data: {
   }
 
   // Check if user is a member of the group
-  const { data: membership } = await supabase
+  const { data: membership, error: membershipError } = await supabase
     .from("group_members")
     .select("role")
     .eq("group_id", data.groupId)
     .eq("user_id", user.id)
-    .single();
+    .maybeSingle();
+
+  if (membershipError) {
+    console.error("Membership check failed:", membershipError);
+    return { error: "Failed to verify group membership. Please try again." };
+  }
 
   if (!membership) {
     return { error: "You are not a member of this group" };
@@ -70,12 +77,16 @@ export async function sendGroupInvitation(data: {
   }
 
   // Check for existing pending invitation
-  const { data: existingInvite } = await supabase
+  // Use order by and limit to handle potential duplicates gracefully
+  const { data: existingInvites } = await supabase
     .from("invitations")
     .select("id, accepted")
     .eq("group_id", data.groupId)
     .eq("email", data.email)
-    .maybeSingle();
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  const existingInvite = existingInvites && existingInvites.length > 0 ? existingInvites[0] : null;
 
   // Generate invitation token
   const token = generateInviteToken();
@@ -86,6 +97,8 @@ export async function sendGroupInvitation(data: {
   // If there's an existing pending invitation, update it with new token and expiry
   // Otherwise, create a new invitation
   if (existingInvite && !existingInvite.accepted) {
+    console.log("Updating existing invitation:", existingInvite.id);
+
     const { data: updatedInvite, error: updateError } = await supabase
       .from("invitations")
       .update({
@@ -96,11 +109,21 @@ export async function sendGroupInvitation(data: {
       })
       .eq("id", existingInvite.id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (updateError) {
-      return { error: updateError.message };
+      console.error("Error updating invitation:", updateError);
+      console.error("Update error details:", JSON.stringify(updateError, null, 2));
+      console.error("Attempted to update invitation ID:", existingInvite.id);
+      return { error: `Failed to update invitation: ${updateError.message}` };
     }
+
+    if (!updatedInvite) {
+      console.error("No invitation returned after update for ID:", existingInvite.id);
+      return { error: "Failed to update invitation. Please try again." };
+    }
+
+    console.log("Successfully updated invitation:", updatedInvite.id);
     invitation = updatedInvite;
   } else {
     // Create new invitation
@@ -114,11 +137,18 @@ export async function sendGroupInvitation(data: {
         expires_at: expiresAt.toISOString(),
       })
       .select()
-      .single();
+      .maybeSingle();
 
     if (inviteError) {
-      return { error: inviteError.message };
+      console.error("Error creating invitation:", inviteError);
+      return { error: "Failed to create invitation. Please try again." };
     }
+
+    if (!newInvite) {
+      console.error("No invitation returned after insert");
+      return { error: "Failed to create invitation. Please try again." };
+    }
+
     invitation = newInvite;
   }
 
@@ -127,15 +157,21 @@ export async function sendGroupInvitation(data: {
   let emailError = null;
 
   try {
-    await sendGroupInviteEmail({
+    const result = await sendGroupInviteEmail({
       toEmail: data.email,
       groupName: data.groupName,
       inviterName: user.user_metadata?.username || user.email || "A friend",
       inviteToken: token,
     });
+    console.log("Email sent successfully:", result);
     emailSent = true;
   } catch (error) {
     console.error("Failed to send invite email:", error);
+    console.error("Email details:", {
+      toEmail: data.email,
+      groupName: data.groupName,
+      inviterName: user.user_metadata?.username || user.email || "A friend",
+    });
     emailError = error instanceof Error ? error.message : "Unknown error";
     // Don't fail the invitation creation if email fails
   }
@@ -149,6 +185,8 @@ export async function sendGroupInvitation(data: {
 }
 
 export async function acceptInvitation(token: string) {
+  console.log("acceptInvitation called with token:", token);
+
   const supabase = await createClient();
 
   // Get current user
@@ -157,20 +195,34 @@ export async function acceptInvitation(token: string) {
     error: userError,
   } = await supabase.auth.getUser();
 
+  console.log("User check:", { user: user?.id, error: userError?.message });
+
   if (userError || !user) {
+    console.error("Not authenticated:", userError);
     return { error: "Not authenticated" };
   }
 
-  // Find the invitation
+  // Find the invitation (don't fetch groups data yet due to RLS)
+  console.log("Searching for invitation with token:", token);
   const { data: invitation, error: inviteError } = await supabase
     .from("invitations")
-    .select("*, groups(*)")
+    .select("*")
     .eq("token", token)
-    .single();
+    .maybeSingle();
 
-  if (inviteError || !invitation) {
+  console.log("Invitation query result:", { invitation, error: inviteError });
+
+  if (inviteError) {
+    console.error("Error fetching invitation:", inviteError);
+    return { error: "Failed to fetch invitation. Please try again." };
+  }
+
+  if (!invitation) {
+    console.error("No invitation found for token:", token);
     return { error: "Invalid invitation token" };
   }
+
+  console.log("Found invitation:", invitation.id, "for group:", invitation.group_id);
 
   // Check if invitation has expired
   if (new Date(invitation.expires_at) < new Date()) {
@@ -183,31 +235,79 @@ export async function acceptInvitation(token: string) {
   }
 
   // Check if user is already a member
-  const { data: existingMember } = await supabase
-    .from("group_members")
-    .select("id")
-    .eq("group_id", invitation.group_id)
-    .eq("user_id", user.id)
-    .single();
+  console.log("Checking membership for user:", user.id, "in group:", invitation.group_id);
 
-  if (existingMember) {
-    return { error: "You are already a member of this group" };
+  // Check all memberships to see if there are duplicates
+  const { data: allMemberships } = await supabase
+    .from("group_members")
+    .select("id, role, joined_at")
+    .eq("group_id", invitation.group_id)
+    .eq("user_id", user.id);
+
+  console.log("All memberships found:", allMemberships);
+
+  if (allMemberships && allMemberships.length > 0) {
+    console.log("User is already a member, redirecting to group");
+    console.log("Membership details:", JSON.stringify(allMemberships, null, 2));
+
+    // Mark the invitation as accepted since they're already in the group
+    // Use admin client to bypass RLS
+    const adminClient = createAdminClient();
+    await adminClient
+      .from("invitations")
+      .update({
+        accepted: true,
+        accepted_at: new Date().toISOString(),
+      })
+      .eq("id", invitation.id);
+
+    // Fetch the group data now that they're a member
+    const { data: group } = await supabase
+      .from("groups")
+      .select("*")
+      .eq("id", invitation.group_id)
+      .maybeSingle();
+
+    // Revalidate the groups page
+    revalidatePath("/groups");
+    revalidatePath(`/groups/${invitation.group_id}`);
+
+    const result = { data: group || { id: invitation.group_id } };
+    console.log("Returning from acceptInvitation (already member):", result);
+    // Redirect them to the group instead of showing an error
+    return result;
   }
 
+  console.log("User is not a member, proceeding with acceptance");
+
   // Security: Mark invitation as accepted BEFORE adding user to prevent race condition
-  // Use atomic update to ensure only one acceptance per invitation
-  const { error: acceptError } = await supabase
+  // Use admin client to bypass RLS for this update (user accepting isn't the sender)
+  console.log("Attempting to mark invitation as accepted...");
+  const adminClient = createAdminClient();
+  const { error: acceptError, data: acceptData } = await adminClient
     .from("invitations")
     .update({
       accepted: true,
       accepted_at: new Date().toISOString(),
     })
     .eq("id", invitation.id)
-    .eq("accepted", false); // Only update if not already accepted
+    .eq("accepted", false) // Only update if not already accepted
+    .select();
+
+  console.log("Accept update result:", { error: acceptError, data: acceptData });
 
   if (acceptError) {
+    console.error("Failed to mark invitation as accepted:", acceptError);
+    console.error("Error details:", JSON.stringify(acceptError, null, 2));
+    return { error: `Failed to accept invitation: ${acceptError.message}` };
+  }
+
+  if (!acceptData || acceptData.length === 0) {
+    console.error("No rows updated when marking invitation as accepted");
     return { error: "Failed to accept invitation. It may have already been used." };
   }
+
+  console.log("Successfully marked invitation as accepted");
 
   // Add user to group
   const { error: memberError } = await supabase.from("group_members").insert({
@@ -217,15 +317,33 @@ export async function acceptInvitation(token: string) {
   });
 
   if (memberError) {
-    // If adding member fails, rollback the acceptance
-    await supabase
+    console.error("Error adding user to group:", memberError);
+    // If adding member fails, rollback the acceptance using admin client
+    await adminClient
       .from("invitations")
       .update({ accepted: false, accepted_at: null })
       .eq("id", invitation.id);
     return { error: memberError.message };
   }
 
-  return { data: invitation.groups };
+  console.log("Successfully added user to group");
+
+  // Now fetch the group data (user is a member now, so RLS allows it)
+  const { data: group } = await supabase
+    .from("groups")
+    .select("*")
+    .eq("id", invitation.group_id)
+    .maybeSingle();
+
+  console.log("Fetched group data:", group?.id);
+
+  // Revalidate the groups page to ensure fresh data
+  revalidatePath("/groups");
+  revalidatePath(`/groups/${invitation.group_id}`);
+
+  const result = { data: group || { id: invitation.group_id } };
+  console.log("Returning from acceptInvitation:", result);
+  return result;
 }
 
 export async function joinGroupByCode(inviteCode: string) {
@@ -246,9 +364,14 @@ export async function joinGroupByCode(inviteCode: string) {
     .from("groups")
     .select("*")
     .eq("invite_code", inviteCode.toUpperCase())
-    .single();
+    .maybeSingle();
 
-  if (groupError || !group) {
+  if (groupError) {
+    console.error("Error fetching group:", groupError);
+    return { error: "Failed to fetch group. Please try again." };
+  }
+
+  if (!group) {
     return { error: "Invalid invite code" };
   }
 
@@ -258,7 +381,7 @@ export async function joinGroupByCode(inviteCode: string) {
     .select("id")
     .eq("group_id", group.id)
     .eq("user_id", user.id)
-    .single();
+    .maybeSingle();
 
   if (existingMember) {
     return { error: "You are already a member of this group" };
