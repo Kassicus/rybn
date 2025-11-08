@@ -42,7 +42,7 @@ export default async function GroupDetailPage({
       {/* Group Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-4">
-          <div className="w-16 h-16 rounded-lg bg-primary-50 dark:bg-primary-900/20 flex items-center justify-center flex-shrink-0">
+          <div className="w-16 h-16 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0">
             <Icon className="w-8 h-8 text-primary" />
           </div>
           <div>
@@ -53,7 +53,7 @@ export default async function GroupDetailPage({
               </Text>
             )}
             <div className="flex items-center gap-2 mt-2">
-              <span className="px-2 py-1 rounded text-xs font-medium bg-light-background-hover dark:bg-dark-background-hover text-light-text-secondary dark:text-dark-text-secondary">
+              <span className="px-2 py-1 rounded text-xs font-medium bg-light-background-hover text-light-text-secondary">
                 {group.type}
               </span>
             </div>
@@ -68,14 +68,14 @@ export default async function GroupDetailPage({
       </div>
 
       {/* Invite Section */}
-      <div className="p-4 rounded-lg border border-light-border dark:border-dark-border bg-light-background-hover dark:bg-dark-background-hover">
+      <div className="p-4 rounded-lg border border-light-border bg-light-background-hover">
         <div className="flex items-center justify-between">
           <div>
             <Text size="sm" className="font-medium">
               Invite Code
             </Text>
             <div className="flex items-center gap-2 mt-1">
-              <code className="px-2 py-1 rounded bg-light-background dark:bg-dark-background-secondary text-primary font-mono text-sm">
+              <code className="px-2 py-1 rounded bg-light-background text-primary font-mono text-sm">
                 {group.invite_code}
               </code>
               <CopyInviteCode inviteCode={group.invite_code} />
@@ -86,7 +86,7 @@ export default async function GroupDetailPage({
       </div>
 
       {/* Gift Exchange Quick Action */}
-      <div className="p-4 rounded-lg border border-light-border dark:border-dark-border bg-gradient-to-r from-primary-50 to-secondary-50 dark:from-primary-900/20 dark:to-secondary-900/20">
+      <div className="p-4 rounded-lg border border-light-border bg-gradient-to-r from-primary-50 to-secondary-50">
         <div className="flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -124,7 +124,7 @@ export default async function GroupDetailPage({
             return (
               <div
                 key={member.id}
-                className="flex items-center justify-between p-4 rounded-lg border border-light-border dark:border-dark-border"
+                className="flex items-center justify-between p-4 rounded-lg border border-light-border"
               >
                 <div className="flex items-center gap-3">
                   <Avatar>
@@ -147,7 +147,7 @@ export default async function GroupDetailPage({
                         member.user_profiles?.username ||
                         "Unknown User"}
                       {isCurrentUser && (
-                        <span className="ml-2 text-xs text-light-text-secondary dark:text-dark-text-secondary">
+                        <span className="ml-2 text-xs text-light-text-secondary">
                           (You)
                         </span>
                       )}
@@ -180,10 +180,10 @@ export default async function GroupDetailPage({
                   <span
                     className={`px-2 py-1 rounded text-xs font-medium ${
                       member.role === "owner"
-                        ? "bg-primary-100 dark:bg-primary-900/40 text-primary"
+                        ? "bg-primary-100 text-primary"
                         : member.role === "admin"
-                        ? "bg-primary-50 dark:bg-primary-900/20 text-primary"
-                        : "bg-light-background-hover dark:bg-dark-background-hover text-light-text-secondary dark:text-dark-text-secondary"
+                        ? "bg-primary-50 text-primary"
+                        : "bg-light-background-hover text-light-text-secondary"
                     }`}
                   >
                     {member.role}

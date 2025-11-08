@@ -118,7 +118,7 @@ export default function SetUsernamePage() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         {error && (
-          <div className="p-3 rounded bg-error-light dark:bg-error-dark border border-error">
+          <div className="p-3 rounded bg-error-light border border-error">
             <Text variant="error" size="sm">
               {error}
             </Text>

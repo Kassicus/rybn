@@ -92,7 +92,7 @@ export function ContributionTracker({
     <div className="space-y-6">
       {/* Progress Overview */}
       {targetAmount !== null && (
-        <div className="p-5 rounded-lg border border-light-border dark:border-dark-border bg-light-background-hover dark:bg-dark-background-hover">
+        <div className="p-5 rounded-lg border border-light-border bg-light-background-hover">
           <div className="flex items-center justify-between mb-3">
             <Heading level="h4">Progress</Heading>
             <Text className="text-2xl font-bold">
@@ -101,7 +101,7 @@ export function ContributionTracker({
           </div>
 
           <div className="space-y-2">
-            <div className="w-full bg-light-background dark:bg-dark-background-secondary rounded-full h-3">
+            <div className="w-full bg-light-background rounded-full h-3">
               <div
                 className={`h-3 rounded-full transition-all ${
                   isComplete ? "bg-success" : "bg-primary"
@@ -122,7 +122,7 @@ export function ContributionTracker({
       )}
 
       {/* Your Contribution */}
-      <div className="p-5 rounded-lg border border-light-border dark:border-dark-border">
+      <div className="p-5 rounded-lg border border-light-border">
         <div className="flex items-center justify-between mb-4">
           <Heading level="h4">Your Contribution</Heading>
           {!isEditing && (
@@ -140,7 +140,7 @@ export function ContributionTracker({
         {isEditing ? (
           <div className="space-y-4">
             {error && (
-              <div className="p-3 rounded bg-error-light dark:bg-error-dark border border-error">
+              <div className="p-3 rounded bg-error-light border border-error">
                 <Text variant="error" size="sm">
                   {error}
                 </Text>
@@ -154,7 +154,7 @@ export function ContributionTracker({
                 </Text>
               </label>
               <div className="relative">
-                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-light-text-secondary dark:text-dark-text-secondary" />
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-light-text-secondary" />
                 <Input
                   type="number"
                   step="0.01"
@@ -203,7 +203,7 @@ export function ContributionTracker({
           </div>
         ) : (
           <div className="space-y-2">
-            <div className="flex items-center justify-between p-3 rounded bg-light-background-hover dark:bg-dark-background-hover">
+            <div className="flex items-center justify-between p-3 rounded bg-light-background-hover">
               <Text size="sm" variant="secondary">
                 Your Pledge
               </Text>
@@ -211,14 +211,14 @@ export function ContributionTracker({
                 {formatCurrency(myMembership.contribution_amount || 0)}
               </Text>
             </div>
-            <div className="flex items-center justify-between p-3 rounded bg-light-background-hover dark:bg-dark-background-hover">
+            <div className="flex items-center justify-between p-3 rounded bg-light-background-hover">
               <Text size="sm" variant="secondary">
                 Payment Status
               </Text>
               <span className={`px-2 py-1 rounded text-xs font-medium ${
                 myMembership.has_paid
-                  ? "bg-success-light dark:bg-success-dark text-success"
-                  : "bg-warning-light dark:bg-warning-dark text-warning"
+                  ? "bg-success-light text-success"
+                  : "bg-warning-light text-warning"
               }`}>
                 {myMembership.has_paid ? "Paid" : "Pending"}
               </span>
@@ -234,7 +234,7 @@ export function ContributionTracker({
           {members.map((member) => (
             <div
               key={member.id}
-              className="flex items-center justify-between p-4 rounded-lg border border-light-border dark:border-dark-border"
+              className="flex items-center justify-between p-4 rounded-lg border border-light-border"
             >
               <div className="flex items-center gap-3">
                 <Avatar>
@@ -272,11 +272,11 @@ export function ContributionTracker({
                   {formatCurrency(member.contribution_amount || 0)}
                 </Text>
                 {member.has_paid ? (
-                  <span className="px-2 py-1 rounded text-xs font-medium bg-success-light dark:bg-success-dark text-success">
+                  <span className="px-2 py-1 rounded text-xs font-medium bg-success-light text-success">
                     Paid
                   </span>
                 ) : (
-                  <span className="px-2 py-1 rounded text-xs font-medium bg-warning-light dark:bg-warning-dark text-warning">
+                  <span className="px-2 py-1 rounded text-xs font-medium bg-warning-light text-warning">
                     Pending
                   </span>
                 )}

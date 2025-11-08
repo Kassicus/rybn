@@ -8,9 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Heading } from "@/components/ui/text";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
-import { ThemeToggle } from "./ThemeToggle";
 import { getMyProfile } from "@/lib/actions/profile";
-import { useTheme } from "next-themes";
 import Image from "next/image";
 import type { User } from "@supabase/supabase-js";
 
@@ -29,13 +27,6 @@ export function DashboardNav({ user }: DashboardNavProps) {
   const router = useRouter();
   const supabase = createClient();
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const { theme, resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  // Handle client-side mounting for theme
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   // Load user profile
   useEffect(() => {
@@ -66,15 +57,11 @@ export function DashboardNav({ user }: DashboardNavProps) {
     { href: "/gift-exchange", label: "Gift Exchange", icon: Calendar },
   ];
 
-  // Determine which logo to show
-  const currentTheme = mounted ? (resolvedTheme || theme) : "light";
-  const logoSrc = currentTheme === "dark" ? "/brand/rybn_logo_white.svg" : "/brand/rybn_logo_black.svg";
-
   return (
-    <aside className="w-64 border-r border-light-border dark:border-dark-border flex flex-col p-4 bg-light-background dark:bg-dark-background">
+    <aside className="w-64 border-r border-light-border flex flex-col p-4 bg-light-background">
       <div className="mb-8 flex justify-center">
         <Image
-          src={logoSrc}
+          src="/brand/rybn_logo_black.svg"
           alt="Rybn"
           width={180}
           height={64}
@@ -114,11 +101,10 @@ export function DashboardNav({ user }: DashboardNavProps) {
             </AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate text-light-text-primary dark:text-dark-text-primary">
+            <p className="text-sm font-medium truncate text-light-text-primary">
               {profile?.display_name || profile?.username || user.email}
             </p>
           </div>
-          <ThemeToggle />
         </div>
 
         <Button

@@ -47,11 +47,11 @@ export function WishlistItemCard({ item, isOwnWishlist = false }: WishlistItemCa
 
   return (
     <Link href={`/wishlist/${item.id}`}>
-      <div className="block p-4 rounded-lg border border-light-border dark:border-dark-border hover:border-primary dark:hover:border-primary transition-colors bg-white dark:bg-dark-background">
+      <div className="block p-4 rounded-lg border border-light-border hover:border-primary transition-colors bg-white">
         <div className="flex gap-4">
           {/* Image */}
           {item.image_url && (
-            <div className="w-24 h-24 flex-shrink-0 rounded-md overflow-hidden bg-gray-100 dark:bg-gray-800">
+            <div className="w-24 h-24 flex-shrink-0 rounded-md overflow-hidden bg-gray-100">
               <img
                 src={item.image_url}
                 alt={item.title}
@@ -67,12 +67,12 @@ export function WishlistItemCard({ item, isOwnWishlist = false }: WishlistItemCa
                 <div className="flex items-center gap-2 mb-1">
                   <Text className="font-semibold text-lg truncate">{item.title}</Text>
                   {item.claimed_by && !isOwnWishlist && (
-                    <span className="px-2 py-0.5 rounded text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+                    <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700">
                       Claimed
                     </span>
                   )}
                   {item.purchased && !isOwnWishlist && (
-                    <span className="px-2 py-0.5 rounded text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                    <span className="px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">
                       Purchased
                     </span>
                   )}
@@ -102,7 +102,7 @@ export function WishlistItemCard({ item, isOwnWishlist = false }: WishlistItemCa
 
                   {/* Category */}
                   {item.category && (
-                    <span className="px-2 py-0.5 rounded text-xs bg-light-background-hover dark:bg-dark-background-hover">
+                    <span className="px-2 py-0.5 rounded text-xs bg-light-background-hover">
                       {item.category}
                     </span>
                   )}

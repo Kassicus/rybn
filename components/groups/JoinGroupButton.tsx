@@ -77,7 +77,7 @@ export default function JoinGroupButton() {
 
       {/* Modal */}
       <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-        <div className="bg-light-background dark:bg-dark-background-secondary rounded-lg border border-light-border dark:border-dark-border max-w-md w-full p-6 space-y-4">
+        <div className="bg-light-background rounded-lg border border-light-border max-w-md w-full p-6 space-y-4">
           <div className="flex items-start justify-between">
             <div>
               <Heading level="h3">Join a Group</Heading>
@@ -87,7 +87,7 @@ export default function JoinGroupButton() {
             </div>
             <button
               onClick={handleClose}
-              className="text-light-text-secondary hover:text-light-text-primary dark:text-dark-text-secondary dark:hover:text-dark-text-primary"
+              className="text-light-text-secondary hover:text-light-text-primary"
               disabled={isLoading}
             >
               <X className="w-5 h-5" />
@@ -95,7 +95,7 @@ export default function JoinGroupButton() {
           </div>
 
           {error && (
-            <div className="p-3 rounded bg-error-light dark:bg-error-dark border border-error">
+            <div className="p-3 rounded bg-error-light border border-error">
               <Text variant="error" size="sm">
                 {error}
               </Text>
@@ -103,7 +103,7 @@ export default function JoinGroupButton() {
           )}
 
           {success && (
-            <div className="p-3 rounded bg-success-light dark:bg-success-dark border border-success">
+            <div className="p-3 rounded bg-success-light border border-success">
               <Text variant="success" size="sm">
                 Successfully joined group! Redirecting...
               </Text>

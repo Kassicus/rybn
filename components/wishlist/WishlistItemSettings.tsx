@@ -120,21 +120,21 @@ export function WishlistItemSettings({
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg border border-light-border dark:border-dark-border bg-light-background dark:bg-dark-background p-6 shadow-xl">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg border border-light-border bg-light-background p-6 shadow-xl">
             <div className="flex items-center justify-between mb-6">
               <Heading level="h3">
                 {viewMode === 'edit' ? 'Edit Item' : 'Item Settings'}
               </Heading>
               <button
                 onClick={handleClose}
-                className="p-1 hover:bg-light-background-hover dark:hover:bg-dark-background-hover rounded"
+                className="p-1 hover:bg-light-background-hover rounded"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {error && (
-              <div className="mb-4 p-3 rounded bg-error-light dark:bg-error-dark border border-error">
+              <div className="mb-4 p-3 rounded bg-error-light border border-error">
                 <Text variant="error" size="sm">
                   {error}
                 </Text>
@@ -144,7 +144,7 @@ export function WishlistItemSettings({
             {viewMode === 'menu' && !showDeleteConfirm && (
               <div className="space-y-4">
                 {/* Edit Section */}
-                <div className="p-4 rounded-lg border border-light-border dark:border-dark-border">
+                <div className="p-4 rounded-lg border border-light-border">
                   <Heading level="h4" className="mb-2">
                     Edit Item
                   </Heading>
@@ -161,7 +161,7 @@ export function WishlistItemSettings({
                 </div>
 
                 {/* Danger Zone */}
-                <div className="p-4 rounded-lg border border-light-border dark:border-dark-border">
+                <div className="p-4 rounded-lg border border-light-border">
                   <Heading level="h4" className="mb-2">
                     Danger Zone
                   </Heading>
@@ -182,7 +182,7 @@ export function WishlistItemSettings({
 
             {viewMode === 'menu' && showDeleteConfirm && (
               <div className="space-y-4">
-                <div className="p-4 rounded-lg border-2 border-error bg-error-light dark:bg-error-dark">
+                <div className="p-4 rounded-lg border-2 border-error bg-error-light">
                   <Heading level="h4" className="mb-2 text-error">
                     Are you absolutely sure?
                   </Heading>
@@ -311,8 +311,8 @@ export function WishlistItemSettings({
                           onClick={() => setValue("priority", priority)}
                           className={`p-4 rounded-lg border-2 transition-all text-left ${
                             isSelected
-                              ? "border-primary bg-primary-50 dark:bg-primary-900/20"
-                              : "border-light-border dark:border-dark-border hover:border-primary-200 dark:hover:border-primary-800"
+                              ? "border-primary bg-primary-50"
+                              : "border-light-border hover:border-primary-200"
                           }`}
                         >
                           <Text size="sm" className={`font-medium ${isSelected ? "text-primary" : ""}`}>

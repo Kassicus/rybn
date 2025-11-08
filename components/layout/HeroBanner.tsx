@@ -16,7 +16,7 @@ export function HeroBanner({ userName, stats }: HeroBannerProps) {
   const greeting = getGreeting();
 
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent dark:from-primary/20 dark:via-primary/10 p-8 mb-8 border border-primary/20">
+    <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-8 mb-8 border border-primary/20">
       {/* Decorative elements */}
       <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -z-10" />
       <div className="absolute bottom-0 left-0 w-48 h-48 bg-primary/5 rounded-full blur-3xl -z-10" />
@@ -38,7 +38,7 @@ export function HeroBanner({ userName, stats }: HeroBannerProps) {
                   <Calendar className="w-5 h-5 text-primary" />
                 </div>
                 <div>
-                  <Text className="font-medium text-light-text-primary dark:text-dark-text-primary">
+                  <Text className="font-medium text-light-text-primary">
                     {stats.upcomingEvents}
                   </Text>
                   <Text variant="secondary" size="sm">
@@ -54,7 +54,7 @@ export function HeroBanner({ userName, stats }: HeroBannerProps) {
                   <Gift className="w-5 h-5 text-primary" />
                 </div>
                 <div>
-                  <Text className="font-medium text-light-text-primary dark:text-dark-text-primary">
+                  <Text className="font-medium text-light-text-primary">
                     {stats.activeGifts}
                   </Text>
                   <Text variant="secondary" size="sm">
@@ -70,7 +70,7 @@ export function HeroBanner({ userName, stats }: HeroBannerProps) {
                   <Users className="w-5 h-5 text-primary" />
                 </div>
                 <div>
-                  <Text className="font-medium text-light-text-primary dark:text-dark-text-primary">
+                  <Text className="font-medium text-light-text-primary">
                     {stats.groupCount}
                   </Text>
                   <Text variant="secondary" size="sm">

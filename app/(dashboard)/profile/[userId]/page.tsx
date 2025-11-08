@@ -52,7 +52,7 @@ export default async function UserProfilePage({
       <ProfileHeader profile={profileData} isOwnProfile={false} />
 
       {/* Visibility indicator */}
-      <div className="p-3 rounded bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+      <div className="p-3 rounded bg-blue-50 border border-blue-200">
         <div className="flex items-center gap-2">
           <Eye className="w-4 h-4" />
           <Text size="sm">
@@ -163,7 +163,7 @@ export default async function UserProfilePage({
               {sharedGroups.map((group: any) => (
                 <div
                   key={group.id}
-                  className="flex items-center gap-2 p-3 rounded border border-light-border dark:border-dark-border"
+                  className="flex items-center gap-2 p-3 rounded border border-light-border"
                 >
                   <Users className="w-4 h-4" />
                   <div>
@@ -184,7 +184,7 @@ export default async function UserProfilePage({
       {/* Empty state */}
       {profileInfo.length === 0 && (
         <div className="text-center py-12">
-          <p className="text-light-text-secondary dark:text-dark-text-secondary">
+          <p className="text-light-text-secondary">
             This user hasn't added any profile information yet, or you don't have permission to view it.
           </p>
         </div>

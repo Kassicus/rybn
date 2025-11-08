@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { ThemeToggle } from "@/components/vibe/ThemeToggle";
 import { Logo } from "@/components/vibe/Logo";
 import { Button } from "@/components/ui/button";
 import { Heading, Text } from "@/components/ui/text";
@@ -21,9 +20,6 @@ export default async function Home() {
   // Show landing page for logged-out users
   return (
     <div className="min-h-screen flex flex-col">
-      <div className="absolute top-4 right-4">
-        <ThemeToggle />
-      </div>
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center space-y-4">
           <div className="flex justify-center mb-4">

@@ -51,10 +51,10 @@ export function GiftExchangeCard({
 
   return (
     <Link href={`/gift-exchange/${exchange.id}`}>
-      <div className="block p-5 rounded-lg border border-light-border dark:border-dark-border hover:border-primary dark:hover:border-primary transition-colors bg-light-background dark:bg-dark-background-secondary">
+      <div className="block p-5 rounded-lg border border-light-border hover:border-primary transition-colors bg-light-background">
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-3 flex-1">
-            <div className="w-12 h-12 rounded-lg bg-primary-50 dark:bg-primary-900/20 flex items-center justify-center flex-shrink-0">
+            <div className="w-12 h-12 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0">
               <Gift className="w-6 h-6 text-primary" />
             </div>
             <div className="flex-1 min-w-0">
@@ -69,7 +69,7 @@ export function GiftExchangeCard({
                   {typeLabel}
                 </span>
                 {exchange.assignments_generated && (
-                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-success-light dark:bg-success-dark text-success">
+                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-success-light text-success">
                     Assigned
                   </span>
                 )}
@@ -77,16 +77,16 @@ export function GiftExchangeCard({
             </div>
           </div>
           {!exchange.is_active && (
-            <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 ml-2">
+            <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600 ml-2">
               Inactive
             </span>
           )}
         </div>
 
         {/* Stats */}
-        <div className="flex items-center gap-4 pt-3 border-t border-light-border dark:border-dark-border">
+        <div className="flex items-center gap-4 pt-3 border-t border-light-border">
           <div className="flex items-center gap-1.5">
-            <Users className="w-4 h-4 text-light-text-secondary dark:text-dark-text-secondary" />
+            <Users className="w-4 h-4 text-light-text-secondary" />
             <Text size="sm" variant="secondary">
               {participantCount} {participantCount === 1 ? "participant" : "participants"}
             </Text>
@@ -94,7 +94,7 @@ export function GiftExchangeCard({
 
           {budget && (
             <div className="flex items-center gap-1.5">
-              <DollarSign className="w-4 h-4 text-light-text-secondary dark:text-dark-text-secondary" />
+              <DollarSign className="w-4 h-4 text-light-text-secondary" />
               <Text size="sm" variant="secondary">
                 {budget}
               </Text>
@@ -103,7 +103,7 @@ export function GiftExchangeCard({
 
           {exchange.exchange_date && (
             <div className="flex items-center gap-1.5">
-              <Calendar className="w-4 h-4 text-light-text-secondary dark:text-dark-text-secondary" />
+              <Calendar className="w-4 h-4 text-light-text-secondary" />
               <Text size="sm" variant="secondary">
                 {formatDistanceToNow(new Date(exchange.exchange_date), { addSuffix: true })}
               </Text>
@@ -112,7 +112,7 @@ export function GiftExchangeCard({
 
           {isParticipating && (
             <div className="flex items-center gap-1.5 ml-auto">
-              <span className="px-2 py-1 rounded text-xs font-medium bg-primary-100 dark:bg-primary-900/40 text-primary">
+              <span className="px-2 py-1 rounded text-xs font-medium bg-primary-100 text-primary">
                 Joined
               </span>
             </div>

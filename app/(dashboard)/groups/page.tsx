@@ -19,7 +19,7 @@ export default async function GroupsPage() {
     return (
       <div className="space-y-4">
         <Heading level="h1">Groups</Heading>
-        <div className="p-4 rounded bg-error-light dark:bg-error-dark border border-error">
+        <div className="p-4 rounded bg-error-light border border-error">
           <Text variant="error">{error}</Text>
         </div>
       </div>
@@ -49,7 +49,7 @@ export default async function GroupsPage() {
       {groups.length === 0 ? (
         <div className="text-center py-12 px-4">
           <div className="max-w-md mx-auto space-y-4">
-            <div className="w-16 h-16 rounded-full bg-primary-50 dark:bg-primary-900/20 flex items-center justify-center mx-auto">
+            <div className="w-16 h-16 rounded-full bg-primary-50 flex items-center justify-center mx-auto">
               <Users className="w-8 h-8 text-primary" />
             </div>
             <Heading level="h3">No groups yet</Heading>
@@ -76,10 +76,10 @@ export default async function GroupsPage() {
               <Link
                 key={group.id}
                 href={`/groups/${group.id}`}
-                className="block p-6 rounded-lg border border-light-border dark:border-dark-border hover:border-primary dark:hover:border-primary transition-colors"
+                className="block p-6 rounded-lg border border-light-border hover:border-primary transition-colors"
               >
                 <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-primary-50 dark:bg-primary-900/20 flex items-center justify-center flex-shrink-0">
+                  <div className="w-10 h-10 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0">
                     <Icon className="w-5 h-5 text-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -96,16 +96,16 @@ export default async function GroupsPage() {
                       </Text>
                     )}
                     <div className="flex items-center gap-2 mt-3">
-                      <span className="px-2 py-1 rounded text-xs font-medium bg-light-background-hover dark:bg-dark-background-hover text-light-text-secondary dark:text-dark-text-secondary">
+                      <span className="px-2 py-1 rounded text-xs font-medium bg-light-background-hover text-light-text-secondary">
                         {group.type}
                       </span>
                       {group.myRole === "owner" && (
-                        <span className="px-2 py-1 rounded text-xs font-medium bg-primary-100 dark:bg-primary-900/40 text-primary">
+                        <span className="px-2 py-1 rounded text-xs font-medium bg-primary-100 text-primary">
                           Owner
                         </span>
                       )}
                       {group.myRole === "admin" && (
-                        <span className="px-2 py-1 rounded text-xs font-medium bg-primary-100 dark:bg-primary-900/40 text-primary">
+                        <span className="px-2 py-1 rounded text-xs font-medium bg-primary-100 text-primary">
                           Admin
                         </span>
                       )}

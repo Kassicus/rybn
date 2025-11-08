@@ -65,7 +65,7 @@ export default async function UserWishlistPage({
           </div>
         </div>
 
-        <div className="p-6 rounded-lg border border-light-border dark:border-dark-border bg-light-background-hover dark:bg-dark-background-hover">
+        <div className="p-6 rounded-lg border border-light-border bg-light-background-hover">
           <div className="flex items-center gap-2 mb-3">
             <Lock className="w-5 h-5" />
             <Text className="font-medium">No Shared Groups</Text>
@@ -112,7 +112,7 @@ export default async function UserWishlistPage({
       </div>
 
       {/* Visibility indicator */}
-      <div className="p-3 rounded bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+      <div className="p-3 rounded bg-blue-50 border border-blue-200">
         <div className="flex items-center gap-2">
           <Eye className="w-4 h-4" />
           <Text size="sm">
@@ -123,7 +123,7 @@ export default async function UserWishlistPage({
 
       {/* Shared Groups */}
       {sharedGroups && sharedGroups.length > 0 && (
-        <div className="p-4 rounded-lg border border-light-border dark:border-dark-border">
+        <div className="p-4 rounded-lg border border-light-border">
           <div className="flex items-center gap-2 mb-2">
             <Users className="w-4 h-4" />
             <Text className="font-medium">Shared Groups</Text>
@@ -132,7 +132,7 @@ export default async function UserWishlistPage({
             {sharedGroups.map((group: any) => (
               <span
                 key={group.id}
-                className="px-2 py-1 rounded text-xs bg-light-background-hover dark:bg-dark-background-hover"
+                className="px-2 py-1 rounded text-xs bg-light-background-hover"
               >
                 {group.name}
               </span>
@@ -144,7 +144,7 @@ export default async function UserWishlistPage({
       {/* Empty state */}
       {items && items.length === 0 && (
         <div className="text-center py-16">
-          <Gift className="w-16 h-16 mx-auto text-light-text-secondary dark:text-dark-text-secondary mb-4" />
+          <Gift className="w-16 h-16 mx-auto text-light-text-secondary mb-4" />
           <Heading level="h3" className="mb-2">No wishlist items</Heading>
           <Text variant="secondary">
             This user hasn't added any wishlist items you can see yet.

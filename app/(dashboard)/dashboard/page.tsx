@@ -19,7 +19,7 @@ import JoinGroupButton from "@/components/groups/JoinGroupButton";
 function GroupCard({ group }: { group: any }) {
   return (
     <Link href={`/groups/${group.id}`}>
-      <div className="p-6 rounded-2xl border border-light-border dark:border-dark-border hover:border-primary dark:hover:border-primary transition-all duration-200 bg-light-background dark:bg-dark-background-secondary h-full hover:shadow-lg hover:-translate-y-1">
+      <div className="p-6 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
         <Heading level="h4" className="mb-2">{group.name}</Heading>
         {group.description && (
           <Text variant="secondary" size="sm" className="line-clamp-2 mb-3">
@@ -27,11 +27,11 @@ function GroupCard({ group }: { group: any }) {
           </Text>
         )}
         <div className="flex items-center gap-2">
-          <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-light-background-hover dark:bg-dark-background-hover text-light-text-secondary dark:text-dark-text-secondary capitalize">
+          <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-light-background-hover text-light-text-secondary capitalize">
             {group.type}
           </span>
           {group.myRole === "owner" && (
-            <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-primary-100 dark:bg-primary-900/40 text-primary">
+            <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-primary-100 text-primary">
               Owner
             </span>
           )}
@@ -49,7 +49,7 @@ function WishlistCard({ item }: { item: any }) {
 
   return (
     <Link href={`/wishlist`}>
-      <div className="p-6 rounded-2xl border border-light-border dark:border-dark-border hover:border-primary dark:hover:border-primary transition-all duration-200 bg-light-background dark:bg-dark-background-secondary h-full flex flex-col hover:shadow-lg hover:-translate-y-1">
+      <div className="p-6 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full flex flex-col hover:shadow-lg hover:-translate-y-1">
         <Heading level="h4" className="mb-2 line-clamp-1">{item.title}</Heading>
         {item.description && (
           <Text variant="secondary" size="sm" className="line-clamp-2 mb-3">
@@ -64,19 +64,19 @@ function WishlistCard({ item }: { item: any }) {
           )}
           {item.priority && (
             <span className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize ${
-              item.priority === 'must-have' ? 'bg-error-light dark:bg-error-dark text-error' :
-              item.priority === 'high' ? 'bg-warning-light dark:bg-warning-dark text-warning' :
+              item.priority === 'must-have' ? 'bg-error-light text-error' :
+              item.priority === 'high' ? 'bg-warning-light text-warning' :
               item.priority === 'medium' ? 'bg-primary-light text-primary' :
-              'bg-light-background-hover dark:bg-dark-background-hover text-light-text-secondary dark:text-dark-text-secondary'
+              'bg-light-background-hover text-light-text-secondary'
             }`}>
               {item.priority}
             </span>
           )}
         </div>
-        <hr className="border-t border-light-border dark:border-dark-border mb-3" />
+        <hr className="border-t border-light-border mb-3" />
         {/* Privacy indicator */}
         <div className="flex items-center gap-1.5">
-          <Lock className="w-3 h-3 text-light-text-secondary dark:text-dark-text-secondary" />
+          <Lock className="w-3 h-3 text-light-text-secondary" />
           <Text size="sm" variant="secondary">
             {isPrivate
               ? 'Private'
@@ -218,7 +218,7 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Groups */}
         <Link href="/groups" className="group">
-          <div className="p-8 rounded-2xl border border-light-border dark:border-dark-border hover:border-primary dark:hover:border-primary transition-all duration-200 bg-light-background dark:bg-dark-background-secondary h-full hover:shadow-lg hover:-translate-y-1">
+          <div className="p-8 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
             <div className="flex items-center gap-4 mb-6">
               <div className="p-4 rounded-xl bg-success/10 group-hover:bg-success/20 transition-colors">
                 <Users className="w-8 h-8 text-success" />
@@ -237,7 +237,7 @@ export default async function DashboardPage() {
 
         {/* Group Gifts */}
         <Link href="/gifts" className="group">
-          <div className="p-8 rounded-2xl border border-light-border dark:border-dark-border hover:border-primary dark:hover:border-primary transition-all duration-200 bg-light-background dark:bg-dark-background-secondary h-full hover:shadow-lg hover:-translate-y-1">
+          <div className="p-8 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
             <div className="flex items-center gap-4 mb-6">
               <div className="p-4 rounded-xl bg-warning/10 group-hover:bg-warning/20 transition-colors">
                 <Gift className="w-8 h-8 text-warning" />
@@ -256,7 +256,7 @@ export default async function DashboardPage() {
 
         {/* Exchanges */}
         <Link href="/gift-exchange" className="group">
-          <div className="p-8 rounded-2xl border border-light-border dark:border-dark-border hover:border-primary dark:hover:border-primary transition-all duration-200 bg-light-background dark:bg-dark-background-secondary h-full hover:shadow-lg hover:-translate-y-1">
+          <div className="p-8 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
             <div className="flex items-center gap-4 mb-6">
               <div className="p-4 rounded-xl bg-error/10 group-hover:bg-error/20 transition-colors">
                 <Calendar className="w-8 h-8 text-error" />
@@ -275,7 +275,7 @@ export default async function DashboardPage() {
 
         {/* My Wishlist */}
         <Link href="/wishlist" className="group">
-          <div className="p-8 rounded-2xl border border-light-border dark:border-dark-border hover:border-primary dark:hover:border-primary transition-all duration-200 bg-light-background dark:bg-dark-background-secondary h-full hover:shadow-lg hover:-translate-y-1">
+          <div className="p-8 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
             <div className="flex items-center gap-4 mb-6">
               <div className="p-4 rounded-xl bg-primary/10 group-hover:bg-primary/20 transition-colors">
                 <ListPlus className="w-8 h-8 text-primary" />
@@ -304,8 +304,8 @@ export default async function DashboardPage() {
           />
         </div>
       ) : (
-        <div className="p-12 rounded-2xl border border-light-border dark:border-dark-border border-dashed text-center bg-light-background dark:bg-dark-background-secondary">
-          <Calendar className="w-12 h-12 mx-auto mb-4 text-light-text-secondary dark:text-dark-text-secondary" />
+        <div className="p-12 rounded-2xl border border-light-border border-dashed text-center bg-light-background">
+          <Calendar className="w-12 h-12 mx-auto mb-4 text-light-text-secondary" />
           <Heading level="h3" className="mb-2">No Active Exchanges</Heading>
           <Text variant="secondary" className="mb-4">
             Create your first gift exchange to start coordinating gifts with your groups
