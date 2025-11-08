@@ -130,7 +130,7 @@ const text = {
 
 const highlightBox = {
   backgroundColor: "#f5f5ff",
-  border: "2px solid #5034FF",
+  border: "2px solid #009E01",
   borderRadius: "8px",
   padding: "20px",
   margin: "20px 0",
@@ -140,7 +140,7 @@ const highlightTitle = {
   margin: "0 0 8px 0",
   fontSize: "18px",
   fontWeight: "bold",
-  color: "#5034FF",
+  color: "#009E01",
 };
 
 const highlightDate = {
@@ -161,7 +161,7 @@ const buttonContainer = {
 };
 
 const buttonPrimary = {
-  backgroundColor: "#5034FF",
+  backgroundColor: "#009E01",
   color: "#fff",
   padding: "12px 24px",
   textDecoration: "none",
@@ -175,12 +175,12 @@ const buttonPrimary = {
 
 const buttonSecondary = {
   backgroundColor: "#ffffff",
-  color: "#5034FF",
+  color: "#009E01",
   padding: "12px 24px",
   textDecoration: "none",
   borderRadius: "4px",
   display: "inline-block",
-  border: "2px solid #5034FF",
+  border: "2px solid #009E01",
   fontSize: "16px",
   fontWeight: "bold",
 };

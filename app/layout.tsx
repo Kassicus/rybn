@@ -1,22 +1,15 @@
 import type { Metadata } from "next";
-import { Inter, Figtree } from "next/font/google";
-import { RybnThemeProvider } from "@/components/vibe/ThemeProvider";
+import { Quicksand } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
+import "@fontsource/playwrite-de-sas/400.css";
 import "./globals.css";
+import { QueryProvider } from "@/components/providers/QueryProvider";
 
-// Monday.com Vibe uses Figtree (or similar modern sans-serif)
-const figtree = Figtree({
+// Rybn brand font: Quicksand for body text
+const quicksand = Quicksand({
   subsets: ["latin"],
   weight: ["300", "400", "500", "600", "700"],
-  variable: "--font-figtree",
-  display: "swap",
-});
-
-// Fallback: Inter is also excellent and similar
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
-  variable: "--font-inter",
+  variable: "--font-quicksand",
   display: "swap",
 });
 
@@ -31,10 +24,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning className={`${figtree.variable} ${inter.variable}`}>
-      <body className={figtree.className}>
-        <RybnThemeProvider>{children}</RybnThemeProvider>
-        <Analytics />
+    <html lang="en" className={quicksand.variable}>
+      <body className={quicksand.className}>
+        <QueryProvider>
+          {children}
+          <Analytics />
+        </QueryProvider>
       </body>
     </html>
   );

@@ -10,6 +10,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "./ThemeToggle";
 import { getMyProfile } from "@/lib/actions/profile";
+import { useTheme } from "next-themes";
+import Image from "next/image";
 import type { User } from "@supabase/supabase-js";
 
 interface DashboardNavProps {
@@ -27,6 +29,13 @@ export function DashboardNav({ user }: DashboardNavProps) {
   const router = useRouter();
   const supabase = createClient();
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const { theme, resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  // Handle client-side mounting for theme
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Load user profile
   useEffect(() => {
@@ -57,10 +66,21 @@ export function DashboardNav({ user }: DashboardNavProps) {
     { href: "/gift-exchange", label: "Gift Exchange", icon: Calendar },
   ];
 
+  // Determine which logo to show
+  const currentTheme = mounted ? (resolvedTheme || theme) : "light";
+  const logoSrc = currentTheme === "dark" ? "/brand/rybn_logo_white.svg" : "/brand/rybn_logo_black.svg";
+
   return (
     <aside className="w-64 border-r border-light-border dark:border-dark-border flex flex-col p-4 bg-light-background dark:bg-dark-background">
-      <div className="mb-8">
-        <Heading level="h3">Rybn</Heading>
+      <div className="mb-8 flex justify-center">
+        <Image
+          src={logoSrc}
+          alt="Rybn"
+          width={180}
+          height={64}
+          priority
+          className="w-[180px] h-auto"
+        />
       </div>
 
       <nav className="flex-1 space-y-1">
