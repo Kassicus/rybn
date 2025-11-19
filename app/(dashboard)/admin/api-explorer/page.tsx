@@ -176,7 +176,7 @@ function EndpointTester({ endpoint }: { endpoint: ApiEndpoint }) {
           {/* Query Parameters */}
           {endpoint.queryParams && endpoint.queryParams.length > 0 && (
             <div>
-              <Heading level="h5" className="mb-2">
+              <Heading level="h4" className="mb-2">
                 Query Parameters
               </Heading>
               <div className="space-y-2">
@@ -210,7 +210,7 @@ function EndpointTester({ endpoint }: { endpoint: ApiEndpoint }) {
           {/* Headers */}
           {endpoint.headers && endpoint.headers.length > 0 && (
             <div>
-              <Heading level="h5" className="mb-2">
+              <Heading level="h4" className="mb-2">
                 Headers
               </Heading>
               <div className="space-y-2">
@@ -241,7 +241,7 @@ function EndpointTester({ endpoint }: { endpoint: ApiEndpoint }) {
           {/* Body Parameters */}
           {endpoint.bodyParams && endpoint.bodyParams.length > 0 && (
             <div>
-              <Heading level="h5" className="mb-2">
+              <Heading level="h4" className="mb-2">
                 Request Body (JSON)
               </Heading>
               <div className="space-y-2 mb-3">
@@ -287,7 +287,7 @@ function EndpointTester({ endpoint }: { endpoint: ApiEndpoint }) {
                 </>
               )}
             </Button>
-            <Button onClick={handleCopyCode} variant="outline">
+            <Button onClick={handleCopyCode} variant="secondary">
               {copied ? (
                 <>
                   <CheckCircle className="w-4 h-4 mr-2" />
@@ -305,7 +305,7 @@ function EndpointTester({ endpoint }: { endpoint: ApiEndpoint }) {
           {/* Example Response */}
           {endpoint.exampleResponse && !result && (
             <div>
-              <Heading level="h5" className="mb-2">
+              <Heading level="h4" className="mb-2">
                 Example Response
               </Heading>
               <pre className="p-3 rounded-lg bg-gray-900 text-green-400 text-xs overflow-x-auto">
@@ -317,7 +317,7 @@ function EndpointTester({ endpoint }: { endpoint: ApiEndpoint }) {
           {/* Actual Response */}
           {result && (
             <div>
-              <Heading level="h5" className="mb-2 flex items-center gap-2">
+              <Heading level="h4" className="mb-2 flex items-center gap-2">
                 Response
                 {result.ok ? (
                   <CheckCircle className="w-5 h-5 text-green-600" />

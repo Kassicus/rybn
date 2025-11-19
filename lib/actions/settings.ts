@@ -38,7 +38,7 @@ export async function getMySettings() {
   // Get profile from user_profiles table
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
-    .select("email_preferences")
+    .select("*")
     .eq("id", user.id)
     .single();
 
@@ -73,7 +73,7 @@ export async function getMySettings() {
     email_gift_updates: true,
     email_exchange_notifications: true,
     email_marketing: false,
-    ...(profile.email_preferences as Partial<EmailPreferences> || {}),
+    ...(profile && (profile as any).email_preferences ? ((profile as any).email_preferences as Partial<EmailPreferences>) : {}),
   };
 
   const settings: UserSettings = {

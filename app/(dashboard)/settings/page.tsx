@@ -143,7 +143,6 @@ export default function SettingsPage() {
       <FormSection
         title="Privacy Settings"
         description="Control who can see your profile information"
-        icon={<Lock className="w-5 h-5" />}
       >
         <div className="space-y-4">
           <GroupTypeSelector
@@ -161,7 +160,6 @@ export default function SettingsPage() {
       <FormSection
         title="Email Notifications"
         description="Choose which emails you'd like to receive"
-        icon={<Bell className="w-5 h-5" />}
       >
         <div className="space-y-4">
           {/* Group Invites */}
