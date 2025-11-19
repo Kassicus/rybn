@@ -8,7 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Heading, Text } from "@/components/ui/text";
 import { joinGroupByCode } from "@/lib/actions/invitations";
 
-export default function JoinGroupButton() {
+interface JoinGroupButtonProps {
+  size?: "small" | "medium" | "large";
+}
+
+export default function JoinGroupButton({ size = "medium" }: JoinGroupButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -60,7 +64,7 @@ export default function JoinGroupButton() {
 
   if (!isOpen) {
     return (
-      <Button variant="success" size="small" onClick={() => setIsOpen(true)}>
+      <Button variant="secondary" size={size} onClick={() => setIsOpen(true)}>
         <UserPlus className="w-4 h-4" />
         Join Group
       </Button>
@@ -144,7 +148,7 @@ export default function JoinGroupButton() {
               </Button>
               <Button
                 type="submit"
-                variant="success"
+                variant="primary"
                 loading={isLoading}
                 disabled={!inviteCode.trim()}
                 className="flex-1"

@@ -57,7 +57,7 @@ export default async function GroupsPage() {
               Create your first group or join an existing one to start coordinating gifts with others
             </Text>
             <div className="flex items-center justify-center gap-2">
-              <JoinGroupButton />
+              <JoinGroupButton size="large" />
               <Link href="/groups/create">
                 <Button variant="primary" size="large">
                   <Plus className="w-4 h-4" />

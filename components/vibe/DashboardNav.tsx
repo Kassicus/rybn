@@ -63,10 +63,10 @@ export function DashboardNav({ user }: DashboardNavProps) {
         <Image
           src="/brand/rybn_logo_black.svg"
           alt="Rybn"
-          width={180}
-          height={64}
+          width={200}
+          height={72}
           priority
-          className="w-[180px] h-auto"
+          className="w-[200px] h-auto"
         />
       </div>
 

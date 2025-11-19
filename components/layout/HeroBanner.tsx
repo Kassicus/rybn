@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Heading, Text } from "@/components/ui/text";
 import { Gift, Calendar, Users } from "lucide-react";
 
@@ -13,7 +14,11 @@ interface HeroBannerProps {
 }
 
 export function HeroBanner({ userName, stats }: HeroBannerProps) {
-  const greeting = getGreeting();
+  const [greeting, setGreeting] = useState("Hello");
+
+  useEffect(() => {
+    setGreeting(getGreeting());
+  }, []);
 
   return (
     <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-8 mb-8 border border-primary/20">
