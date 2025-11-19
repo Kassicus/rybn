@@ -46,7 +46,7 @@ export default async function GroupSettingsPage({
       {/* Group Information */}
       <div className="space-y-4">
         <Heading level="h3">Group Information</Heading>
-        <div className="p-4 rounded-lg border border-light-border dark:border-dark-border space-y-3">
+        <div className="p-4 rounded-lg border border-light-border space-y-3">
           <div>
             <Text size="sm" variant="secondary">
               Name
@@ -71,7 +71,7 @@ export default async function GroupSettingsPage({
             <Text size="sm" variant="secondary">
               Invite Code
             </Text>
-            <code className="px-2 py-1 rounded bg-light-background-hover dark:bg-dark-background-hover text-primary font-mono text-sm">
+            <code className="px-2 py-1 rounded bg-light-background-hover text-primary font-mono text-sm">
               {group.invite_code}
             </code>
           </div>
@@ -91,7 +91,7 @@ export default async function GroupSettingsPage({
           </Text>
         </div>
 
-        <div className="p-4 rounded-lg border border-error bg-error-light dark:bg-error-dark space-y-4">
+        <div className="p-4 rounded-lg border border-error bg-error-light space-y-4">
           {!isOwner && (
             <div className="flex items-start justify-between">
               <div>

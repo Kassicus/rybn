@@ -16,10 +16,10 @@ export function PrivacyInfo({ level }: PrivacyInfoProps) {
   };
 
   return (
-    <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
-      <Info className="w-4 h-4 mt-0.5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+    <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200">
+      <Info className="w-4 h-4 mt-0.5 text-blue-600 flex-shrink-0" />
       <div>
-        <Text size="sm" className="text-blue-900 dark:text-blue-100">
+        <Text size="sm" className="text-blue-900">
           <strong>Default Privacy: {level.charAt(0).toUpperCase() + level.slice(1)}</strong>
         </Text>
         <Text size="sm" variant="secondary" className="mt-0.5">

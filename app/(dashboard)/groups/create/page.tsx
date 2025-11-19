@@ -92,7 +92,7 @@ export default function CreateGroupPage() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {error && (
-          <div className="p-3 rounded bg-error-light dark:bg-error-dark border border-error">
+          <div className="p-3 rounded bg-error-light border border-error">
             <Text variant="error" size="sm">
               {error}
             </Text>
@@ -145,14 +145,14 @@ export default function CreateGroupPage() {
                   onClick={() => setValue("type", type.value)}
                   className={`p-4 rounded-lg border-2 transition-all text-left ${
                     isSelected
-                      ? "border-primary bg-primary-50 dark:bg-primary-900/20"
-                      : "border-light-border dark:border-dark-border hover:border-primary-200 dark:hover:border-primary-800"
+                      ? "border-primary bg-primary-50"
+                      : "border-light-border hover:border-primary-200"
                   }`}
                 >
                   <div className="flex items-start gap-3">
                     <Icon
                       className={`w-5 h-5 mt-0.5 ${
-                        isSelected ? "text-primary" : "text-light-text-secondary dark:text-dark-text-secondary"
+                        isSelected ? "text-primary" : "text-light-text-secondary"
                       }`}
                     />
                     <div>

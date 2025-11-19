@@ -1,10 +1,12 @@
 import Link from "next/link";
-import { ArrowRight, Plus, Lock } from "lucide-react";
+import { ArrowRight, Plus, Lock, Users, Gift, Calendar, ListPlus } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
+import { HeroBanner } from "@/components/layout/HeroBanner";
 import { getMyGroups } from "@/lib/actions/groups";
 import { getMyWishlist } from "@/lib/actions/wishlist";
 import { getMyGroupGifts } from "@/lib/actions/gifts";
+import { getMyProfile } from "@/lib/actions/profile";
 import { GroupGiftCard } from "@/components/gifts/GiftGroupCard";
 import { GiftExchangeCard } from "@/components/gift-exchange/GiftExchangeCard";
 import { createClient } from "@/lib/supabase/server";
@@ -17,7 +19,7 @@ import JoinGroupButton from "@/components/groups/JoinGroupButton";
 function GroupCard({ group }: { group: any }) {
   return (
     <Link href={`/groups/${group.id}`}>
-      <div className="p-4 rounded-lg border border-light-border dark:border-dark-border hover:border-primary dark:hover:border-primary transition-colors bg-light-background dark:bg-dark-background-secondary h-full">
+      <div className="p-6 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
         <Heading level="h4" className="mb-2">{group.name}</Heading>
         {group.description && (
           <Text variant="secondary" size="sm" className="line-clamp-2 mb-3">
@@ -25,11 +27,11 @@ function GroupCard({ group }: { group: any }) {
           </Text>
         )}
         <div className="flex items-center gap-2">
-          <span className="px-2 py-1 rounded text-xs font-medium bg-light-background-hover dark:bg-dark-background-hover text-light-text-secondary dark:text-dark-text-secondary capitalize">
+          <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-light-background-hover text-light-text-secondary capitalize">
             {group.type}
           </span>
           {group.myRole === "owner" && (
-            <span className="px-2 py-1 rounded text-xs font-medium bg-primary-100 dark:bg-primary-900/40 text-primary">
+            <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-primary-100 text-primary">
               Owner
             </span>
           )}
@@ -47,7 +49,7 @@ function WishlistCard({ item }: { item: any }) {
 
   return (
     <Link href={`/wishlist`}>
-      <div className="p-4 rounded-lg border border-light-border dark:border-dark-border hover:border-primary dark:hover:border-primary transition-colors bg-light-background dark:bg-dark-background-secondary h-full flex flex-col">
+      <div className="p-6 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full flex flex-col hover:shadow-lg hover:-translate-y-1">
         <Heading level="h4" className="mb-2 line-clamp-1">{item.title}</Heading>
         {item.description && (
           <Text variant="secondary" size="sm" className="line-clamp-2 mb-3">
@@ -61,20 +63,20 @@ function WishlistCard({ item }: { item: any }) {
             </Text>
           )}
           {item.priority && (
-            <span className={`px-2 py-1 rounded text-xs font-medium capitalize ${
-              item.priority === 'must-have' ? 'bg-error-light dark:bg-error-dark text-error' :
-              item.priority === 'high' ? 'bg-warning-light dark:bg-warning-dark text-warning' :
+            <span className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize ${
+              item.priority === 'must-have' ? 'bg-error-light text-error' :
+              item.priority === 'high' ? 'bg-warning-light text-warning' :
               item.priority === 'medium' ? 'bg-primary-light text-primary' :
-              'bg-light-background-hover dark:bg-dark-background-hover text-light-text-secondary dark:text-dark-text-secondary'
+              'bg-light-background-hover text-light-text-secondary'
             }`}>
               {item.priority}
             </span>
           )}
         </div>
-        <hr className="border-t border-light-border dark:border-dark-border mb-3" />
+        <hr className="border-t border-light-border mb-3" />
         {/* Privacy indicator */}
         <div className="flex items-center gap-1.5">
-          <Lock className="w-3 h-3 text-light-text-secondary dark:text-dark-text-secondary" />
+          <Lock className="w-3 h-3 text-light-text-secondary" />
           <Text size="sm" variant="secondary">
             {isPrivate
               ? 'Private'
@@ -99,6 +101,7 @@ export default async function DashboardPage() {
     return null;
   }
 
+  const { data: profile } = await getMyProfile();
   const { data: groups = [] } = await getMyGroups();
   const { data: wishlistItems = [] } = await getMyWishlist();
   const { data: groupGifts = [] } = await getMyGroupGifts();
@@ -161,191 +164,160 @@ export default async function DashboardPage() {
   const previewGiftExchanges = exchangesWithData;
 
   return (
-    <div className="space-y-10">
-      {/* Header */}
+    <div className="space-y-8">
+      {/* Hero Banner */}
+      <HeroBanner
+        userName={profile?.display_name || profile?.username}
+        stats={{
+          upcomingEvents: exchangesWithData.length,
+          activeGifts: groupGifts.length,
+          groupCount: groups.length,
+        }}
+      />
+
+      {/* Quick Actions */}
       <div>
-        <Heading level="h1">Dashboard</Heading>
-        <Text variant="secondary" className="mt-1">
-          Welcome to Rybn - your gift coordination hub
-        </Text>
+        <Heading level="h3" className="mb-4">Quick Actions</Heading>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Link href="/gifts/create">
+            <Button
+              variant="secondary"
+              size="large"
+              className="w-full h-24 rounded-2xl flex-col gap-2"
+            >
+              <Gift className="w-6 h-6" />
+              <span>Create Group Gift</span>
+            </Button>
+          </Link>
+
+          <Link href="/gift-exchange/create">
+            <Button
+              variant="secondary"
+              size="large"
+              className="w-full h-24 rounded-2xl flex-col gap-2"
+            >
+              <Calendar className="w-6 h-6" />
+              <span>Start Gift Exchange</span>
+            </Button>
+          </Link>
+
+          <Link href="/wishlist/add">
+            <Button
+              variant="secondary"
+              size="large"
+              className="w-full h-24 rounded-2xl flex-col gap-2"
+            >
+              <ListPlus className="w-6 h-6" />
+              <span>Add to Wishlist</span>
+            </Button>
+          </Link>
+        </div>
       </div>
 
-      {/* Groups Section */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <Heading level="h2">Your Groups</Heading>
-          <div className="flex items-center gap-2">
-            <JoinGroupButton />
-            <Link href="/groups/create">
-              <Button variant="secondary" size="small">
-                <Plus className="w-4 h-4" />
-                Create
-              </Button>
-            </Link>
-            {groups.length > 3 && (
-              <Link href="/groups">
-                <Button variant="tertiary" size="small">
-                  See All ({groups.length})
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
-            )}
-          </div>
-        </div>
-
-        {previewGroups.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {previewGroups.map((group) => (
-              <GroupCard key={group.id} group={group} />
-            ))}
-          </div>
-        ) : (
-          <div className="p-8 rounded-lg border border-light-border dark:border-dark-border border-dashed text-center">
-            <Text variant="secondary">No groups yet</Text>
-            <div className="flex items-center justify-center gap-2 mt-3">
-              <JoinGroupButton />
-              <Link href="/groups/create">
-                <Button variant="primary" size="small">
-                  <Plus className="w-4 h-4" />
-                  Create Your First Group
-                </Button>
-              </Link>
+      {/* 2x2 Navigation Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Groups */}
+        <Link href="/groups" className="group">
+          <div className="p-8 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="p-4 rounded-xl bg-success/10 group-hover:bg-success/20 transition-colors">
+                <Users className="w-8 h-8 text-success" />
+              </div>
+              <Heading level="h2">Groups</Heading>
+            </div>
+            <Text variant="secondary" size="lg" className="mb-6">
+              {groups.length} {groups.length === 1 ? "group" : "groups"}
+            </Text>
+            <div className="flex items-center gap-2 text-primary">
+              <Text className="font-medium">View All</Text>
+              <ArrowRight className="w-5 h-5" />
             </div>
           </div>
-        )}
+        </Link>
+
+        {/* Group Gifts */}
+        <Link href="/gifts" className="group">
+          <div className="p-8 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="p-4 rounded-xl bg-warning/10 group-hover:bg-warning/20 transition-colors">
+                <Gift className="w-8 h-8 text-warning" />
+              </div>
+              <Heading level="h2">Group Gifts</Heading>
+            </div>
+            <Text variant="secondary" size="lg" className="mb-6">
+              {groupGifts.length} active {groupGifts.length === 1 ? "gift" : "gifts"}
+            </Text>
+            <div className="flex items-center gap-2 text-primary">
+              <Text className="font-medium">View All</Text>
+              <ArrowRight className="w-5 h-5" />
+            </div>
+          </div>
+        </Link>
+
+        {/* Exchanges */}
+        <Link href="/gift-exchange" className="group">
+          <div className="p-8 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="p-4 rounded-xl bg-error/10 group-hover:bg-error/20 transition-colors">
+                <Calendar className="w-8 h-8 text-error" />
+              </div>
+              <Heading level="h2">Exchanges</Heading>
+            </div>
+            <Text variant="secondary" size="lg" className="mb-6">
+              {exchangesWithData.length} active {exchangesWithData.length === 1 ? "exchange" : "exchanges"}
+            </Text>
+            <div className="flex items-center gap-2 text-primary">
+              <Text className="font-medium">View All</Text>
+              <ArrowRight className="w-5 h-5" />
+            </div>
+          </div>
+        </Link>
+
+        {/* My Wishlist */}
+        <Link href="/wishlist" className="group">
+          <div className="p-8 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="p-4 rounded-xl bg-primary/10 group-hover:bg-primary/20 transition-colors">
+                <ListPlus className="w-8 h-8 text-primary" />
+              </div>
+              <Heading level="h2">My Wishlist</Heading>
+            </div>
+            <Text variant="secondary" size="lg" className="mb-6">
+              {wishlistItems.length} {wishlistItems.length === 1 ? "item" : "items"}
+            </Text>
+            <div className="flex items-center gap-2 text-primary">
+              <Text className="font-medium">View All</Text>
+              <ArrowRight className="w-5 h-5" />
+            </div>
+          </div>
+        </Link>
       </div>
 
-      {/* Wishlist Section */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <Heading level="h2">Your Wishlist</Heading>
-          <div className="flex items-center gap-2">
-            <Link href="/wishlist/add">
-              <Button variant="secondary" size="small">
-                <Plus className="w-4 h-4" />
-                Add Item
-              </Button>
-            </Link>
-            {wishlistItems.length > 3 && (
-              <Link href="/wishlist">
-                <Button variant="tertiary" size="small">
-                  See All ({wishlistItems.length})
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
-            )}
-          </div>
+      {/* Featured Exchange */}
+      {previewGiftExchanges.length > 0 ? (
+        <div>
+          <Heading level="h3" className="mb-4">Featured Exchange</Heading>
+          <GiftExchangeCard
+            exchange={previewGiftExchanges[0]}
+            participantCount={previewGiftExchanges[0].participantCount}
+            isParticipating={previewGiftExchanges[0].isParticipating}
+          />
         </div>
-
-        {previewWishlist.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {previewWishlist.map((item) => (
-              <WishlistCard key={item.id} item={item} />
-            ))}
-          </div>
-        ) : (
-          <div className="p-8 rounded-lg border border-light-border dark:border-dark-border border-dashed text-center">
-            <Text variant="secondary">No wishlist items yet</Text>
-            <Link href="/wishlist/add">
-              <Button variant="primary" size="small" className="mt-3">
-                <Plus className="w-4 h-4" />
-                Add Your First Item
-              </Button>
-            </Link>
-          </div>
-        )}
-      </div>
-
-      {/* Group Gifts Section */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <Heading level="h2">Group Gifts</Heading>
-          <div className="flex items-center gap-2">
-            <Link href="/gifts/create">
-              <Button variant="secondary" size="small">
-                <Plus className="w-4 h-4" />
-                Create
-              </Button>
-            </Link>
-            {groupGifts.length > 3 && (
-              <Link href="/gifts">
-                <Button variant="tertiary" size="small">
-                  See All ({groupGifts.length})
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
-            )}
-          </div>
+      ) : (
+        <div className="p-12 rounded-2xl border border-light-border border-dashed text-center bg-light-background">
+          <Calendar className="w-12 h-12 mx-auto mb-4 text-light-text-secondary" />
+          <Heading level="h3" className="mb-2">No Active Exchanges</Heading>
+          <Text variant="secondary" className="mb-4">
+            Create your first gift exchange to start coordinating gifts with your groups
+          </Text>
+          <Link href="/gift-exchange/create">
+            <Button variant="primary" size="medium">
+              <Plus className="w-4 h-4" />
+              Create Gift Exchange
+            </Button>
+          </Link>
         </div>
-
-        {previewGroupGifts.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {previewGroupGifts.map((groupGift) => (
-              <GroupGiftCard
-                key={groupGift.id}
-                groupGift={groupGift}
-                memberCount={groupGift.memberCount}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="p-8 rounded-lg border border-light-border dark:border-dark-border border-dashed text-center">
-            <Text variant="secondary">No group gifts yet</Text>
-            <Link href="/gifts/create">
-              <Button variant="primary" size="small" className="mt-3">
-                <Plus className="w-4 h-4" />
-                Create Your First Group Gift
-              </Button>
-            </Link>
-          </div>
-        )}
-      </div>
-
-      {/* Gift Exchange Section */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <Heading level="h2">Gift Exchanges</Heading>
-          <div className="flex items-center gap-2">
-            <Link href="/gift-exchange/create">
-              <Button variant="secondary" size="small">
-                <Plus className="w-4 h-4" />
-                Create
-              </Button>
-            </Link>
-            {(allExchanges || []).length > 3 && (
-              <Link href="/gift-exchange">
-                <Button variant="tertiary" size="small">
-                  See All ({(allExchanges || []).length})
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
-            )}
-          </div>
-        </div>
-
-        {previewGiftExchanges.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {previewGiftExchanges.map((exchange) => (
-              <GiftExchangeCard
-                key={exchange.id}
-                exchange={exchange}
-                participantCount={exchange.participantCount}
-                isParticipating={exchange.isParticipating}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="p-8 rounded-lg border border-light-border dark:border-dark-border border-dashed text-center">
-            <Text variant="secondary">No gift exchanges yet</Text>
-            <Link href="/gift-exchange/create">
-              <Button variant="primary" size="small" className="mt-3">
-                <Plus className="w-4 h-4" />
-                Create Your First Gift Exchange
-              </Button>
-            </Link>
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }

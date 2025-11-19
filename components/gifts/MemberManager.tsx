@@ -115,7 +115,7 @@ export function MemberManager({
           return (
             <div
               key={member.id}
-              className="flex items-center gap-3 p-3 rounded-lg border border-light-border dark:border-dark-border bg-light-background dark:bg-dark-background-secondary"
+              className="flex items-center gap-3 p-3 rounded-lg border border-light-border bg-light-background"
             >
               <Avatar>
                 {profile?.avatar_url && <AvatarImage src={profile.avatar_url} />}
@@ -149,7 +149,7 @@ export function MemberManager({
       {/* Add Members Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="w-full max-w-md rounded-lg border border-light-border dark:border-dark-border bg-light-background dark:bg-dark-background p-6 shadow-xl">
+          <div className="w-full max-w-md rounded-lg border border-light-border bg-light-background p-6 shadow-xl">
             <div className="flex items-center justify-between mb-4">
               <Heading level="h3">Add Members</Heading>
               <button
@@ -158,14 +158,14 @@ export function MemberManager({
                   setSelectedUserIds([]);
                   setError(null);
                 }}
-                className="p-1 hover:bg-light-background-hover dark:hover:bg-dark-background-hover rounded"
+                className="p-1 hover:bg-light-background-hover rounded"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {error && (
-              <div className="mb-4 p-3 rounded bg-error-light dark:bg-error-dark border border-error">
+              <div className="mb-4 p-3 rounded bg-error-light border border-error">
                 <Text variant="error" size="sm">
                   {error}
                 </Text>
@@ -197,7 +197,7 @@ export function MemberManager({
                         className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-colors ${
                           isSelected
                             ? "border-primary bg-primary-light"
-                            : "border-light-border dark:border-dark-border hover:bg-light-background-hover dark:hover:bg-dark-background-hover"
+                            : "border-light-border hover:bg-light-background-hover"
                         }`}
                       >
                         <Avatar>

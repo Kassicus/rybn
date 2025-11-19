@@ -80,7 +80,7 @@ export function InviteMembersButton({
 
       {/* Modal */}
       <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-        <div className="bg-light-background dark:bg-dark-background-secondary rounded-lg border border-light-border dark:border-dark-border max-w-md w-full p-6 space-y-4">
+        <div className="bg-light-background rounded-lg border border-light-border max-w-md w-full p-6 space-y-4">
           <div className="flex items-start justify-between">
             <div>
               <Heading level="h3">Invite Members</Heading>
@@ -90,14 +90,14 @@ export function InviteMembersButton({
             </div>
             <button
               onClick={() => setIsOpen(false)}
-              className="text-text-secondary hover:text-text-primary dark:text-text-dark-secondary dark:hover:text-text-dark-primary"
+              className="text-text-secondary hover:text-text-primary"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {error && (
-            <div className="p-3 rounded bg-error-light dark:bg-error-dark border border-error">
+            <div className="p-3 rounded bg-error-light border border-error">
               <Text variant="error" size="sm">
                 {error}
               </Text>
@@ -105,15 +105,15 @@ export function InviteMembersButton({
           )}
 
           {warning && (
-            <div className="p-3 rounded bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-500">
-              <Text size="sm" className="text-yellow-800 dark:text-yellow-200">
+            <div className="p-3 rounded bg-yellow-100 border border-yellow-500">
+              <Text size="sm" className="text-yellow-800">
                 ⚠️ {warning}
               </Text>
             </div>
           )}
 
           {success && (
-            <div className="p-3 rounded bg-success-light dark:bg-success-dark border border-success">
+            <div className="p-3 rounded bg-success-light border border-success">
               <Text variant="success" size="sm">
                 {warning
                   ? "Invitation created (but check warning above)"

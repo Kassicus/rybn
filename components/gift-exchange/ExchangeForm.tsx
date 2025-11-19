@@ -50,11 +50,11 @@ export function ExchangeForm({ groupId }: ExchangeFormProps) {
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Info Banner */}
-      <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+      <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
         <div className="flex items-start gap-3">
-          <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+          <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
           <div>
-            <Text size="sm" className="font-medium text-blue-900 dark:text-blue-100">
+            <Text size="sm" className="font-medium text-blue-900">
               All group members will be automatically added
             </Text>
             <Text variant="secondary" size="sm" className="mt-1">
@@ -65,14 +65,14 @@ export function ExchangeForm({ groupId }: ExchangeFormProps) {
       </div>
 
       {error && (
-        <div className="p-4 rounded-lg bg-error-light dark:bg-error-dark border border-error">
+        <div className="p-4 rounded-lg bg-error-light border border-error">
           <Text variant="error">{error}</Text>
         </div>
       )}
 
       {success && (
-        <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
-          <Text className="text-green-900 dark:text-green-100">{success}</Text>
+        <div className="p-4 rounded-lg bg-green-50 border border-green-200">
+          <Text className="text-green-900">{success}</Text>
         </div>
       )}
 
@@ -104,7 +104,7 @@ export function ExchangeForm({ groupId }: ExchangeFormProps) {
             </Text>
           </label>
           <textarea
-            className="w-full min-h-[100px] px-3 py-2 rounded border border-light-border dark:border-dark-border bg-light-background dark:bg-dark-background-secondary text-light-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full min-h-[100px] px-3 py-2 rounded border border-light-border bg-light-background text-light-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
             placeholder="Add details about the exchange..."
             value={formData.description || ""}
             onChange={(e) =>
@@ -120,7 +120,7 @@ export function ExchangeForm({ groupId }: ExchangeFormProps) {
             </Text>
           </label>
           <select
-            className="w-full px-3 py-2 rounded border border-light-border dark:border-dark-border bg-light-background dark:bg-dark-background-secondary text-light-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full px-3 py-2 rounded border border-light-border bg-light-background text-light-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
             value={formData.exchange_type || "secret_santa"}
             onChange={(e) =>
               setFormData({
@@ -249,7 +249,7 @@ export function ExchangeForm({ groupId }: ExchangeFormProps) {
             </Text>
           </label>
           <textarea
-            className="w-full min-h-[100px] px-3 py-2 rounded border border-light-border dark:border-dark-border bg-light-background dark:bg-dark-background-secondary text-light-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full min-h-[100px] px-3 py-2 rounded border border-light-border bg-light-background text-light-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
             placeholder="Add any additional details (rules, preferences, etc.)..."
             value={formData.exchange_details || ""}
             onChange={(e) =>
@@ -260,7 +260,7 @@ export function ExchangeForm({ groupId }: ExchangeFormProps) {
       </div>
 
       {/* Submit */}
-      <div className="flex gap-3 pt-4 border-t border-light-border dark:border-dark-border">
+      <div className="flex gap-3 pt-4 border-t border-light-border">
         <Button
           type="button"
           variant="secondary"

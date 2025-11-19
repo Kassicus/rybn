@@ -67,7 +67,7 @@ export default function AddWishlistItemPage() {
       {/* @ts-expect-error - Form submit handler type inference */}
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {error && (
-          <div className="p-3 rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+          <div className="p-3 rounded bg-red-50 border border-red-200">
             <Text variant="error" size="sm">
               {error}
             </Text>
@@ -172,8 +172,8 @@ export default function AddWishlistItemPage() {
                   onClick={() => setValue("priority", priority)}
                   className={`p-4 rounded-lg border-2 transition-all text-left ${
                     isSelected
-                      ? "border-primary bg-primary-50 dark:bg-primary-900/20"
-                      : "border-light-border dark:border-dark-border hover:border-primary-200 dark:hover:border-primary-800"
+                      ? "border-primary bg-primary-50"
+                      : "border-light-border hover:border-primary-200"
                   }`}
                 >
                   <Text size="sm" className={`font-medium ${isSelected ? "text-primary" : ""}`}>

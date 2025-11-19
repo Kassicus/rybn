@@ -153,9 +153,9 @@ export function ChatWindow({
   };
 
   return (
-    <div className="flex flex-col h-[600px] border border-light-border dark:border-dark-border rounded-lg overflow-hidden bg-light-background dark:bg-dark-background-secondary">
+    <div className="flex flex-col h-[600px] border border-light-border rounded-lg overflow-hidden bg-light-background">
       {/* Header */}
-      <div className="p-4 border-b border-light-border dark:border-dark-border bg-light-background-hover dark:bg-dark-background-hover">
+      <div className="p-4 border-b border-light-border bg-light-background-hover">
         <Heading level="h4">Group Chat</Heading>
         <Text size="sm" variant="secondary">
           {messages.length} {messages.length === 1 ? "message" : "messages"}
@@ -234,7 +234,7 @@ export function ChatWindow({
                       className={`px-4 py-2 rounded-lg ${
                         isCurrentUser
                           ? "bg-primary text-white"
-                          : "bg-light-background-hover dark:bg-dark-background-hover"
+                          : "bg-light-background-hover"
                       }`}
                     >
                       <Text
@@ -265,9 +265,9 @@ export function ChatWindow({
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-light-border dark:border-dark-border bg-light-background-hover dark:bg-dark-background-hover">
+      <div className="p-4 border-t border-light-border bg-light-background-hover">
         {error && (
-          <div className="mb-3 p-2 rounded bg-error-light dark:bg-error-dark border border-error">
+          <div className="mb-3 p-2 rounded bg-error-light border border-error">
             <Text variant="error" size="sm">
               {error}
             </Text>

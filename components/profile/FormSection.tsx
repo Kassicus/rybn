@@ -24,7 +24,7 @@ export function FormSection({
           </Text>
         )}
       </div>
-      <div className="p-6 rounded-lg border border-light-border dark:border-dark-border space-y-4">
+      <div className="p-6 rounded-lg border border-light-border space-y-4">
         {children}
       </div>
     </div>

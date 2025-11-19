@@ -124,7 +124,7 @@ export default async function ProfilePage() {
       {/* Empty state */}
       {profileInfo.length === 0 && (
         <div className="text-center py-12">
-          <p className="text-light-text-secondary dark:text-dark-text-secondary mb-4">
+          <p className="text-light-text-secondary mb-4">
             Your profile is empty. Add some information to help others find the perfect gift for you!
           </p>
         </div>

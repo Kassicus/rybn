@@ -36,7 +36,7 @@ export default async function CreateGiftExchangePage({
   if (!userGroups || userGroups.length === 0) {
     return (
       <div className="max-w-2xl mx-auto">
-        <div className="p-8 rounded-lg border border-light-border dark:border-dark-border text-center">
+        <div className="p-8 rounded-lg border border-light-border text-center">
           <Heading level="h3" className="mb-2">
             No Groups Found
           </Heading>
@@ -87,7 +87,7 @@ export default async function CreateGiftExchangePage({
       />
 
       {/* Form */}
-      <div className="p-6 rounded-lg border border-light-border dark:border-dark-border bg-light-background dark:bg-dark-background-secondary">
+      <div className="p-6 rounded-lg border border-light-border bg-light-background">
         <ExchangeForm groupId={selectedGroupId} />
       </div>
     </div>

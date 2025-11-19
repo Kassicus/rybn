@@ -135,7 +135,7 @@ function AcceptInviteContent() {
   if (!token) {
     return (
       <div className="text-center space-y-6">
-        <div className="w-16 h-16 rounded-full bg-error-light dark:bg-error-dark flex items-center justify-center mx-auto">
+        <div className="w-16 h-16 rounded-full bg-error-light flex items-center justify-center mx-auto">
           <Users className="w-8 h-8 text-error" />
         </div>
         <div className="space-y-2">
@@ -155,7 +155,7 @@ function AcceptInviteContent() {
   if (isAuthenticated === null) {
     return (
       <div className="text-center space-y-6">
-        <div className="w-16 h-16 rounded-full bg-primary-50 dark:bg-primary-900 flex items-center justify-center mx-auto">
+        <div className="w-16 h-16 rounded-full bg-primary-50 flex items-center justify-center mx-auto">
           <Users className="w-8 h-8 text-primary animate-pulse" />
         </div>
         <Text variant="secondary">Loading...</Text>
@@ -168,7 +168,7 @@ function AcceptInviteContent() {
     return (
       <div className="max-w-md mx-auto space-y-6">
         <div className="text-center space-y-4">
-          <div className="w-16 h-16 rounded-full bg-primary-50 dark:bg-primary-900 flex items-center justify-center mx-auto">
+          <div className="w-16 h-16 rounded-full bg-primary-50 flex items-center justify-center mx-auto">
             <Users className="w-8 h-8 text-primary" />
           </div>
           <div className="space-y-2">
@@ -180,7 +180,7 @@ function AcceptInviteContent() {
         </div>
 
         {error && (
-          <div className="p-3 rounded bg-error-light dark:bg-error-dark border border-error">
+          <div className="p-3 rounded bg-error-light border border-error">
             <Text variant="error" size="sm">
               {error}
             </Text>
@@ -260,7 +260,7 @@ function AcceptInviteContent() {
   // Authenticated - show accept invitation
   return (
     <div className="text-center space-y-6">
-      <div className="w-16 h-16 rounded-full bg-primary-50 dark:bg-primary-900 flex items-center justify-center mx-auto">
+      <div className="w-16 h-16 rounded-full bg-primary-50 flex items-center justify-center mx-auto">
         <Users className="w-8 h-8 text-primary" />
       </div>
 
@@ -272,7 +272,7 @@ function AcceptInviteContent() {
       </div>
 
       {error && (
-        <div className="p-3 rounded bg-error-light dark:bg-error-dark border border-error">
+        <div className="p-3 rounded bg-error-light border border-error">
           <Text variant="error" size="sm">
             {error}
           </Text>

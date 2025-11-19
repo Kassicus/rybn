@@ -29,10 +29,10 @@ interface WishlistPrivacySelectorProps {
 }
 
 const groupTypeConfig = {
-  family: { label: 'Family', icon: Home, color: 'text-blue-600 dark:text-blue-400' },
-  friends: { label: 'Friends', icon: Heart, color: 'text-pink-600 dark:text-pink-400' },
-  work: { label: 'Work', icon: Briefcase, color: 'text-purple-600 dark:text-purple-400' },
-  custom: { label: 'Other', icon: Users, color: 'text-gray-600 dark:text-gray-400' },
+  family: { label: 'Family', icon: Home, color: 'text-blue-600' },
+  friends: { label: 'Friends', icon: Heart, color: 'text-pink-600' },
+  work: { label: 'Work', icon: Briefcase, color: 'text-purple-600' },
+  custom: { label: 'Other', icon: Users, color: 'text-gray-600' },
 };
 
 export function WishlistPrivacySelector({
@@ -99,8 +99,8 @@ export function WishlistPrivacySelector({
                   className={`
                     flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all
                     ${isChecked
-                      ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
-                      : 'border-light-border dark:border-dark-border hover:bg-light-background-hover dark:hover:bg-dark-background-hover'
+                      ? 'border-primary-500 bg-primary-50'
+                      : 'border-light-border hover:bg-light-background-hover'
                     }
                   `}
                 >
@@ -136,7 +136,7 @@ export function WishlistPrivacySelector({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">
-                  <span className="text-light-text-secondary dark:text-dark-text-secondary">
+                  <span className="text-light-text-secondary">
                     No restriction
                   </span>
                 </SelectItem>
@@ -144,7 +144,7 @@ export function WishlistPrivacySelector({
                   <SelectItem key={group.id} value={group.id}>
                     <div className="flex items-center gap-2">
                       <span>{group.name}</span>
-                      <span className="text-xs text-light-text-secondary dark:text-dark-text-secondary">
+                      <span className="text-xs text-light-text-secondary">
                         ({group.group_type})
                       </span>
                     </div>
@@ -158,19 +158,19 @@ export function WishlistPrivacySelector({
         {/* Privacy Status Display */}
         <div className={`p-3 rounded-lg border ${
           isPrivate
-            ? 'border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/20'
+            ? 'border-gray-300 bg-gray-50'
             : hasRestriction
-            ? 'border-orange-300 dark:border-orange-700 bg-orange-50 dark:bg-orange-900/20'
-            : 'border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/20'
+            ? 'border-orange-300 bg-orange-50'
+            : 'border-green-300 bg-green-50'
         }`}>
           <div className="flex items-center gap-2">
             <Lock className="w-4 h-4" />
             <Text size="sm" className={
               isPrivate
-                ? 'text-gray-600 dark:text-gray-400'
+                ? 'text-gray-600'
                 : hasRestriction
-                ? 'text-orange-700 dark:text-orange-300'
-                : 'text-green-700 dark:text-green-300'
+                ? 'text-orange-700'
+                : 'text-green-700'
             }>
               {isPrivate ? (
                 <><strong>Private:</strong> Only you can see this item</>
@@ -184,8 +184,8 @@ export function WishlistPrivacySelector({
         </div>
 
         {!loading && groups.length === 0 && (
-          <div className="p-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/20">
-            <Text size="sm" className="text-gray-600 dark:text-gray-400">
+          <div className="p-3 rounded-lg border border-gray-300 bg-gray-50">
+            <Text size="sm" className="text-gray-600">
               <Info className="inline w-4 h-4 mr-1" />
               You're not in any groups yet. Create or join groups to share wishlist items.
             </Text>

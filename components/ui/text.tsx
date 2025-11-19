@@ -2,7 +2,7 @@ import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
-const headingVariants = cva("font-semibold text-light-text-primary dark:text-dark-text-primary", {
+const headingVariants = cva("font-sans font-semibold text-light-text-primary", {
   variants: {
     level: {
       h1: "text-4xl",
@@ -19,8 +19,8 @@ const headingVariants = cva("font-semibold text-light-text-primary dark:text-dar
 const textVariants = cva("", {
   variants: {
     variant: {
-      primary: "text-light-text-primary dark:text-dark-text-primary",
-      secondary: "text-light-text-secondary dark:text-dark-text-secondary",
+      primary: "text-light-text-primary",
+      secondary: "text-light-text-secondary",
       error: "text-error",
       success: "text-success",
     },

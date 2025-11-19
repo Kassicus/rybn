@@ -38,7 +38,7 @@ export function ParticipantList({
     return (
       <div
         key={participant.id}
-        className="flex items-center justify-between p-4 rounded-lg border border-light-border dark:border-dark-border"
+        className="flex items-center justify-between p-4 rounded-lg border border-light-border"
       >
         <div className="flex items-center gap-3">
           <Avatar>
@@ -87,7 +87,7 @@ export function ParticipantList({
               {participant.gift_sent ? (
                 <CheckCircle2 className="w-4 h-4 text-success" />
               ) : (
-                <Circle className="w-4 h-4 text-light-text-secondary dark:text-dark-text-secondary" />
+                <Circle className="w-4 h-4 text-light-text-secondary" />
               )}
               <Text size="sm" variant="secondary">
                 Sent
@@ -97,7 +97,7 @@ export function ParticipantList({
               {participant.gift_received ? (
                 <CheckCircle2 className="w-4 h-4 text-success" />
               ) : (
-                <Circle className="w-4 h-4 text-light-text-secondary dark:text-dark-text-secondary" />
+                <Circle className="w-4 h-4 text-light-text-secondary" />
               )}
               <Text size="sm" variant="secondary">
                 Received
@@ -131,7 +131,7 @@ export function ParticipantList({
             {inactiveParticipants.map((participant) => (
               <div
                 key={participant.id}
-                className="flex items-center gap-3 p-4 rounded-lg border border-light-border dark:border-dark-border opacity-50"
+                className="flex items-center gap-3 p-4 rounded-lg border border-light-border opacity-50"
               >
                 <Avatar>
                   {participant.user_profiles?.avatar_url && (

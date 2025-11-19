@@ -29,13 +29,13 @@ export function GroupGiftCard({ groupGift, memberCount = 0 }: GroupGiftCardProps
 
   return (
     <Link href={`/gifts/${groupGift.id}`}>
-      <div className="block p-5 rounded-lg border border-light-border dark:border-dark-border hover:border-primary dark:hover:border-primary transition-colors bg-light-background dark:bg-dark-background-secondary">
+      <div className="block p-5 rounded-lg border border-light-border hover:border-primary transition-colors bg-light-background">
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-3 flex-1">
             <div className={`w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 ${
               isComplete
-                ? "bg-success-light dark:bg-success-dark dark:bg-success/20"
-                : "bg-primary-50 dark:bg-primary-900/20"
+                ? "bg-success-light"
+                : "bg-primary-50"
             }`}>
               <Gift className={`w-6 h-6 ${
                 isComplete ? "text-success" : "text-primary"
@@ -51,7 +51,7 @@ export function GroupGiftCard({ groupGift, memberCount = 0 }: GroupGiftCardProps
             </div>
           </div>
           {!groupGift.is_active && (
-            <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 ml-2">
+            <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600 ml-2">
               Inactive
             </span>
           )}
@@ -68,7 +68,7 @@ export function GroupGiftCard({ groupGift, memberCount = 0 }: GroupGiftCardProps
                 {formatCurrency(groupGift.current_amount || 0)} / {formatCurrency(groupGift.target_amount)}
               </Text>
             </div>
-            <div className="w-full bg-light-background-hover dark:bg-dark-background-hover rounded-full h-2">
+            <div className="w-full bg-light-background-hover rounded-full h-2">
               <div
                 className={`h-2 rounded-full transition-all ${
                   isComplete ? "bg-success" : "bg-primary"
@@ -80,9 +80,9 @@ export function GroupGiftCard({ groupGift, memberCount = 0 }: GroupGiftCardProps
         )}
 
         {/* Stats */}
-        <div className="flex items-center gap-4 pt-3 border-t border-light-border dark:border-dark-border">
+        <div className="flex items-center gap-4 pt-3 border-t border-light-border">
           <div className="flex items-center gap-1.5">
-            <Users className="w-4 h-4 text-light-text-secondary dark:text-dark-text-secondary" />
+            <Users className="w-4 h-4 text-light-text-secondary" />
             <Text size="sm" variant="secondary">
               {memberCount} {memberCount === 1 ? "member" : "members"}
             </Text>
@@ -90,7 +90,7 @@ export function GroupGiftCard({ groupGift, memberCount = 0 }: GroupGiftCardProps
 
           {groupGift.my_contribution !== undefined && groupGift.my_contribution !== null && groupGift.my_contribution > 0 && (
             <div className="flex items-center gap-1.5">
-              <DollarSign className="w-4 h-4 text-light-text-secondary dark:text-dark-text-secondary" />
+              <DollarSign className="w-4 h-4 text-light-text-secondary" />
               <Text size="sm" variant="secondary">
                 Your pledge: {formatCurrency(groupGift.my_contribution)}
               </Text>

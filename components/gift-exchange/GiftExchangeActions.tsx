@@ -73,7 +73,7 @@ export function GiftExchangeActions({
   return (
     <div className="space-y-4">
       {error && (
-        <div className="p-4 rounded-lg bg-error-light dark:bg-error-dark border border-error">
+        <div className="p-4 rounded-lg bg-error-light border border-error">
           <Text variant="error">{error}</Text>
         </div>
       )}
@@ -105,7 +105,7 @@ export function GiftExchangeActions({
       </div>
 
       {canGenerateAssignments && showConfirmGenerate && (
-        <div className="p-6 rounded-lg border-2 border-warning bg-warning-light dark:bg-warning-dark">
+        <div className="p-6 rounded-lg border-2 border-warning bg-warning-light">
           <div className="flex gap-3 mb-4">
             <AlertTriangle className="w-6 h-6 text-warning flex-shrink-0" />
             <div className="flex-1">
@@ -145,7 +145,7 @@ export function GiftExchangeActions({
       )}
 
       {participantCount < 3 && isCreator && !assignmentsGenerated && (
-        <div className="p-4 rounded-lg bg-light-background-hover dark:bg-dark-background-hover border border-light-border dark:border-dark-border">
+        <div className="p-4 rounded-lg bg-light-background-hover border border-light-border">
           <Text size="sm" variant="secondary">
             ℹ️ You need at least 3 participants before you can generate assignments.
             Current: {participantCount}
@@ -154,7 +154,7 @@ export function GiftExchangeActions({
       )}
 
       {registrationDeadline && new Date(registrationDeadline) < new Date() && !assignmentsGenerated && (
-        <div className="p-4 rounded-lg bg-warning-light dark:bg-warning-dark border border-warning">
+        <div className="p-4 rounded-lg bg-warning-light border border-warning">
           <Text size="sm" className="text-warning">
             ⚠️ Registration deadline has passed. No new participants can join.
           </Text>

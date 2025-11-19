@@ -8,7 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Heading, Text } from "@/components/ui/text";
 import { joinGroupByCode } from "@/lib/actions/invitations";
 
-export default function JoinGroupButton() {
+interface JoinGroupButtonProps {
+  size?: "small" | "medium" | "large";
+}
+
+export default function JoinGroupButton({ size = "medium" }: JoinGroupButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -60,7 +64,7 @@ export default function JoinGroupButton() {
 
   if (!isOpen) {
     return (
-      <Button variant="success" size="small" onClick={() => setIsOpen(true)}>
+      <Button variant="secondary" size={size} onClick={() => setIsOpen(true)}>
         <UserPlus className="w-4 h-4" />
         Join Group
       </Button>
@@ -77,7 +81,7 @@ export default function JoinGroupButton() {
 
       {/* Modal */}
       <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-        <div className="bg-light-background dark:bg-dark-background-secondary rounded-lg border border-light-border dark:border-dark-border max-w-md w-full p-6 space-y-4">
+        <div className="bg-light-background rounded-lg border border-light-border max-w-md w-full p-6 space-y-4">
           <div className="flex items-start justify-between">
             <div>
               <Heading level="h3">Join a Group</Heading>
@@ -87,7 +91,7 @@ export default function JoinGroupButton() {
             </div>
             <button
               onClick={handleClose}
-              className="text-light-text-secondary hover:text-light-text-primary dark:text-dark-text-secondary dark:hover:text-dark-text-primary"
+              className="text-light-text-secondary hover:text-light-text-primary"
               disabled={isLoading}
             >
               <X className="w-5 h-5" />
@@ -95,7 +99,7 @@ export default function JoinGroupButton() {
           </div>
 
           {error && (
-            <div className="p-3 rounded bg-error-light dark:bg-error-dark border border-error">
+            <div className="p-3 rounded bg-error-light border border-error">
               <Text variant="error" size="sm">
                 {error}
               </Text>
@@ -103,7 +107,7 @@ export default function JoinGroupButton() {
           )}
 
           {success && (
-            <div className="p-3 rounded bg-success-light dark:bg-success-dark border border-success">
+            <div className="p-3 rounded bg-success-light border border-success">
               <Text variant="success" size="sm">
                 Successfully joined group! Redirecting...
               </Text>
@@ -144,7 +148,7 @@ export default function JoinGroupButton() {
               </Button>
               <Button
                 type="submit"
-                variant="success"
+                variant="primary"
                 loading={isLoading}
                 disabled={!inviteCode.trim()}
                 className="flex-1"

@@ -56,7 +56,7 @@ export function PrivacySelector({
                     <IconComponent className="w-4 h-4" />
                     {info.label}
                   </div>
-                  <span className="text-xs text-light-text-secondary dark:text-dark-text-secondary mt-0.5">
+                  <span className="text-xs text-light-text-secondary mt-0.5">
                     {info.description}
                   </span>
                 </div>

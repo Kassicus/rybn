@@ -66,9 +66,9 @@ export function DeleteGroupButton({
 
       {/* Confirmation Modal */}
       <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-        <div className="bg-light-background dark:bg-dark-background-secondary rounded-lg border border-light-border dark:border-dark-border max-w-md w-full p-6 space-y-4">
+        <div className="bg-light-background rounded-lg border border-light-border max-w-md w-full p-6 space-y-4">
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-full bg-error-light dark:bg-error-dark flex items-center justify-center flex-shrink-0">
+            <div className="w-10 h-10 rounded-full bg-error-light flex items-center justify-center flex-shrink-0">
               <AlertTriangle className="w-5 h-5 text-error" />
             </div>
             <div>
