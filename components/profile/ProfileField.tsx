@@ -23,8 +23,8 @@ export function ProfileField({
 }: ProfileFieldProps) {
   if (!isVisible) {
     return (
-      <div className={`p-4 rounded-lg border border-light-border dark:border-dark-border bg-light-background-hover dark:bg-dark-background-hover ${className}`}>
-        <div className="flex items-center gap-2 text-light-text-secondary dark:text-dark-text-secondary">
+      <div className={`p-4 rounded-lg border border-light-border bg-light-background-hover ${className}`}>
+        <div className="flex items-center gap-2 text-light-text-secondary">
           <Lock className="w-4 h-4" />
           <Text variant="secondary" size="sm">
             This information is private
@@ -46,7 +46,7 @@ export function ProfileField({
         {privacyLevel && <PrivacyBadge level={privacyLevel} showLabel={false} />}
       </div>
       <Text className="font-medium">
-        {displayValue || <span className="text-light-text-secondary dark:text-dark-text-secondary">Not set</span>}
+        {displayValue || <span className="text-light-text-secondary">Not set</span>}
       </Text>
     </div>
   );

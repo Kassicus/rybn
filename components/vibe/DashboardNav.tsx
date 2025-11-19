@@ -8,8 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Heading } from "@/components/ui/text";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
-import { ThemeToggle } from "./ThemeToggle";
 import { getMyProfile } from "@/lib/actions/profile";
+import Image from "next/image";
 import type { User } from "@supabase/supabase-js";
 
 interface DashboardNavProps {
@@ -58,9 +58,16 @@ export function DashboardNav({ user }: DashboardNavProps) {
   ];
 
   return (
-    <aside className="w-64 border-r border-light-border dark:border-dark-border flex flex-col p-4 bg-light-background dark:bg-dark-background">
-      <div className="mb-8">
-        <Heading level="h3">Rybn</Heading>
+    <aside className="w-64 border-r border-light-border flex flex-col p-4 bg-light-background">
+      <div className="mb-8 flex justify-center">
+        <Image
+          src="/brand/rybn_logo_black.svg"
+          alt="Rybn"
+          width={200}
+          height={72}
+          priority
+          className="w-[200px] h-auto"
+        />
       </div>
 
       <nav className="flex-1 space-y-1">
@@ -94,11 +101,10 @@ export function DashboardNav({ user }: DashboardNavProps) {
             </AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate text-light-text-primary dark:text-dark-text-primary">
+            <p className="text-sm font-medium truncate text-light-text-primary">
               {profile?.display_name || profile?.username || user.email}
             </p>
           </div>
-          <ThemeToggle />
         </div>
 
         <Button

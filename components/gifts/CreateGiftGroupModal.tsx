@@ -70,10 +70,10 @@ export function CreateGiftGroupModal({
 
       {/* Modal */}
       <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-        <div className="bg-light-background dark:bg-dark-background-secondary rounded-lg border border-light-border dark:border-dark-border max-w-md w-full p-6 space-y-4">
+        <div className="bg-light-background rounded-lg border border-light-border max-w-md w-full p-6 space-y-4">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-primary-50 dark:bg-primary-900/20 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-lg bg-primary-50 flex items-center justify-center">
                 <Gift className="w-5 h-5 text-primary" />
               </div>
               <div>
@@ -85,14 +85,14 @@ export function CreateGiftGroupModal({
             </div>
             <button
               onClick={onClose}
-              className="text-text-secondary hover:text-text-primary dark:text-text-dark-secondary dark:hover:text-text-dark-primary"
+              className="text-text-secondary hover:text-text-primary"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {error && (
-            <div className="p-3 rounded bg-error-light dark:bg-error-dark border border-error">
+            <div className="p-3 rounded bg-error-light border border-error">
               <Text variant="error" size="sm">
                 {error}
               </Text>
@@ -128,7 +128,7 @@ export function CreateGiftGroupModal({
                 onChange={(e) => setDescription(e.target.value)}
                 maxLength={1000}
                 rows={3}
-                className="w-full px-3 py-2 rounded-md border border-light-border dark:border-dark-border bg-light-background dark:bg-dark-background text-light-text-primary dark:text-dark-text-primary placeholder:text-light-text-secondary dark:placeholder:text-dark-text-secondary focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                className="w-full px-3 py-2 rounded-md border border-light-border bg-light-background text-light-text-primary placeholder:text-light-text-secondary focus:outline-none focus:ring-2 focus:ring-primary resize-none"
               />
             </div>
 
@@ -139,7 +139,7 @@ export function CreateGiftGroupModal({
                 </Text>
               </label>
               <div className="relative">
-                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-light-text-secondary dark:text-dark-text-secondary" />
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-light-text-secondary" />
                 <Input
                   type="number"
                   step="0.01"

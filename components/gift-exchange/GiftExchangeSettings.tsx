@@ -74,7 +74,7 @@ export function GiftExchangeSettings({
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="w-full max-w-md rounded-lg border border-light-border dark:border-dark-border bg-light-background dark:bg-dark-background p-6 shadow-xl">
+          <div className="w-full max-w-md rounded-lg border border-light-border bg-light-background p-6 shadow-xl">
             <div className="flex items-center justify-between mb-6">
               <Heading level="h3">Exchange Settings</Heading>
               <button
@@ -84,14 +84,14 @@ export function GiftExchangeSettings({
                   setShowLeaveConfirm(false);
                   setError(null);
                 }}
-                className="p-1 rounded hover:bg-light-background-hover dark:hover:bg-dark-background-hover"
+                className="p-1 rounded hover:bg-light-background-hover"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {error && (
-              <div className="p-4 rounded-lg bg-error-light dark:bg-error-dark border border-error mb-4">
+              <div className="p-4 rounded-lg bg-error-light border border-error mb-4">
                 <Text variant="error">{error}</Text>
               </div>
             )}
@@ -99,7 +99,7 @@ export function GiftExchangeSettings({
             {!showDeleteConfirm && !showLeaveConfirm && (
               <div className="space-y-3">
                 {canLeave && (
-                  <div className="p-4 rounded-lg border border-light-border dark:border-dark-border hover:bg-light-background-hover dark:hover:bg-dark-background-hover">
+                  <div className="p-4 rounded-lg border border-light-border hover:bg-light-background-hover">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
@@ -123,7 +123,7 @@ export function GiftExchangeSettings({
                 )}
 
                 {isCreator && (
-                  <div className="p-4 rounded-lg border border-error bg-error-light dark:bg-error-dark">
+                  <div className="p-4 rounded-lg border border-error bg-error-light">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
@@ -147,7 +147,7 @@ export function GiftExchangeSettings({
                 )}
 
                 {!isCreator && !canLeave && (
-                  <div className="p-4 rounded-lg border border-light-border dark:border-dark-border bg-light-background-hover dark:bg-dark-background-hover text-center">
+                  <div className="p-4 rounded-lg border border-light-border bg-light-background-hover text-center">
                     <Text size="sm" variant="secondary">
                       No settings available. You cannot leave after assignments have been
                       generated.
@@ -159,7 +159,7 @@ export function GiftExchangeSettings({
 
             {showLeaveConfirm && (
               <div className="space-y-4">
-                <div className="p-4 rounded-lg bg-warning-light dark:bg-warning-dark border border-warning">
+                <div className="p-4 rounded-lg bg-warning-light border border-warning">
                   <Text className="font-medium mb-2">
                     Leave "{exchangeName}"?
                   </Text>
@@ -192,7 +192,7 @@ export function GiftExchangeSettings({
 
             {showDeleteConfirm && (
               <div className="space-y-4">
-                <div className="p-4 rounded-lg bg-error-light dark:bg-error-dark border border-error">
+                <div className="p-4 rounded-lg bg-error-light border border-error">
                   <Text className="font-medium mb-2 text-error">
                     Delete "{exchangeName}"?
                   </Text>

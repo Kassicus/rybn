@@ -3,16 +3,10 @@
 @tailwind utilities;
 
 @layer base {
-  /* Light mode (default) - Vibe colors */
+  /* Rybn brand colors */
   :root {
     --background: #FFFFFF;
     --foreground: #323338;
-  }
-
-  /* Dark mode - Vibe colors */
-  .dark {
-    --background: #181B34;
-    --foreground: #FFFFFF;
   }
 
   * {
@@ -20,18 +14,16 @@
   }
 
   body {
-    @apply bg-light-background text-light-text-primary;
-    @apply dark:bg-dark-background dark:text-dark-text-primary;
-    @apply font-sans;
+    @apply bg-light-background text-light-text-primary font-sans;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
   }
 
-  /* Improved heading typography */
+  /* Improved heading typography - using Quicksand */
   h1, h2, h3, h4, h5, h6 {
-    @apply font-semibold;
-    font-feature-settings: 'ss01' on, 'cv05' on;
+    @apply font-sans;
+    font-weight: 600;
   }
 }
 

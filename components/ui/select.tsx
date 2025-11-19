@@ -19,13 +19,12 @@ const SelectTrigger = React.forwardRef<
     ref={ref}
     className={cn(
       "flex h-10 w-full items-center justify-between rounded border px-3 py-2 text-sm",
-      "bg-light-background-primary dark:bg-dark-background-primary",
-      "text-light-text-primary dark:text-dark-text-primary",
-      "border-light-border dark:border-dark-border",
-      "placeholder:text-light-text-secondary dark:placeholder:text-dark-text-secondary",
-      "focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent",
+      "bg-light-background text-light-text-primary",
+      "border-light-border",
+      "placeholder:text-light-text-secondary",
+      "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent",
       "disabled:cursor-not-allowed disabled:opacity-50",
-      "hover:bg-light-background-hover dark:hover:bg-dark-background-hover",
+      "hover:bg-light-background-hover",
       className
     )}
     {...props}
@@ -47,9 +46,8 @@ const SelectContent = React.forwardRef<
       ref={ref}
       className={cn(
         "relative z-50 min-w-[8rem] overflow-hidden rounded-md border shadow-md",
-        "bg-light-background-primary dark:bg-dark-background-primary",
-        "border-light-border dark:border-dark-border",
-        "text-light-text-primary dark:text-dark-text-primary",
+        "bg-light-background text-light-text-primary",
+        "border-light-border",
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
         "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
@@ -83,8 +81,7 @@ const SelectLabel = React.forwardRef<
   <SelectPrimitive.Label
     ref={ref}
     className={cn(
-      "py-1.5 pl-8 pr-2 text-sm font-semibold",
-      "text-light-text-primary dark:text-dark-text-primary",
+      "py-1.5 pl-8 pr-2 text-sm font-semibold text-light-text-primary",
       className
     )}
     {...props}
@@ -100,8 +97,7 @@ const SelectItem = React.forwardRef<
     ref={ref}
     className={cn(
       "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none",
-      "hover:bg-light-background-hover dark:hover:bg-dark-background-hover",
-      "focus:bg-light-background-hover dark:focus:bg-dark-background-hover",
+      "hover:bg-light-background-hover focus:bg-light-background-hover",
       "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className
     )}
@@ -125,7 +121,7 @@ const SelectSeparator = React.forwardRef<
   <SelectPrimitive.Separator
     ref={ref}
     className={cn(
-      "-mx-1 my-1 h-px bg-light-border dark:bg-dark-border",
+      "-mx-1 my-1 h-px bg-light-border",
       className
     )}
     {...props}

@@ -18,8 +18,6 @@ import { PreferencesSection } from "@/components/profile/sections/PreferencesSec
 import { VehiclesSection } from "@/components/profile/sections/VehiclesSection";
 import { PersonalInfoSection } from "@/components/profile/sections/PersonalInfoSection";
 import { DatesSection } from "@/components/profile/sections/DatesSection";
-import { GroupTypeSelector } from "@/components/privacy/GroupTypeSelector";
-import type { GroupType } from "@/types/privacy";
 
 export default function ProfileEditPage() {
   const router = useRouter();
@@ -32,17 +30,10 @@ export default function ProfileEditPage() {
     handleSubmit,
     formState: { errors, isDirty },
     reset,
-    watch,
-    setValue,
   } = useForm<ProfileEditFormData>({
     // @ts-expect-error - Zod resolver type inference mismatch with React Hook Form
     resolver: zodResolver(profileEditSchema),
-    defaultValues: {
-      visible_to_group_types: [],
-    },
   });
-
-  const visibleToGroupTypes = watch("visible_to_group_types") || [];
 
   // Load profile data
   useEffect(() => {
@@ -55,18 +46,7 @@ export default function ProfileEditPage() {
           display_name: data.display_name,
           bio: data.bio,
           avatar_url: data.avatar_url,
-          visible_to_group_types: [],
         };
-
-        // Try to extract privacy settings from the first field
-        if (data.profile_info && Array.isArray(data.profile_info) && data.profile_info.length > 0) {
-          const firstField = data.profile_info[0];
-          // @ts-expect-error - Privacy settings type from database Json type
-          if (firstField.privacy_settings?.visibleToGroupTypes) {
-            // @ts-expect-error - Type assertion for JSON privacy settings
-            formData.visible_to_group_types = firstField.privacy_settings.visibleToGroupTypes as GroupType[];
-          }
-        }
 
         // Map profile_info records to form fields
         if (data.profile_info && Array.isArray(data.profile_info)) {
@@ -109,7 +89,14 @@ export default function ProfileEditPage() {
       <div>
         <Heading level="h1">Edit Profile</Heading>
         <Text variant="secondary" className="mt-2">
-          Update your profile information
+          Update your profile information. Privacy and email settings can be found in{" "}
+          <button
+            onClick={() => router.push("/settings")}
+            className="text-primary hover:underline font-medium"
+          >
+            Settings
+          </button>
+          .
         </Text>
       </div>
 
@@ -117,7 +104,7 @@ export default function ProfileEditPage() {
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Error banner */}
         {error && (
-          <div className="p-3 rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+          <div className="p-3 rounded bg-red-50 border border-red-200">
             <Text variant="error" size="sm">
               {error}
             </Text>
@@ -126,8 +113,8 @@ export default function ProfileEditPage() {
 
         {/* Success banner */}
         {success && (
-          <div className="p-3 rounded bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
-            <Text className="text-green-700 dark:text-green-300" size="sm">
+          <div className="p-3 rounded bg-green-50 border border-green-200">
+            <Text className="text-green-700" size="sm">
               Profile updated successfully! Redirecting...
             </Text>
           </div>
@@ -191,16 +178,6 @@ export default function ProfileEditPage() {
               </Text>
             </div>
           </div>
-        </FormSection>
-
-        {/* Privacy Settings */}
-        <FormSection title="Privacy Settings" description="Choose which groups can see your profile information">
-          <GroupTypeSelector
-            value={visibleToGroupTypes}
-            onChange={(groupTypes) => setValue("visible_to_group_types", groupTypes, { shouldDirty: true })}
-            label="Who can see your profile fields?"
-            description="Select which types of groups can view the information you add below. Leave all unchecked to keep everything private."
-          />
         </FormSection>
 
         {/* Sizes Section */}

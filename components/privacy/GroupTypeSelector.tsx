@@ -14,10 +14,10 @@ interface GroupTypeSelectorProps {
 }
 
 const groupTypeConfig = {
-  family: { label: 'Family', icon: Home, color: 'text-blue-600 dark:text-blue-400' },
-  friends: { label: 'Friends', icon: Heart, color: 'text-pink-600 dark:text-pink-400' },
-  work: { label: 'Work', icon: Briefcase, color: 'text-purple-600 dark:text-purple-400' },
-  custom: { label: 'Other', icon: Users, color: 'text-gray-600 dark:text-gray-400' },
+  family: { label: 'Family', icon: Home, color: 'text-blue-600' },
+  friends: { label: 'Friends', icon: Heart, color: 'text-pink-600' },
+  work: { label: 'Work', icon: Briefcase, color: 'text-purple-600' },
+  custom: { label: 'Other', icon: Users, color: 'text-gray-600' },
 };
 
 export function GroupTypeSelector({ value, onChange, label, description }: GroupTypeSelectorProps) {
@@ -52,8 +52,8 @@ export function GroupTypeSelector({ value, onChange, label, description }: Group
               className={`
                 flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all
                 ${isChecked
-                  ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
-                  : 'border-light-border dark:border-dark-border hover:bg-light-background-hover dark:hover:bg-dark-background-hover'
+                  ? 'border-primary-500 bg-primary-50'
+                  : 'border-light-border hover:bg-light-background-hover'
                 }
               `}
             >
@@ -74,10 +74,10 @@ export function GroupTypeSelector({ value, onChange, label, description }: Group
 
       <div className={`p-3 rounded-lg border ${
         isPrivate
-          ? 'border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/20'
-          : 'border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/20'
+          ? 'border-gray-300 bg-gray-50'
+          : 'border-green-300 bg-green-50'
       }`}>
-        <Text size="sm" className={isPrivate ? 'text-gray-600 dark:text-gray-400' : 'text-green-700 dark:text-green-300'}>
+        <Text size="sm" className={isPrivate ? 'text-gray-600' : 'text-green-700'}>
           {isPrivate ? (
             <>🔒 <strong>Private:</strong> Only you can see these fields</>
           ) : (

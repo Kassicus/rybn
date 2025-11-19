@@ -51,14 +51,14 @@ export default async function GroupGiftDetailPage({
 
         <div className="flex items-start justify-between">
           <div className="flex items-start gap-4">
-            <div className="w-16 h-16 rounded-lg bg-primary-50 dark:bg-primary-900/20 flex items-center justify-center flex-shrink-0">
+            <div className="w-16 h-16 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0">
               <Gift className="w-8 h-8 text-primary" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <Heading level="h1">{groupGift.name}</Heading>
                 {!groupGift.is_active && (
-                  <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+                  <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600">
                     Inactive
                   </span>
                 )}
@@ -75,8 +75,8 @@ export default async function GroupGiftDetailPage({
                 </Text>
                 {isCreator && (
                   <>
-                    <span className="text-light-text-secondary dark:text-dark-text-secondary">•</span>
-                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-primary-100 dark:bg-primary-900/40 text-primary">
+                    <span className="text-light-text-secondary">•</span>
+                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-primary-100 text-primary">
                       Creator
                     </span>
                   </>

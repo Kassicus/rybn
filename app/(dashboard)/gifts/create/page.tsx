@@ -88,7 +88,7 @@ export default function CreateGiftGroupPage() {
     return (
       <div className="max-w-2xl mx-auto">
         <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-          <div className="w-16 h-16 rounded-full bg-primary-50 dark:bg-primary-900/20 flex items-center justify-center mb-4">
+          <div className="w-16 h-16 rounded-full bg-primary-50 flex items-center justify-center mb-4">
             <Gift className="w-8 h-8 text-primary" />
           </div>
           <Heading level="h3" className="mb-2">
@@ -117,7 +117,7 @@ export default function CreateGiftGroupPage() {
           <Text size="sm">Back to Group Gifts</Text>
         </Link>
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-lg bg-primary-50 dark:bg-primary-900/20 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-lg bg-primary-50 flex items-center justify-center">
             <Gift className="w-6 h-6 text-primary" />
           </div>
           <div>
@@ -130,9 +130,9 @@ export default function CreateGiftGroupPage() {
       </div>
 
       {/* Form */}
-      <div className="p-6 rounded-lg border border-light-border dark:border-dark-border bg-light-background dark:bg-dark-background-secondary">
+      <div className="p-6 rounded-lg border border-light-border bg-light-background">
         {error && (
-          <div className="mb-6 p-3 rounded bg-error-light dark:bg-error-dark border border-error">
+          <div className="mb-6 p-3 rounded bg-error-light border border-error">
             <Text variant="error" size="sm">
               {error}
             </Text>
@@ -149,7 +149,7 @@ export default function CreateGiftGroupPage() {
             <select
               value={selectedGroupId}
               onChange={(e) => setSelectedGroupId(e.target.value)}
-              className="w-full px-3 py-2 rounded-md border border-light-border dark:border-dark-border bg-light-background dark:bg-dark-background text-light-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-full px-3 py-2 rounded-md border border-light-border bg-light-background text-light-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
               required
             >
               {groups.map((group) => (
@@ -194,7 +194,7 @@ export default function CreateGiftGroupPage() {
               onChange={(e) => setDescription(e.target.value)}
               maxLength={1000}
               rows={4}
-              className="w-full px-3 py-2 rounded-md border border-light-border dark:border-dark-border bg-light-background dark:bg-dark-background text-light-text-primary dark:text-dark-text-primary placeholder:text-light-text-secondary dark:placeholder:text-dark-text-secondary focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+              className="w-full px-3 py-2 rounded-md border border-light-border bg-light-background text-light-text-primary placeholder:text-light-text-secondary focus:outline-none focus:ring-2 focus:ring-primary resize-none"
             />
             <Text size="sm" variant="secondary" className="mt-1">
               Optional - Add details about the gift or occasion
@@ -208,7 +208,7 @@ export default function CreateGiftGroupPage() {
               </Text>
             </label>
             <div className="relative">
-              <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-light-text-secondary dark:text-dark-text-secondary" />
+              <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-light-text-secondary" />
               <Input
                 type="number"
                 step="0.01"

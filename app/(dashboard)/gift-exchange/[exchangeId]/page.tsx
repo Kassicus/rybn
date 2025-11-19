@@ -75,14 +75,14 @@ export default async function GiftExchangeDetailPage({
 
         <div className="flex items-start justify-between">
           <div className="flex items-start gap-4">
-            <div className="w-16 h-16 rounded-lg bg-primary-50 dark:bg-primary-900/20 flex items-center justify-center flex-shrink-0">
+            <div className="w-16 h-16 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0">
               <Gift className="w-8 h-8 text-primary" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <Heading level="h1">{exchange.name}</Heading>
                 {!exchange.is_active && (
-                  <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+                  <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600">
                     Inactive
                   </span>
                 )}
@@ -97,12 +97,12 @@ export default async function GiftExchangeDetailPage({
                   {typeLabel}
                 </span>
                 {exchange.assignments_generated && (
-                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-success-light dark:bg-success-dark text-success">
+                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-success-light text-success">
                     Assigned
                   </span>
                 )}
                 {isCreator && (
-                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-primary-100 dark:bg-primary-900/40 text-primary">
+                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-primary-100 text-primary">
                     Creator
                   </span>
                 )}
@@ -123,7 +123,7 @@ export default async function GiftExchangeDetailPage({
       {/* Event Details */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {exchange.exchange_date && (
-          <div className="p-4 rounded-lg border border-light-border dark:border-dark-border">
+          <div className="p-4 rounded-lg border border-light-border">
             <div className="flex items-center gap-2 mb-2">
               <Calendar className="w-4 h-4 text-primary" />
               <Text size="sm" variant="secondary">
@@ -140,7 +140,7 @@ export default async function GiftExchangeDetailPage({
         )}
 
         {budget && (
-          <div className="p-4 rounded-lg border border-light-border dark:border-dark-border">
+          <div className="p-4 rounded-lg border border-light-border">
             <div className="flex items-center gap-2 mb-2">
               <DollarSign className="w-4 h-4 text-primary" />
               <Text size="sm" variant="secondary">
@@ -151,7 +151,7 @@ export default async function GiftExchangeDetailPage({
           </div>
         )}
 
-        <div className="p-4 rounded-lg border border-light-border dark:border-dark-border">
+        <div className="p-4 rounded-lg border border-light-border">
           <div className="flex items-center gap-2 mb-2">
             <Users className="w-4 h-4 text-primary" />
             <Text size="sm" variant="secondary">
@@ -167,7 +167,7 @@ export default async function GiftExchangeDetailPage({
         </div>
 
         {exchange.exchange_location && (
-          <div className="p-4 rounded-lg border border-light-border dark:border-dark-border">
+          <div className="p-4 rounded-lg border border-light-border">
             <div className="flex items-center gap-2 mb-2">
               <MapPin className="w-4 h-4 text-primary" />
               <Text size="sm" variant="secondary">
@@ -180,7 +180,7 @@ export default async function GiftExchangeDetailPage({
       </div>
 
       {exchange.exchange_details && (
-        <div className="p-4 rounded-lg border border-light-border dark:border-dark-border bg-light-background-hover dark:bg-dark-background-hover">
+        <div className="p-4 rounded-lg border border-light-border bg-light-background-hover">
           <Heading level="h4" className="mb-2">
             Additional Details
           </Heading>
@@ -218,8 +218,8 @@ export default async function GiftExchangeDetailPage({
           )}
 
           {isParticipating && !exchange.assignments_generated && (
-            <div className="p-8 rounded-lg border border-light-border dark:border-dark-border border-dashed text-center">
-              <Gift className="w-12 h-12 text-light-text-secondary dark:text-dark-text-secondary mx-auto mb-3" />
+            <div className="p-8 rounded-lg border border-light-border border-dashed text-center">
+              <Gift className="w-12 h-12 text-light-text-secondary mx-auto mb-3" />
               <Heading level="h4" className="mb-2">
                 Waiting for Assignments
               </Heading>
@@ -230,8 +230,8 @@ export default async function GiftExchangeDetailPage({
           )}
 
           {!isParticipating && (
-            <div className="p-8 rounded-lg border border-light-border dark:border-dark-border border-dashed text-center">
-              <Gift className="w-12 h-12 text-light-text-secondary dark:text-dark-text-secondary mx-auto mb-3" />
+            <div className="p-8 rounded-lg border border-light-border border-dashed text-center">
+              <Gift className="w-12 h-12 text-light-text-secondary mx-auto mb-3" />
               <Heading level="h4" className="mb-2">
                 Not Participating
               </Heading>

@@ -11,9 +11,9 @@ const buttonVariants = cva(
         primary:
           "bg-primary text-white hover:bg-primary-hover active:bg-primary-selected shadow-sm",
         secondary:
-          "bg-light-background border border-light-border text-light-text-primary hover:bg-light-background-hover dark:bg-dark-background-secondary dark:border-dark-border dark:text-dark-text-primary dark:hover:bg-dark-background-hover",
+          "bg-light-background border border-light-border text-light-text-primary hover:bg-light-background-hover",
         tertiary:
-          "bg-transparent text-light-text-primary hover:bg-light-background-hover dark:text-dark-text-primary dark:hover:bg-dark-background-hover",
+          "bg-transparent text-light-text-primary hover:bg-light-background-hover",
         success:
           "bg-success text-white hover:bg-success-hover shadow-sm",
         destructive:

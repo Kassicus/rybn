@@ -47,7 +47,7 @@ export default async function WishlistPage() {
       {/* Empty state */}
       {items && items.length === 0 && (
         <div className="text-center py-16">
-          <Gift className="w-16 h-16 mx-auto text-light-text-secondary dark:text-dark-text-secondary mb-4" />
+          <Gift className="w-16 h-16 mx-auto text-light-text-secondary mb-4" />
           <Heading level="h3" className="mb-2">No wishlist items yet</Heading>
           <Text variant="secondary" className="mb-6">
             Start adding items you'd love to receive!

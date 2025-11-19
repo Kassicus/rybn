@@ -9,9 +9,9 @@ const Alert = React.forwardRef<
     ref={ref}
     role="alert"
     className={cn(
-      "relative w-full rounded-lg border border-light-border dark:border-dark-border p-4",
-      "bg-light-background-hover dark:bg-dark-background-hover",
-      "[&>svg~*]:pl-7 [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg]:text-light-text-primary dark:[&>svg]:text-dark-text-primary",
+      "relative w-full rounded-lg border border-light-border p-4",
+      "bg-light-background-hover",
+      "[&>svg~*]:pl-7 [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg]:text-light-text-primary",
       className
     )}
     {...props}
@@ -37,7 +37,7 @@ const AlertDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("text-sm [&_p]:leading-relaxed text-light-text-secondary dark:text-dark-text-secondary", className)}
+    className={cn("text-sm [&_p]:leading-relaxed text-light-text-secondary", className)}
     {...props}
   />
 ));

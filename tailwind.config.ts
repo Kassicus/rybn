@@ -6,25 +6,24 @@ const config: Config = {
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
-  darkMode: "class",
   theme: {
     extend: {
       colors: {
-        // Monday.com Vibe design system colors
+        // Rybn brand colors
         primary: {
-          DEFAULT: "#5034FF",
-          hover: "#6B54FF",
-          selected: "#403399",
-          50: "#F5F3FF",
-          100: "#EBE7FF",
-          200: "#D9D2FF",
-          300: "#C7B8FF",
-          400: "#9D85FF",
-          500: "#5034FF",
-          600: "#403399",
-          700: "#332980",
-          800: "#261F66",
-          900: "#1A154D",
+          DEFAULT: "#009E01",
+          hover: "#00B501",
+          selected: "#007A01",
+          50: "#E6F9E6",
+          100: "#CCFACC",
+          200: "#99F099",
+          300: "#66E666",
+          400: "#33D133",
+          500: "#009E01",
+          600: "#007A01",
+          700: "#006001",
+          800: "#004701",
+          900: "#002D01",
         },
         success: {
           DEFAULT: "#00C875",
@@ -44,7 +43,7 @@ const config: Config = {
           light: "#FFF4E5",
           dark: "#3D2810",
         },
-        // Light mode
+        // Rybn light mode colors
         light: {
           background: "#FFFFFF",
           "background-secondary": "#F6F7FB",
@@ -54,34 +53,25 @@ const config: Config = {
           "text-secondary": "#676879",
           "text-tertiary": "#9699A6",
         },
-        // Dark mode - proper Vibe colors
-        dark: {
-          background: "#181B34",        // Dark blue-gray (Vibe standard)
-          "background-secondary": "#292F4C", // Slightly lighter
-          "background-hover": "#323850",     // Hover state
-          border: "#525768",                 // Lighter border for visibility
-          "text-primary": "#FFFFFF",         // White text
-          "text-secondary": "#C5C7D0",       // Light gray
-          "text-tertiary": "#9699A6",        // Medium gray
-        },
       },
       borderRadius: {
-        sm: "4px",
-        DEFAULT: "6px",
-        md: "8px",
-        lg: "12px",
-        xl: "16px",
+        sm: "6px",
+        DEFAULT: "12px",
+        md: "16px",
+        lg: "20px",
+        xl: "24px",
+        "2xl": "32px",
       },
       boxShadow: {
         sm: "0px 4px 6px rgba(0, 0, 0, 0.04)",
-        DEFAULT: "0px 6px 20px rgba(0, 0, 0, 0.08)",
-        md: "0px 8px 24px rgba(0, 0, 0, 0.12)",
-        lg: "0px 12px 32px rgba(0, 0, 0, 0.16)",
+        DEFAULT: "0px 6px 20px rgba(0, 158, 1, 0.08)",
+        md: "0px 8px 24px rgba(0, 158, 1, 0.12)",
+        lg: "0px 12px 32px rgba(0, 158, 1, 0.16)",
+        "gift": "0px 8px 32px rgba(0, 158, 1, 0.15)",
       },
       fontFamily: {
         sans: [
-          "var(--font-figtree)",
-          "var(--font-inter)",
+          "var(--font-quicksand)",
           "-apple-system",
           "BlinkMacSystemFont",
           "Segoe UI",
@@ -89,6 +79,10 @@ const config: Config = {
           "Helvetica Neue",
           "Arial",
           "sans-serif",
+        ],
+        heading: [
+          "Playwrite DE SAS",
+          "cursive",
         ],
       },
       fontWeight: {

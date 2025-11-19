@@ -22,11 +22,11 @@ export function PrivacyBadge({ level, className, showLabel = true }: PrivacyBadg
   const IconComponent = ICON_MAP[info.icon as keyof typeof ICON_MAP];
 
   const colors = {
-    private: "text-gray-600 dark:text-gray-400",
-    group: "text-blue-600 dark:text-blue-400",
-    friends: "text-pink-600 dark:text-pink-400",
-    family: "text-green-600 dark:text-green-400",
-    public: "text-purple-600 dark:text-purple-400",
+    private: "text-gray-600",
+    group: "text-blue-600",
+    friends: "text-pink-600",
+    family: "text-green-600",
+    public: "text-purple-600",
   };
 
   return (
