@@ -40,6 +40,7 @@ function LoginForm() {
   };
 
   const redirectTo = validateRedirectPath(searchParams.get("redirectTo"));
+  const registered = searchParams.get("registered") === "true";
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const supabase = createClient();
@@ -93,6 +94,14 @@ function LoginForm() {
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        {registered && (
+          <div className="p-3 rounded bg-green-50 border border-green-200">
+            <Text className="text-green-800" size="sm">
+              Account created successfully! Please sign in with your credentials.
+            </Text>
+          </div>
+        )}
+
         {error && (
           <div className="p-3 rounded bg-error-light border border-error">
             <Text variant="error" size="sm">

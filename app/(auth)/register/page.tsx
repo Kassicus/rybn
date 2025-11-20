@@ -55,7 +55,7 @@ export default function RegisterPage() {
     setIsLoading(true);
     setError(null);
 
-    const { error } = await supabase.auth.signUp({
+    const { data: signUpData, error } = await supabase.auth.signUp({
       email: data.email,
       password: data.password,
       options: {
@@ -70,7 +70,16 @@ export default function RegisterPage() {
       setError(error.message);
       setIsLoading(false);
     } else {
-      router.push("/verify-email");
+      // If email confirmation is disabled, user will be automatically logged in
+      // Check if session exists
+      if (signUpData?.session) {
+        // User is logged in, redirect to dashboard
+        router.push("/dashboard");
+      } else {
+        // No session created (email confirmation might be required)
+        // Redirect to login page with success message
+        router.push("/login?registered=true");
+      }
     }
   };
 
