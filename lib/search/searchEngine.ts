@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { calculateRelevance, sortAndLimitResults, groupResultsByType } from "./searchUtils";
 
-export type SearchResultType = "group" | "wishlist" | "gift" | "exchange" | "person";
+export type SearchResultType = "group" | "wishlist" | "gift" | "exchange" | "person" | "tracked_gift" | "recipient";
 
 export interface SearchResult {
   id: string;
@@ -213,6 +213,83 @@ export async function searchSite(query: string): Promise<SearchResult[]> {
             group: exchange.groups?.name,
           },
           url: `/gift-exchange/${exchange.id}`,
+          relevanceScore,
+        });
+      });
+    }
+
+    // Search Tracked Gifts (private gift tracker)
+    const { data: trackedGifts } = await supabase
+      .from("tracked_gifts")
+      .select(`
+        id,
+        recipient_id,
+        name,
+        description,
+        price,
+        status,
+        occasion,
+        gift_recipients (
+          id,
+          name
+        )
+      `)
+      .eq("user_id", user.id)
+      .eq("is_archived", false)
+      .or(`name.ilike.${searchTerm},description.ilike.${searchTerm}`);
+
+    if (trackedGifts) {
+      trackedGifts.forEach((gift: any) => {
+        const relevanceScore = Math.max(
+          calculateRelevance(gift.name, query),
+          calculateRelevance(gift.description || "", query)
+        );
+        results.push({
+          id: gift.id,
+          type: "tracked_gift",
+          title: gift.name,
+          description: gift.description,
+          metadata: {
+            price: gift.price,
+            status: gift.status,
+            occasion: gift.occasion,
+            recipient_id: gift.recipient_id,
+            recipient_name: gift.gift_recipients?.name,
+          },
+          url: `/gift-tracker/${gift.recipient_id}/${gift.id}`,
+          relevanceScore,
+        });
+      });
+    }
+
+    // Search Gift Tracker Recipients
+    const { data: recipients } = await supabase
+      .from("gift_recipients")
+      .select(`
+        id,
+        name,
+        notes,
+        tracked_gifts (
+          id
+        )
+      `)
+      .eq("user_id", user.id)
+      .eq("is_archived", false)
+      .ilike("name", searchTerm);
+
+    if (recipients) {
+      recipients.forEach((recipient: any) => {
+        const relevanceScore = calculateRelevance(recipient.name, query);
+        const giftCount = recipient.tracked_gifts?.length || 0;
+        results.push({
+          id: recipient.id,
+          type: "recipient",
+          title: recipient.name,
+          description: recipient.notes,
+          metadata: {
+            gift_count: giftCount,
+          },
+          url: `/gift-tracker/${recipient.id}`,
           relevanceScore,
         });
       });

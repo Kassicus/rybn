@@ -21,9 +21,11 @@ const TYPE_LABELS: Record<SearchResultType, string> = {
   wishlist: "Wishlist Items",
   gift: "Group Gifts",
   exchange: "Exchanges",
+  tracked_gift: "Gift Tracker",
+  recipient: "Gift Recipients",
 };
 
-const TYPE_ORDER: SearchResultType[] = ["person", "group", "exchange", "wishlist", "gift"];
+const TYPE_ORDER: SearchResultType[] = ["person", "recipient", "group", "exchange", "wishlist", "gift", "tracked_gift"];
 
 export function SearchResults({
   results,
