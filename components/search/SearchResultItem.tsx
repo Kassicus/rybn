@@ -9,7 +9,8 @@ import {
   CalendarDays,
   Heart,
   ChevronRight,
-  Package
+  Package,
+  UserCircle
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -34,6 +35,8 @@ export function SearchResultItem({ result, onClick }: SearchResultItemProps) {
         return <Heart className="h-4 w-4 text-light-text-secondary" />;
       case "tracked_gift":
         return <Package className="h-4 w-4 text-light-text-secondary" />;
+      case "recipient":
+        return <UserCircle className="h-4 w-4 text-purple-500" />;
       default:
         return null;
     }
@@ -106,6 +109,19 @@ export function SearchResultItem({ result, onClick }: SearchResultItemProps) {
             {result.metadata.price && (
               <span className="font-medium text-success">
                 ${parseFloat(result.metadata.price).toFixed(2)}
+              </span>
+            )}
+          </div>
+        );
+      case "recipient":
+        return (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium">
+              Gift Tracker
+            </span>
+            {result.metadata.gift_count !== undefined && (
+              <span className="text-light-text-tertiary">
+                {result.metadata.gift_count} gift{result.metadata.gift_count !== 1 ? 's' : ''}
               </span>
             )}
           </div>

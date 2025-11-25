@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { calculateRelevance, sortAndLimitResults, groupResultsByType } from "./searchUtils";
 
-export type SearchResultType = "group" | "wishlist" | "gift" | "exchange" | "person" | "tracked_gift";
+export type SearchResultType = "group" | "wishlist" | "gift" | "exchange" | "person" | "tracked_gift" | "recipient";
 
 export interface SearchResult {
   id: string;
@@ -257,6 +257,39 @@ export async function searchSite(query: string): Promise<SearchResult[]> {
             recipient_name: gift.gift_recipients?.name,
           },
           url: `/gift-tracker/${gift.recipient_id}/${gift.id}`,
+          relevanceScore,
+        });
+      });
+    }
+
+    // Search Gift Tracker Recipients
+    const { data: recipients } = await supabase
+      .from("gift_recipients")
+      .select(`
+        id,
+        name,
+        notes,
+        tracked_gifts (
+          id
+        )
+      `)
+      .eq("user_id", user.id)
+      .eq("is_archived", false)
+      .ilike("name", searchTerm);
+
+    if (recipients) {
+      recipients.forEach((recipient: any) => {
+        const relevanceScore = calculateRelevance(recipient.name, query);
+        const giftCount = recipient.tracked_gifts?.length || 0;
+        results.push({
+          id: recipient.id,
+          type: "recipient",
+          title: recipient.name,
+          description: recipient.notes,
+          metadata: {
+            gift_count: giftCount,
+          },
+          url: `/gift-tracker/${recipient.id}`,
           relevanceScore,
         });
       });
