@@ -8,7 +8,8 @@ import {
   Gift,
   CalendarDays,
   Heart,
-  ChevronRight
+  ChevronRight,
+  Package
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -31,6 +32,8 @@ export function SearchResultItem({ result, onClick }: SearchResultItemProps) {
         return <CalendarDays className="h-4 w-4 text-light-text-secondary" />;
       case "wishlist":
         return <Heart className="h-4 w-4 text-light-text-secondary" />;
+      case "tracked_gift":
+        return <Package className="h-4 w-4 text-light-text-secondary" />;
       default:
         return null;
     }
@@ -83,6 +86,26 @@ export function SearchResultItem({ result, onClick }: SearchResultItemProps) {
             {result.metadata.days_until !== undefined && (
               <span className="px-1.5 py-0.5 rounded-full bg-primary-100 text-primary-700 font-medium">
                 {result.metadata.days_until} day{result.metadata.days_until !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+        );
+      case "tracked_gift":
+        return (
+          <div className="flex items-center gap-2 text-xs">
+            {result.metadata.recipient_name && (
+              <span className="text-light-text-tertiary">
+                For: {result.metadata.recipient_name}
+              </span>
+            )}
+            {result.metadata.status && (
+              <span className="px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium capitalize">
+                {result.metadata.status}
+              </span>
+            )}
+            {result.metadata.price && (
+              <span className="font-medium text-success">
+                ${parseFloat(result.metadata.price).toFixed(2)}
               </span>
             )}
           </div>

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Plus, Lock, Users, Gift, Calendar, ListPlus } from "lucide-react";
+import { ArrowRight, Plus, Lock, Users, Gift, Calendar, ListPlus, Package } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { HeroBanner } from "@/components/layout/HeroBanner";
@@ -7,6 +7,7 @@ import { getMyGroups } from "@/lib/actions/groups";
 import { getMyWishlist } from "@/lib/actions/wishlist";
 import { getMyGroupGifts } from "@/lib/actions/gifts";
 import { getMyProfile } from "@/lib/actions/profile";
+import { getGiftTrackingStats } from "@/lib/actions/gift-tracking";
 import { GroupGiftCard } from "@/components/gifts/GiftGroupCard";
 import { GiftExchangeCard } from "@/components/gift-exchange/GiftExchangeCard";
 import { createClient } from "@/lib/supabase/server";
@@ -105,6 +106,7 @@ export default async function DashboardPage() {
   const { data: groups = [] } = await getMyGroups();
   const { data: wishlistItems = [] } = await getMyWishlist();
   const { data: groupGifts = [] } = await getMyGroupGifts();
+  const { data: giftTrackingStats } = await getGiftTrackingStats();
 
   // Extract group IDs
   const groupIds = groups.map((g) => g.id);
@@ -214,8 +216,8 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* 2x2 Navigation Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Navigation Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Groups */}
         <Link href="/groups" className="group">
           <div className="p-8 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
@@ -246,6 +248,31 @@ export default async function DashboardPage() {
             </div>
             <Text variant="secondary" size="lg" className="mb-6">
               {groupGifts.length} active {groupGifts.length === 1 ? "gift" : "gifts"}
+            </Text>
+            <div className="flex items-center gap-2 text-primary">
+              <Text className="font-medium">View All</Text>
+              <ArrowRight className="w-5 h-5" />
+            </div>
+          </div>
+        </Link>
+
+        {/* Gift Tracker */}
+        <Link href="/gift-tracker" className="group">
+          <div className="p-8 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="p-4 rounded-xl bg-purple-500/10 group-hover:bg-purple-500/20 transition-colors">
+                <Package className="w-8 h-8 text-purple-500" />
+              </div>
+              <Heading level="h2">Gift Tracker</Heading>
+            </div>
+            <Text variant="secondary" size="lg" className="mb-6">
+              {giftTrackingStats ? (
+                <>
+                  {giftTrackingStats.giftCount - giftTrackingStats.byStatus.given.count} gifts to give
+                </>
+              ) : (
+                "Track your gifts"
+              )}
             </Text>
             <div className="flex items-center gap-2 text-primary">
               <Text className="font-medium">View All</Text>

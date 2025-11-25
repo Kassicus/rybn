@@ -9,6 +9,116 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      gift_recipients: {
+        Row: {
+          id: string
+          user_id: string
+          name: string
+          notes: string | null
+          is_archived: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          name: string
+          notes?: string | null
+          is_archived?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          name?: string
+          notes?: string | null
+          is_archived?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gift_recipients_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      tracked_gifts: {
+        Row: {
+          id: string
+          user_id: string
+          recipient_id: string
+          name: string
+          description: string | null
+          photo_url: string | null
+          product_link: string | null
+          price: number | null
+          status: "planned" | "ordered" | "arrived" | "wrapped" | "given"
+          status_changed_at: string
+          occasion: string | null
+          season_year: number
+          notes: string | null
+          is_archived: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          recipient_id: string
+          name: string
+          description?: string | null
+          photo_url?: string | null
+          product_link?: string | null
+          price?: number | null
+          status?: "planned" | "ordered" | "arrived" | "wrapped" | "given"
+          status_changed_at?: string
+          occasion?: string | null
+          season_year?: number
+          notes?: string | null
+          is_archived?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          recipient_id?: string
+          name?: string
+          description?: string | null
+          photo_url?: string | null
+          product_link?: string | null
+          price?: number | null
+          status?: "planned" | "ordered" | "arrived" | "wrapped" | "given"
+          status_changed_at?: string
+          occasion?: string | null
+          season_year?: number
+          notes?: string | null
+          is_archived?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tracked_gifts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tracked_gifts_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "gift_recipients"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       date_notifications: {
         Row: {
           id: string
@@ -731,6 +841,7 @@ export type Database = {
       group_type: "family" | "friends" | "work" | "custom"
       member_role: "owner" | "admin" | "member"
       privacy_level: "private" | "group" | "friends" | "family" | "public"
+      gift_status: "planned" | "ordered" | "arrived" | "wrapped" | "given"
     }
     CompositeTypes: {
       [_ in never]: never
