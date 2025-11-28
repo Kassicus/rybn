@@ -68,7 +68,7 @@ export interface PriorityInfo {
   value: Priority;
   label: string;
   description: string;
-  color: string;
+  hexColor: string;
   icon: string;
 }
 
@@ -77,28 +77,28 @@ export const PRIORITY_INFO: Record<Priority, PriorityInfo> = {
     value: 'low',
     label: 'Low',
     description: 'Nice to have',
-    color: 'text-gray-600 dark:text-gray-400',
-    icon: 'CircleDashed',
+    hexColor: '#9CA3AF', // gray
+    icon: 'Circle',
   },
   'medium': {
     value: 'medium',
     label: 'Medium',
     description: 'Would appreciate',
-    color: 'text-blue-600 dark:text-blue-400',
+    hexColor: '#3B82F6', // blue
     icon: 'Circle',
   },
   'high': {
     value: 'high',
     label: 'High',
     description: 'Really want this',
-    color: 'text-orange-600 dark:text-orange-400',
-    icon: 'CircleDot',
+    hexColor: '#14B8A6', // teal (blue-green)
+    icon: 'Circle',
   },
   'must-have': {
     value: 'must-have',
     label: 'Must Have',
     description: 'Top priority!',
-    color: 'text-red-600 dark:text-red-400',
-    icon: 'Star',
+    hexColor: '#009E01', // rybn green
+    icon: 'Circle',
   },
 };

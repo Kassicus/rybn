@@ -1,6 +1,6 @@
 "use client";
 
-import { Star, Circle, CircleDot, CircleDashed, Lock } from "lucide-react";
+import { Circle, Lock } from "lucide-react";
 import { Text } from "@/components/ui/text";
 import Link from "next/link";
 import { PRIORITY_INFO } from "@/lib/schemas/wishlist";
@@ -29,17 +29,10 @@ interface WishlistItemCardProps {
   isOwnWishlist?: boolean;
 }
 
-const priorityIcons = {
-  'low': CircleDashed,
-  'medium': Circle,
-  'high': CircleDot,
-  'must-have': Star,
-};
 
 export function WishlistItemCard({ item, isOwnWishlist = false }: WishlistItemCardProps) {
 
   const priorityInfo = PRIORITY_INFO[item.priority];
-  const PriorityIcon = priorityIcons[item.priority];
 
   const visibleToGroupTypes = item.privacy_settings?.visibleToGroupTypes || [];
   const restrictToGroup = item.privacy_settings?.restrictToGroup;
@@ -87,8 +80,8 @@ export function WishlistItemCard({ item, isOwnWishlist = false }: WishlistItemCa
                 <div className="flex items-center gap-4 flex-wrap">
                   {/* Priority */}
                   <div className="flex items-center gap-1.5">
-                    <PriorityIcon className={`w-4 h-4 ${priorityInfo.color}`} />
-                    <Text size="sm" className={priorityInfo.color}>
+                    <Circle className="w-4 h-4" style={{ color: priorityInfo.hexColor }} fill="currentColor" />
+                    <Text size="sm" style={{ color: priorityInfo.hexColor }}>
                       {priorityInfo.label}
                     </Text>
                   </div>

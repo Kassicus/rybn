@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Star, Circle, CircleDot, CircleDashed, Lock, ExternalLink } from "lucide-react";
+import { Circle, Lock, ExternalLink } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -32,12 +32,6 @@ interface WishlistItem {
   purchased?: boolean;
 }
 
-const priorityIcons = {
-  'low': CircleDashed,
-  'medium': Circle,
-  'high': CircleDot,
-  'must-have': Star,
-};
 
 export default function WishlistItemDetailPage({
   params,
@@ -93,7 +87,6 @@ export default function WishlistItemDetailPage({
     return null;
   }
   const priorityInfo = PRIORITY_INFO[item.priority];
-  const PriorityIcon = priorityIcons[item.priority];
 
   const visibleToGroupTypes = item.privacy_settings?.visibleToGroupTypes || [];
   const restrictToGroup = item.privacy_settings?.restrictToGroup;
@@ -128,8 +121,8 @@ export default function WishlistItemDetailPage({
 
             <div className="flex items-center gap-4 flex-wrap">
               <div className="flex items-center gap-1.5">
-                <PriorityIcon className={`w-5 h-5 ${priorityInfo.color}`} />
-                <Text className={priorityInfo.color}>
+                <Circle className="w-5 h-5" style={{ color: priorityInfo.hexColor }} fill="currentColor" />
+                <Text style={{ color: priorityInfo.hexColor }}>
                   {priorityInfo.label}
                 </Text>
               </div>
@@ -216,8 +209,8 @@ export default function WishlistItemDetailPage({
           <div className="p-4 rounded-lg border border-light-border">
             <Text variant="secondary" size="sm" className="mb-1">Priority</Text>
             <div className="flex items-center gap-2">
-              <PriorityIcon className={`w-5 h-5 ${priorityInfo.color}`} />
-              <Text className={`font-medium ${priorityInfo.color}`}>
+              <Circle className="w-5 h-5" style={{ color: priorityInfo.hexColor }} fill="currentColor" />
+              <Text className="font-medium" style={{ color: priorityInfo.hexColor }}>
                 {priorityInfo.label}
               </Text>
             </div>
