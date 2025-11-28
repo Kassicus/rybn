@@ -4,6 +4,7 @@ import { getMyProfile } from "@/lib/actions/profile";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
 import { FormSection } from "@/components/profile/FormSection";
 import { ProfileField } from "@/components/profile/ProfileField";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { Separator } from "@/components/ui/separator";
 
 export default async function ProfilePage() {
@@ -36,6 +37,12 @@ export default async function ProfilePage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 p-6">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "My Profile", href: "/profile" },
+        ]}
+      />
       <ProfileHeader profile={profileData} isOwnProfile={true} />
 
       <Separator />

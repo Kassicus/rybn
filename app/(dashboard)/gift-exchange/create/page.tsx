@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { ExchangeForm } from "@/components/gift-exchange/ExchangeForm";
 import { GroupSelector } from "@/components/gift-exchange/GroupSelector";
 import { createClient } from "@/lib/supabase/server";
@@ -64,16 +64,15 @@ export default async function CreateGiftExchangePage({
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Gift Exchanges", href: "/gift-exchange" },
+          { label: "Create", href: "/gift-exchange/create" },
+        ]}
+      />
       {/* Header */}
       <div>
-        <Link
-          href="/gift-exchange"
-          className="inline-flex items-center gap-2 text-primary hover:underline mb-4"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <Text size="sm">Back to Gift Exchanges</Text>
-        </Link>
-
         <Heading level="h1">Create Gift Exchange</Heading>
         <Text variant="secondary" className="mt-1">
           Set up a Secret Santa, White Elephant, or custom gift exchange

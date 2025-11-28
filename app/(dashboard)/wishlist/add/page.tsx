@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Heading, Text } from "@/components/ui/text";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { WishlistPrivacySelector } from "@/components/wishlist/WishlistPrivacySelector";
 import { FormSection } from "@/components/profile/FormSection";
 import type { PrivacyLevel } from "@/types/privacy";
@@ -57,6 +58,13 @@ export default function AddWishlistItemPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-8 p-6">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "My Wishlist", href: "/wishlist" },
+          { label: "Add Item", href: "/wishlist/add" },
+        ]}
+      />
       <div>
         <Heading level="h1">Add Wishlist Item</Heading>
         <Text variant="secondary">

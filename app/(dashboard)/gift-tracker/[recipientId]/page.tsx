@@ -7,8 +7,9 @@ import {
 } from "@/lib/actions/gift-tracking";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { GiftCard, EmptyState } from "@/components/gift-tracking";
-import { Plus, ArrowLeft, Pencil, Trash2, User } from "lucide-react";
+import { Plus, Pencil, User } from "lucide-react";
 import Link from "next/link";
 import type { GiftStatus } from "@/lib/schemas/gift-tracking";
 
@@ -61,15 +62,13 @@ export default async function RecipientDetailPage({ params }: PageProps) {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 p-6">
-      {/* Back link */}
-      <Link
-        href="/gift-tracker"
-        className="inline-flex items-center gap-2 text-light-text-secondary hover:text-primary transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        <Text size="sm">Back to Gift Tracker</Text>
-      </Link>
-
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Gift Tracker", href: "/gift-tracker" },
+          { label: recipient.name, href: `/gift-tracker/${recipientId}` },
+        ]}
+      />
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-4">

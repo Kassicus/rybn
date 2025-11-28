@@ -7,6 +7,7 @@ import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { FormSection } from "@/components/profile/FormSection";
 import { GroupTypeSelector } from "@/components/privacy/GroupTypeSelector";
 import type { GroupType } from "@/types/privacy";
@@ -114,6 +115,12 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-8 p-6">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Settings", href: "/settings" },
+        ]}
+      />
       {/* Header */}
       <div>
         <Heading level="h1" className="flex items-center gap-3">

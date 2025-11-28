@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Plus, Lock, Users, Gift, Calendar, ListPlus, Package } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { Button } from "@/components/ui/button";
 import { HeroBanner } from "@/components/layout/HeroBanner";
 import { getMyGroups } from "@/lib/actions/groups";
@@ -167,6 +168,9 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      <BreadcrumbSetter
+        items={[{ label: "Dashboard", href: "/dashboard" }]}
+      />
       {/* Hero Banner */}
       <HeroBanner
         userName={profile?.display_name || profile?.username}

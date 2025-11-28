@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Plus, Home, Users, Briefcase, Grid } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Heading, Text } from "@/components/ui/text";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { getMyGroups } from "@/lib/actions/groups";
 import JoinGroupButton from "@/components/groups/JoinGroupButton";
 
@@ -28,6 +29,12 @@ export default async function GroupsPage() {
 
   return (
     <div className="space-y-6">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Groups", href: "/groups" },
+        ]}
+      />
       <div className="flex items-center justify-between">
         <div>
           <Heading level="h1">Groups</Heading>
