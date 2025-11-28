@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Heading } from "@/components/ui/text";
 import { Text } from "@/components/ui/text";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { FormSection } from "@/components/profile/FormSection";
 import { SizesSection } from "@/components/profile/sections/SizesSection";
 import { PreferencesSection } from "@/components/profile/sections/PreferencesSection";
@@ -86,6 +87,13 @@ export default function ProfileEditPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-8 p-6">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "My Profile", href: "/profile" },
+          { label: "Edit", href: "/profile/edit" },
+        ]}
+      />
       <div>
         <Heading level="h1">Edit Profile</Heading>
         <Text variant="secondary" className="mt-2">

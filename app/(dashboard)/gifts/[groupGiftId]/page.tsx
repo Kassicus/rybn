@@ -1,9 +1,8 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft, Gift } from "lucide-react";
+import { Gift } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
-import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { ContributionTracker } from "@/components/gifts/ContributionTracker";
 import { ChatWindow } from "@/components/gifts/ChatWindow";
 import { MemberManager } from "@/components/gifts/MemberManager";
@@ -39,16 +38,15 @@ export default async function GroupGiftDetailPage({
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Group Gifts", href: "/gifts" },
+          { label: groupGift.name, href: `/gifts/${groupGift.id}` },
+        ]}
+      />
       {/* Header */}
       <div>
-        <Link
-          href="/gifts"
-          className="inline-flex items-center gap-2 text-primary hover:underline mb-4"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <Text size="sm">Back to Group Gifts</Text>
-        </Link>
-
         <div className="flex items-start justify-between">
           <div className="flex items-start gap-4">
             <div className="w-16 h-16 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0">

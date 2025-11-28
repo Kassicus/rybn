@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Mail, CheckCircle, XCircle, Loader2, ExternalLink } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 
 export default function TestEmailPage() {
   const [email, setEmail] = useState("");
@@ -62,6 +63,13 @@ export default function TestEmailPage() {
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Admin", href: "/admin/test-email" },
+          { label: "Email Testing", href: "/admin/test-email" },
+        ]}
+      />
       {/* Header */}
       <div className="space-y-4">
         <Heading level="h2" className="flex items-center gap-3">

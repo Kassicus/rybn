@@ -2,9 +2,8 @@ import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getRecipientById, getMyRecipients } from "@/lib/actions/gift-tracking";
 import { Heading, Text } from "@/components/ui/text";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { GiftForm } from "@/components/gift-tracking";
-import { ArrowLeft } from "lucide-react";
-import Link from "next/link";
 
 interface PageProps {
   params: Promise<{
@@ -38,15 +37,14 @@ export default async function AddGiftPage({ params }: PageProps) {
 
   return (
     <div className="max-w-2xl mx-auto p-6">
-      {/* Back link */}
-      <Link
-        href={`/gift-tracker/${recipientId}`}
-        className="inline-flex items-center gap-2 text-light-text-secondary hover:text-primary transition-colors mb-6"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        <Text size="sm">Back to {recipient.name}</Text>
-      </Link>
-
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Gift Tracker", href: "/gift-tracker" },
+          { label: recipient.name, href: `/gift-tracker/${recipientId}` },
+          { label: "Add Gift", href: `/gift-tracker/${recipientId}/add-gift` },
+        ]}
+      />
       <div className="mb-6">
         <Heading level="h1">Add Gift</Heading>
         <Text variant="secondary">

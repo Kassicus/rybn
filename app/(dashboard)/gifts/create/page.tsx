@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Gift, DollarSign, ArrowLeft } from "lucide-react";
+import { Gift, DollarSign } from "lucide-react";
 import Link from "next/link";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { createGroupGift } from "@/lib/actions/gifts";
 import { getMyGroups } from "@/lib/actions/groups";
 import { useEffect } from "react";
@@ -107,15 +108,15 @@ export default function CreateGiftGroupPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Group Gifts", href: "/gifts" },
+          { label: "Create", href: "/gifts/create" },
+        ]}
+      />
       {/* Header */}
       <div>
-        <Link
-          href="/gifts"
-          className="inline-flex items-center gap-2 text-primary hover:underline mb-4"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <Text size="sm">Back to Group Gifts</Text>
-        </Link>
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-lg bg-primary-50 flex items-center justify-center">
             <Gift className="w-6 h-6 text-primary" />

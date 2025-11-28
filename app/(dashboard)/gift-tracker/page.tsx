@@ -7,6 +7,7 @@ import {
 } from "@/lib/actions/gift-tracking";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { RecipientCard, EmptyState } from "@/components/gift-tracking";
 import { UserPlus } from "lucide-react";
 import Link from "next/link";
@@ -64,6 +65,12 @@ export default async function GiftTrackerPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 p-6">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Gift Tracker", href: "/gift-tracker" },
+        ]}
+      />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -82,11 +89,17 @@ export default async function GiftTrackerPage() {
 
       {/* Stats Summary */}
       {stats && recipients.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="p-4 rounded-lg bg-light-background border border-light-border">
             <Text variant="secondary" size="sm">Total Spent</Text>
             <Text className="text-2xl font-bold text-primary">
               ${stats.totalCost.toFixed(2)}
+            </Text>
+          </div>
+          <div className="p-4 rounded-lg bg-light-background border border-light-border">
+            <Text variant="secondary" size="sm">Planned Spending</Text>
+            <Text className="text-2xl font-bold text-warning">
+              ${stats.byStatus.planned.total.toFixed(2)}
             </Text>
           </div>
           <div className="p-4 rounded-lg bg-light-background border border-light-border">

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Heading, Text } from "@/components/ui/text";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { RecipientForm } from "@/components/gift-tracking";
 
 export default async function AddRecipientPage() {
@@ -15,6 +16,13 @@ export default async function AddRecipientPage() {
 
   return (
     <div className="max-w-2xl mx-auto p-6">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Gift Tracker", href: "/gift-tracker" },
+          { label: "Add Recipient", href: "/gift-tracker/add-recipient" },
+        ]}
+      />
       <div className="mb-6">
         <Heading level="h1">Add Recipient</Heading>
         <Text variant="secondary">
