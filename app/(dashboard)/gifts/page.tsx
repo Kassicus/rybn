@@ -2,6 +2,7 @@ import { Gift, Plus } from "lucide-react";
 import Link from "next/link";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { GroupGiftCard } from "@/components/gifts/GiftGroupCard";
 import { getMyGroupGifts } from "@/lib/actions/gifts";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -31,6 +32,12 @@ export default async function GiftsPage() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Group Gifts", href: "/gifts" },
+        ]}
+      />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

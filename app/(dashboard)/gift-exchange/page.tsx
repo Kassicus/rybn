@@ -2,6 +2,7 @@ import { Gift, Plus } from "lucide-react";
 import Link from "next/link";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { GiftExchangeCard } from "@/components/gift-exchange/GiftExchangeCard";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -97,6 +98,12 @@ export default async function GiftExchangePage() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Gift Exchanges", href: "/gift-exchange" },
+        ]}
+      />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

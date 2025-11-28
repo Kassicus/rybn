@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft, Gift, Calendar, MapPin, DollarSign, Users } from "lucide-react";
+import { Gift, Calendar, MapPin, DollarSign, Users } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
 import { Separator } from "@/components/ui/separator";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { ParticipantList } from "@/components/gift-exchange/ParticipantList";
 import { AssignmentReveal } from "@/components/gift-exchange/AssignmentReveal";
 import { GiftExchangeActions } from "@/components/gift-exchange/GiftExchangeActions";
@@ -63,16 +63,15 @@ export default async function GiftExchangeDetailPage({
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Gift Exchanges", href: "/gift-exchange" },
+          { label: exchange.name, href: `/gift-exchange/${exchange.id}` },
+        ]}
+      />
       {/* Header */}
       <div>
-        <Link
-          href="/gift-exchange"
-          className="inline-flex items-center gap-2 text-primary hover:underline mb-4"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <Text size="sm">Back to Gift Exchanges</Text>
-        </Link>
-
         <div className="flex items-start justify-between">
           <div className="flex items-start gap-4">
             <div className="w-16 h-16 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0">

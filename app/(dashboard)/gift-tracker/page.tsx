@@ -7,6 +7,7 @@ import {
 } from "@/lib/actions/gift-tracking";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { RecipientCard, EmptyState } from "@/components/gift-tracking";
 import { UserPlus } from "lucide-react";
 import Link from "next/link";
@@ -64,6 +65,12 @@ export default async function GiftTrackerPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 p-6">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Gift Tracker", href: "/gift-tracker" },
+        ]}
+      />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

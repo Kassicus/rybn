@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { API_ENDPOINTS, API_CATEGORIES, type ApiEndpoint } from "@/lib/api/endpoints";
 
 function MethodBadge({ method }: { method: string }) {
@@ -358,6 +359,13 @@ export default function ApiExplorerPage() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-8">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Admin", href: "/admin/api-explorer" },
+          { label: "API Explorer", href: "/admin/api-explorer" },
+        ]}
+      />
       {/* Header */}
       <div className="space-y-4">
         <Heading level="h2" className="flex items-center gap-3">

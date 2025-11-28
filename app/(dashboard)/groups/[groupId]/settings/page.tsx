@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { Heading, Text } from "@/components/ui/text";
 import { Separator } from "@/components/ui/separator";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { getGroupById } from "@/lib/actions/groups";
 import { LeaveGroupButton } from "@/components/groups/LeaveGroupButton";
 import { DeleteGroupButton } from "@/components/groups/DeleteGroupButton";
@@ -36,6 +37,14 @@ export default async function GroupSettingsPage({
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Groups", href: "/groups" },
+          { label: group.name, href: `/groups/${group.id}` },
+          { label: "Settings", href: `/groups/${group.id}/settings` },
+        ]}
+      />
       <div>
         <Heading level="h1">Group Settings</Heading>
         <Text variant="secondary">{group.name}</Text>

@@ -2,11 +2,11 @@
 
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft, Star, Circle, CircleDot, CircleDashed, Lock, ExternalLink } from "lucide-react";
+import { Star, Circle, CircleDot, CircleDashed, Lock, ExternalLink } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { WishlistItemSettings } from "@/components/wishlist/WishlistItemSettings";
 import { getWishlistItem } from "@/lib/actions/wishlist";
 import { createClient } from "@/lib/supabase/client";
@@ -101,16 +101,15 @@ export default function WishlistItemDetailPage({
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "My Wishlist", href: "/wishlist" },
+          { label: item.title, href: `/wishlist/${item.id}` },
+        ]}
+      />
       {/* Header */}
       <div>
-        <Link
-          href="/wishlist"
-          className="inline-flex items-center gap-2 text-primary hover:underline mb-4"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <Text size="sm">Back to Wishlist</Text>
-        </Link>
-
         <div className="flex items-start justify-between">
           <div className="flex-1">
             <div className="flex items-center gap-3 mb-2">

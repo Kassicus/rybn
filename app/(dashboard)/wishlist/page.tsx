@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getMyWishlist } from "@/lib/actions/wishlist";
 import { Button } from "@/components/ui/button";
 import { Heading, Text } from "@/components/ui/text";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { WishlistItemCard } from "@/components/wishlist/WishlistItemCard";
 import { Plus, Gift } from "lucide-react";
 import Link from "next/link";
@@ -29,6 +30,12 @@ export default async function WishlistPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 p-6">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "My Wishlist", href: "/wishlist" },
+        ]}
+      />
       <div className="flex items-center justify-between">
         <div>
           <Heading level="h1">My Wishlist</Heading>

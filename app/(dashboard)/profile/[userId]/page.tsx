@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getUserProfile, getSharedGroups } from "@/lib/actions/profile";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { FormSection } from "@/components/profile/FormSection";
 import { ProfileField } from "@/components/profile/ProfileField";
 import { Separator } from "@/components/ui/separator";
@@ -47,8 +48,16 @@ export default async function UserProfilePage({
   const personal = profileInfo.filter((item: any) => item.category === "personal");
   const dates = profileInfo.filter((item: any) => item.category === "dates");
 
+  const displayName = profileData.display_name || profileData.username || "User";
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 p-6">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: `${displayName}'s Profile`, href: `/profile/${userId}` },
+        ]}
+      />
       <ProfileHeader profile={profileData} isOwnProfile={false} />
 
       {/* Visibility indicator */}

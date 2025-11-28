@@ -4,6 +4,7 @@ import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { getGroupById } from "@/lib/actions/groups";
 import { CopyInviteCode } from "@/components/groups/CopyInviteCode";
 import { InviteMembersButton } from "@/components/groups/InviteMembersButton";
@@ -39,6 +40,13 @@ export default async function GroupDetailPage({
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Groups", href: "/groups" },
+          { label: group.name, href: `/groups/${group.id}` },
+        ]}
+      />
       {/* Group Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-4">

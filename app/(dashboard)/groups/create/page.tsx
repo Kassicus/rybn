@@ -9,6 +9,7 @@ import { Home, Users, Briefcase, Grid } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Heading, Text } from "@/components/ui/text";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { createGroup } from "@/lib/actions/groups";
 
 const createGroupSchema = z.object({
@@ -83,6 +84,13 @@ export default function CreateGroupPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Groups", href: "/groups" },
+          { label: "Create Group", href: "/groups/create" },
+        ]}
+      />
       <div>
         <Heading level="h1">Create a Group</Heading>
         <Text variant="secondary">

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserWishlist } from "@/lib/actions/wishlist";
 import { getSharedGroups } from "@/lib/actions/profile";
 import { Heading, Text } from "@/components/ui/text";
+import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { SortableWishlistItems } from "@/components/wishlist/SortableWishlistItems";
 import { Gift, Eye, Users, Lock } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -89,8 +90,16 @@ export default async function UserWishlistPage({
     );
   }
 
+  const displayName = targetUser.display_name || targetUser.username || "User";
+
   return (
     <div className="max-w-4xl mx-auto space-y-6 p-6">
+      <BreadcrumbSetter
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: `${displayName}'s Wishlist`, href: `/wishlist/user/${userId}` },
+        ]}
+      />
       {/* User Header */}
       <div className="flex items-center gap-4">
         <Avatar className="w-16 h-16">
@@ -103,7 +112,7 @@ export default async function UserWishlistPage({
         </Avatar>
         <div>
           <Heading level="h1">
-            {targetUser.display_name || targetUser.username || "User"}'s Wishlist
+            {displayName}'s Wishlist
           </Heading>
           {targetUser.username && targetUser.display_name && (
             <Text variant="secondary">@{targetUser.username}</Text>
