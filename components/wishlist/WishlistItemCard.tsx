@@ -46,8 +46,8 @@ export function WishlistItemCard({ item, isOwnWishlist = false }: WishlistItemCa
   const isPrivate = visibleToGroupTypes.length === 0 && !restrictToGroup;
 
   return (
-    <Link href={`/wishlist/${item.id}`}>
-      <div className="block p-4 rounded-lg border border-light-border hover:border-primary transition-colors bg-white">
+    <Link href={`/wishlist/${item.id}`} className="block">
+      <div className="p-4 rounded-lg border border-light-border hover:border-primary transition-colors bg-white">
         <div className="flex gap-4">
           {/* Image */}
           {item.image_url && (

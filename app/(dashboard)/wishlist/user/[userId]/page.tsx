@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserWishlist } from "@/lib/actions/wishlist";
 import { getSharedGroups } from "@/lib/actions/profile";
 import { Heading, Text } from "@/components/ui/text";
-import { WishlistItemCard } from "@/components/wishlist/WishlistItemCard";
+import { SortableWishlistItems } from "@/components/wishlist/SortableWishlistItems";
 import { Gift, Eye, Users, Lock } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
@@ -154,15 +154,7 @@ export default async function UserWishlistPage({
 
       {/* Wishlist items */}
       {items && items.length > 0 && (
-        <div className="space-y-4">
-          {items.map((item) => (
-            <WishlistItemCard
-              key={item.id}
-              item={item as any}
-              isOwnWishlist={false}
-            />
-          ))}
-        </div>
+        <SortableWishlistItems items={items as any} />
       )}
     </div>
   );
