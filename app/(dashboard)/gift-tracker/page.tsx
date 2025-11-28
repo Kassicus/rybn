@@ -82,11 +82,17 @@ export default async function GiftTrackerPage() {
 
       {/* Stats Summary */}
       {stats && recipients.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="p-4 rounded-lg bg-light-background border border-light-border">
             <Text variant="secondary" size="sm">Total Spent</Text>
             <Text className="text-2xl font-bold text-primary">
               ${stats.totalCost.toFixed(2)}
+            </Text>
+          </div>
+          <div className="p-4 rounded-lg bg-light-background border border-light-border">
+            <Text variant="secondary" size="sm">Planned Spending</Text>
+            <Text className="text-2xl font-bold text-warning">
+              ${stats.byStatus.planned.total.toFixed(2)}
             </Text>
           </div>
           <div className="p-4 rounded-lg bg-light-background border border-light-border">
