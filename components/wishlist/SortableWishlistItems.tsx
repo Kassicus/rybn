@@ -14,6 +14,13 @@ import {
 import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import type { GroupType } from "@/types/privacy";
 
+interface ClaimerInfo {
+  id: string;
+  username: string;
+  display_name?: string | null;
+  avatar_url?: string | null;
+}
+
 interface WishlistItem {
   id: string;
   title: string;
@@ -33,6 +40,8 @@ interface WishlistItem {
 
 interface SortableWishlistItemsProps {
   items: WishlistItem[];
+  currentUserId?: string;
+  claimerProfiles?: Record<string, ClaimerInfo>;
 }
 
 type SortOption = "priority" | "category" | "price";
@@ -45,7 +54,11 @@ const PRIORITY_ORDER: Record<string, number> = {
   low: 1,
 };
 
-export function SortableWishlistItems({ items }: SortableWishlistItemsProps) {
+export function SortableWishlistItems({
+  items,
+  currentUserId,
+  claimerProfiles = {},
+}: SortableWishlistItemsProps) {
   const [sortBy, setSortBy] = useState<SortOption>("priority");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
@@ -182,6 +195,12 @@ export function SortableWishlistItems({ items }: SortableWishlistItemsProps) {
                     key={item.id}
                     item={item as any}
                     isOwnWishlist={false}
+                    currentUserId={currentUserId}
+                    claimerInfo={
+                      item.claimed_by
+                        ? claimerProfiles[item.claimed_by]
+                        : null
+                    }
                   />
                 ))}
               </div>
@@ -196,6 +215,10 @@ export function SortableWishlistItems({ items }: SortableWishlistItemsProps) {
               key={item.id}
               item={item as any}
               isOwnWishlist={false}
+              currentUserId={currentUserId}
+              claimerInfo={
+                item.claimed_by ? claimerProfiles[item.claimed_by] : null
+              }
             />
           ))}
         </div>

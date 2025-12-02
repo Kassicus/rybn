@@ -1,6 +1,6 @@
 import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getUserWishlist } from "@/lib/actions/wishlist";
+import { getUserWishlist, getClaimerProfiles } from "@/lib/actions/wishlist";
 import { getSharedGroups } from "@/lib/actions/profile";
 import { Heading, Text } from "@/components/ui/text";
 import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
@@ -80,7 +80,7 @@ export default async function UserWishlistPage({
   }
 
   // Get the user's wishlist (RLS will filter based on privacy)
-  const { data: items, error } = await getUserWishlist(userId);
+  const { data: items, error, currentUserId } = await getUserWishlist(userId);
 
   if (error) {
     return (
@@ -89,6 +89,13 @@ export default async function UserWishlistPage({
       </div>
     );
   }
+
+  // Fetch claimer profiles for all claimed items
+  const claimedByIds = items
+    ?.filter((item: any) => item.claimed_by)
+    .map((item: any) => item.claimed_by as string) || [];
+  const uniqueClaimerIds = [...new Set(claimedByIds)];
+  const { data: claimerProfiles } = await getClaimerProfiles(uniqueClaimerIds);
 
   const displayName = targetUser.display_name || targetUser.username || "User";
 
@@ -163,7 +170,11 @@ export default async function UserWishlistPage({
 
       {/* Wishlist items */}
       {items && items.length > 0 && (
-        <SortableWishlistItems items={items as any} />
+        <SortableWishlistItems
+          items={items as any}
+          currentUserId={currentUserId}
+          claimerProfiles={claimerProfiles || {}}
+        />
       )}
     </div>
   );

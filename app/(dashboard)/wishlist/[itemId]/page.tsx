@@ -8,11 +8,19 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { WishlistItemSettings } from "@/components/wishlist/WishlistItemSettings";
-import { getWishlistItem } from "@/lib/actions/wishlist";
+import { ClaimActions } from "@/components/wishlist/ClaimActions";
+import { getWishlistItem, getClaimerProfile } from "@/lib/actions/wishlist";
 import { createClient } from "@/lib/supabase/client";
 import { PRIORITY_INFO } from "@/lib/schemas/wishlist";
 import { GROUP_TYPES } from "@/types/privacy";
 import type { GroupType } from "@/types/privacy";
+
+interface ClaimerInfo {
+  id: string;
+  username: string;
+  display_name?: string | null;
+  avatar_url?: string | null;
+}
 
 interface WishlistItem {
   id: string;
@@ -42,30 +50,37 @@ export default function WishlistItemDetailPage({
   const [item, setItem] = useState<WishlistItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [isOwnWishlist, setIsOwnWishlist] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [claimerInfo, setClaimerInfo] = useState<ClaimerInfo | null>(null);
   const router = useRouter();
 
   useEffect(() => {
     async function loadData() {
-      const supabase = createClient();
-
-      const { data: itemData, error: itemError } = await getWishlistItem(itemId);
+      const { data: itemData, error: itemError, currentUserId: userId } =
+        await getWishlistItem(itemId);
 
       if (itemError || !itemData) {
-        router.push('/404');
+        router.push("/404");
         return;
       }
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        router.push('/404');
+      if (!userId) {
+        router.push("/404");
         return;
       }
 
       setItem(itemData as any);
-      setIsOwnWishlist(itemData.user_id === user.id);
+      setCurrentUserId(userId);
+      setIsOwnWishlist(itemData.user_id === userId);
+
+      // Fetch claimer info if claimed and not own item
+      if (itemData.claimed_by && itemData.user_id !== userId) {
+        const { data: claimer } = await getClaimerProfile(itemData.claimed_by);
+        if (claimer) {
+          setClaimerInfo(claimer);
+        }
+      }
+
       setLoading(false);
     }
 
@@ -179,7 +194,7 @@ export default function WishlistItemDetailPage({
           {item.url && (
             <Button
               variant="secondary"
-              onClick={() => window.open(item.url!, '_blank')}
+              onClick={() => window.open(item.url!, "_blank")}
             >
               <ExternalLink className="w-4 h-4" />
               View Product
@@ -187,22 +202,43 @@ export default function WishlistItemDetailPage({
           )}
         </div>
 
-        {/* Privacy Settings */}
-        <div className="p-4 rounded-lg border border-light-border bg-light-background-hover">
-          <Heading level="h4" className="mb-2">Privacy</Heading>
-          <div className="flex items-center gap-2">
-            <Lock className="w-4 h-4 text-gray-500" />
-            <Text variant="secondary">
-              {isPrivate ? (
-                '🔒 Private: Only you can see this item'
-              ) : restrictToGroup ? (
-                '🔐 Restricted to a specific group'
-              ) : (
-                `✓ Visible to: ${visibleToGroupTypes.map(t => GROUP_TYPES[t].label).join(', ')} groups`
-              )}
-            </Text>
+        {/* Claim Actions - only for non-owners */}
+        {!isOwnWishlist && currentUserId && (
+          <ClaimActions
+            itemId={item.id}
+            claimedBy={item.claimed_by || null}
+            purchased={item.purchased || false}
+            currentUserId={currentUserId}
+            claimerInfo={claimerInfo}
+            variant="detail"
+            itemData={{
+              title: item.title,
+              description: item.description,
+              url: item.url,
+              price: item.price,
+              image_url: item.image_url,
+            }}
+          />
+        )}
+
+        {/* Privacy Settings - only for owners */}
+        {isOwnWishlist && (
+          <div className="p-4 rounded-lg border border-light-border bg-light-background-hover">
+            <Heading level="h4" className="mb-2">Privacy</Heading>
+            <div className="flex items-center gap-2">
+              <Lock className="w-4 h-4 text-gray-500" />
+              <Text variant="secondary">
+                {isPrivate
+                  ? "Private: Only you can see this item"
+                  : restrictToGroup
+                  ? "Restricted to a specific group"
+                  : `Visible to: ${visibleToGroupTypes
+                      .map((t) => GROUP_TYPES[t].label)
+                      .join(", ")} groups`}
+              </Text>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Additional Details */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -6,6 +6,7 @@ import type { WishlistItemFormData } from "@/lib/schemas/wishlist";
 
 /**
  * Get the current user's wishlist
+ * Note: Claim data is stripped since owners should not see who claimed their items
  */
 export async function getMyWishlist() {
   const supabase = await createClient();
@@ -29,11 +30,21 @@ export async function getMyWishlist() {
     return { error: error.message };
   }
 
-  return { data: items || [] };
+  // Strip claim data - owners should never see who claimed their items
+  const sanitizedItems = items?.map((item) => ({
+    ...item,
+    claimed_by: null,
+    claimed_at: null,
+    purchased: false,
+    purchased_at: null,
+  }));
+
+  return { data: sanitizedItems || [] };
 }
 
 /**
  * Get another user's wishlist (filtered by privacy)
+ * Returns currentUserId for UI to determine claim permissions
  */
 export async function getUserWishlist(userId: string) {
   const supabase = await createClient();
@@ -59,7 +70,19 @@ export async function getUserWishlist(userId: string) {
     return { error: error.message };
   }
 
-  return { data: items || [] };
+  // If viewing own wishlist through this route, strip claim data
+  const isOwnWishlist = user.id === userId;
+  const sanitizedItems = isOwnWishlist
+    ? items?.map((item) => ({
+        ...item,
+        claimed_by: null,
+        claimed_at: null,
+        purchased: false,
+        purchased_at: null,
+      }))
+    : items;
+
+  return { data: sanitizedItems || [], currentUserId: user.id };
 }
 
 /**
@@ -180,6 +203,7 @@ export async function deleteWishlistItem(itemId: string) {
 
 /**
  * Get a single wishlist item
+ * Returns currentUserId for UI to determine claim permissions
  */
 export async function getWishlistItem(itemId: string) {
   const supabase = await createClient();
@@ -204,7 +228,19 @@ export async function getWishlistItem(itemId: string) {
     return { error: error.message };
   }
 
-  return { data: item };
+  // If viewing own item, strip claim data
+  const isOwnItem = item.user_id === user.id;
+  const sanitizedItem = isOwnItem
+    ? {
+        ...item,
+        claimed_by: null,
+        claimed_at: null,
+        purchased: false,
+        purchased_at: null,
+      }
+    : item;
+
+  return { data: sanitizedItem, currentUserId: user.id };
 }
 
 /**
@@ -308,4 +344,71 @@ export async function markAsPurchased(itemId: string, purchased: boolean) {
 
   revalidatePath("/wishlist");
   return { data: item };
+}
+
+/**
+ * Get the profile of a user who claimed an item
+ * Used to display who claimed a gift to other viewers
+ */
+export async function getClaimerProfile(claimedById: string) {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return { error: "Not authenticated" };
+  }
+
+  const { data: profile, error } = await supabase
+    .from("user_profiles")
+    .select("id, username, display_name, avatar_url")
+    .eq("id", claimedById)
+    .single();
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return { data: profile };
+}
+
+/**
+ * Get profiles for multiple claimers (batch fetch)
+ * Used to efficiently fetch claimer info for all claimed items on a wishlist
+ */
+export async function getClaimerProfiles(claimerIds: string[]) {
+  if (claimerIds.length === 0) {
+    return { data: {} };
+  }
+
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return { error: "Not authenticated" };
+  }
+
+  const { data: profiles, error } = await supabase
+    .from("user_profiles")
+    .select("id, username, display_name, avatar_url")
+    .in("id", claimerIds);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  // Convert to a map for easy lookup
+  const profileMap: Record<string, typeof profiles[0]> = {};
+  profiles?.forEach((profile) => {
+    profileMap[profile.id] = profile;
+  });
+
+  return { data: profileMap };
 }
