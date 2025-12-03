@@ -6,11 +6,13 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { wishlistItemSchema, type WishlistItemFormData, PRIORITY_INFO } from "@/lib/schemas/wishlist";
 import { createWishlistItem } from "@/lib/actions/wishlist";
+import { useAuth } from "@/lib/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Heading, Text } from "@/components/ui/text";
+import { ImageInput } from "@/components/ui/image-input";
 import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { WishlistPrivacySelector } from "@/components/wishlist/WishlistPrivacySelector";
 import { FormSection } from "@/components/profile/FormSection";
@@ -18,6 +20,7 @@ import type { PrivacyLevel } from "@/types/privacy";
 
 export default function AddWishlistItemPage() {
   const router = useRouter();
+  const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -140,28 +143,29 @@ export default function AddWishlistItemPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label>Image URL</Label>
-                <Input
-                  {...register("image_url")}
-                  type="url"
-                  placeholder="https://example.com/image.jpg"
+            <div>
+              <Label>Category</Label>
+              <Input
+                {...register("category")}
+                type="text"
+                placeholder="e.g., Electronics, Clothing, Books"
+                error={errors.category?.message}
+                className="mt-1"
+              />
+            </div>
+
+            <div>
+              <Label>Image</Label>
+              {user && (
+                <ImageInput
+                  value={watch("image_url")}
+                  onChange={(url) => setValue("image_url", url || "")}
+                  bucket="wishlist-images"
+                  userId={user.id}
                   error={errors.image_url?.message}
                   className="mt-1"
                 />
-              </div>
-
-              <div>
-                <Label>Category</Label>
-                <Input
-                  {...register("category")}
-                  type="text"
-                  placeholder="e.g., Electronics, Clothing, Books"
-                  error={errors.category?.message}
-                  className="mt-1"
-                />
-              </div>
+              )}
             </div>
           </div>
         </FormSection>

@@ -10,8 +10,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Heading, Text } from "@/components/ui/text";
+import { ImageInput } from "@/components/ui/image-input";
 import { WishlistPrivacySelector } from "@/components/wishlist/WishlistPrivacySelector";
 import { FormSection } from "@/components/profile/FormSection";
+import { useAuth } from "@/lib/hooks/useAuth";
 import { deleteWishlistItem, updateWishlistItem } from "@/lib/actions/wishlist";
 import { wishlistItemSchema, type WishlistItemFormData, PRIORITY_INFO } from "@/lib/schemas/wishlist";
 import type { GroupType } from "@/types/privacy";
@@ -40,6 +42,7 @@ export function WishlistItemSettings({
   item,
 }: WishlistItemSettingsProps) {
   const router = useRouter();
+  const { user } = useAuth();
   const [showModal, setShowModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [viewMode, setViewMode] = useState<'menu' | 'edit'>('menu');
@@ -271,28 +274,29 @@ export function WishlistItemSettings({
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <Label>Image URL</Label>
-                        <Input
-                          {...register("image_url")}
-                          type="url"
-                          placeholder="https://example.com/image.jpg"
+                    <div>
+                      <Label>Category</Label>
+                      <Input
+                        {...register("category")}
+                        type="text"
+                        placeholder="e.g., Electronics, Clothing, Books"
+                        error={errors.category?.message}
+                        className="mt-1"
+                      />
+                    </div>
+
+                    <div>
+                      <Label>Image</Label>
+                      {user && (
+                        <ImageInput
+                          value={watch("image_url")}
+                          onChange={(url) => setValue("image_url", url || "")}
+                          bucket="wishlist-images"
+                          userId={user.id}
                           error={errors.image_url?.message}
                           className="mt-1"
                         />
-                      </div>
-
-                      <div>
-                        <Label>Category</Label>
-                        <Input
-                          {...register("category")}
-                          type="text"
-                          placeholder="e.g., Electronics, Clothing, Books"
-                          error={errors.category?.message}
-                          className="mt-1"
-                        />
-                      </div>
+                      )}
                     </div>
                   </div>
                 </FormSection>

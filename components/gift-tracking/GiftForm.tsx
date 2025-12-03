@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Heading, Text } from "@/components/ui/text";
+import { ImageInput } from "@/components/ui/image-input";
+import { useAuth } from "@/lib/hooks/useAuth";
 import { createGift, updateGift } from "@/lib/actions/gift-tracking";
 import {
   giftStatuses,
@@ -45,6 +47,7 @@ export function GiftForm({
   onSuccess,
 }: GiftFormProps) {
   const router = useRouter();
+  const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isEditing = !!gift;
@@ -229,20 +232,19 @@ export function GiftForm({
         <div>
           <label className="block mb-2">
             <Text size="sm" className="font-medium">
-              Photo URL
+              Photo
             </Text>
           </label>
-          <Input
-            type="url"
-            placeholder="https://example.com/image.jpg"
-            value={formData.photo_url || ""}
-            onChange={(e) =>
-              setFormData({ ...formData, photo_url: e.target.value })
-            }
-          />
-          <Text size="sm" variant="secondary" className="mt-1">
-            Image URL for the gift
-          </Text>
+          {user && (
+            <ImageInput
+              value={formData.photo_url}
+              onChange={(url) =>
+                setFormData({ ...formData, photo_url: url || "" })
+              }
+              bucket="gift-photos"
+              userId={user.id}
+            />
+          )}
         </div>
       </div>
 
