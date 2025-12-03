@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Bell, User, LogOut, Settings } from "lucide-react";
+import { Search, Bell, User, LogOut, Settings, Menu } from "lucide-react";
+import { MobileDrawer } from "@/components/layout/MobileDrawer";
 import { Logo } from "@/components/vibe/Logo";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { SearchBar } from "@/components/search/SearchBar";
@@ -24,6 +25,7 @@ export function TopBar({ user, profile }: TopBarProps) {
   const supabase = createClient();
   const [showSearch, setShowSearch] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showMobileNav, setShowMobileNav] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
@@ -49,8 +51,17 @@ export function TopBar({ user, profile }: TopBarProps) {
   return (
     <header className="sticky top-0 z-40 w-full border-b border-light-border bg-light-background/95 backdrop-blur supports-[backdrop-filter]:bg-light-background/60">
       <div className="container flex h-16 items-center justify-between px-4 mx-auto max-w-screen-2xl">
-        {/* Left: Logo */}
-        <div className="flex items-center gap-6">
+        {/* Left: Hamburger + Logo */}
+        <div className="flex items-center gap-2 md:gap-6">
+          {/* Mobile hamburger menu */}
+          <button
+            onClick={() => setShowMobileNav(true)}
+            className="md:hidden p-2 rounded-lg hover:bg-light-background-hover transition-colors"
+            aria-label="Open menu"
+          >
+            <Menu className="w-5 h-5 text-light-text-secondary" />
+          </button>
+
           <button
             onClick={() => router.push("/dashboard")}
             className="flex items-center transition-opacity hover:opacity-80"
@@ -102,7 +113,7 @@ export function TopBar({ user, profile }: TopBarProps) {
 
             {/* Dropdown Menu */}
             {showProfileMenu && (
-              <div className="absolute right-0 mt-2 w-56 rounded-xl border border-light-border bg-white shadow-lg overflow-hidden">
+              <div className="absolute right-0 mt-2 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-light-border bg-white shadow-lg overflow-hidden">
                 {/* User Info */}
                 <div className="px-4 py-3 border-b border-light-border">
                   <p className="text-sm font-medium text-light-text-primary truncate">
@@ -159,6 +170,14 @@ export function TopBar({ user, profile }: TopBarProps) {
           <SearchBar placeholder="Search wishlists, groups, gifts, people..." />
         </div>
       )}
+
+      {/* Mobile navigation drawer */}
+      <MobileDrawer
+        isOpen={showMobileNav}
+        onClose={() => setShowMobileNav(false)}
+        user={user}
+        profile={profile}
+      />
     </header>
   );
 }

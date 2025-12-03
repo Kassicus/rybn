@@ -25,7 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={quicksand.variable}>
-      <body className={quicksand.className}>
+      <body className={`${quicksand.className} overflow-x-hidden`}>
         <QueryProvider>
           {children}
           <Analytics />

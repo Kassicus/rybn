@@ -29,7 +29,7 @@ export default async function DashboardLayout({
   const { data: profile } = await getMyProfile();
 
   return (
-    <div className="min-h-screen flex flex-col bg-light-background">
+    <div className="min-h-screen flex flex-col bg-light-background overflow-x-hidden">
       <TopBar user={user} profile={profile} />
       <BreadcrumbProvider>
         <main className="flex-1 px-4 py-6 md:px-8 md:py-8 container mx-auto max-w-screen-2xl">

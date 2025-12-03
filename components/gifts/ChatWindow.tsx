@@ -153,7 +153,7 @@ export function ChatWindow({
   };
 
   return (
-    <div className="flex flex-col h-[600px] border border-light-border rounded-lg overflow-hidden bg-light-background">
+    <div className="flex flex-col h-[400px] md:h-[600px] border border-light-border rounded-lg overflow-hidden bg-light-background">
       {/* Header */}
       <div className="p-4 border-b border-light-border bg-light-background-hover">
         <Heading level="h4">Group Chat</Heading>
@@ -206,7 +206,7 @@ export function ChatWindow({
                   )}
 
                   <div
-                    className={`flex-1 max-w-[70%] ${
+                    className={`flex-1 max-w-[85%] md:max-w-[70%] ${
                       isCurrentUser ? "items-end" : "items-start"
                     } flex flex-col`}
                   >
