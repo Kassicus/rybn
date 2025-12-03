@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
+import { isNativeApp } from "@/lib/capacitor/bridge";
+import { openInAppBrowser } from "@/lib/capacitor/deeplinks";
 
 interface OAuthButtonProps {
   provider: "google";
@@ -18,18 +20,49 @@ export function OAuthButton({ provider, text, className }: OAuthButtonProps) {
     setIsLoading(true);
 
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: provider,
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-        },
-      });
+      if (isNativeApp()) {
+        // On native platforms, use in-app browser for OAuth
+        // The OAuth flow will redirect back to the app via deep link
+        const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL || "https://rybn.app"}/auth/callback`;
 
-      if (error) {
-        console.error("OAuth error:", error);
-        setIsLoading(false);
+        // Get the OAuth URL from Supabase
+        const { data, error } = await supabase.auth.signInWithOAuth({
+          provider: provider,
+          options: {
+            redirectTo,
+            skipBrowserRedirect: true, // Don't redirect in the WebView
+          },
+        });
+
+        if (error) {
+          console.error("OAuth error:", error);
+          setIsLoading(false);
+          return;
+        }
+
+        if (data.url) {
+          // Open OAuth URL in the in-app browser
+          await openInAppBrowser(data.url);
+        }
+
+        // Keep loading state - will be reset when user returns via deep link
+        // or if they cancel and return to the app
+        setTimeout(() => setIsLoading(false), 30000); // Timeout after 30s
+      } else {
+        // On web, use the standard OAuth flow
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: provider,
+          options: {
+            redirectTo: `${window.location.origin}/auth/callback`,
+          },
+        });
+
+        if (error) {
+          console.error("OAuth error:", error);
+          setIsLoading(false);
+        }
+        // Don't set loading to false on success - user will be redirected
       }
-      // Don't set loading to false on success - user will be redirected
     } catch (err) {
       console.error("OAuth error:", err);
       setIsLoading(false);

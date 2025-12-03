@@ -22,10 +22,10 @@ const nextConfig: NextConfig = {
         // Apply security headers to all routes
         source: '/:path*',
         headers: [
-          // Prevent clickjacking attacks
+          // Prevent clickjacking attacks (SAMEORIGIN allows Capacitor WebView)
           {
             key: 'X-Frame-Options',
-            value: 'DENY',
+            value: 'SAMEORIGIN',
           },
           // Prevent MIME type sniffing
           {
@@ -47,10 +47,10 @@ const nextConfig: NextConfig = {
             key: 'Strict-Transport-Security',
             value: 'max-age=31536000; includeSubDomains',
           },
-          // Permissions Policy - restrict browser features
+          // Permissions Policy - restrict browser features (allow camera for native app)
           {
             key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=()',
+            value: 'camera=(self), microphone=(), geolocation=()',
           },
           // Content Security Policy
           {
@@ -62,7 +62,7 @@ const nextConfig: NextConfig = {
               "img-src 'self' data: https:",
               "font-src 'self' data:",
               "connect-src 'self' https://atzrokpgttmzgbawbzst.supabase.co wss://atzrokpgttmzgbawbzst.supabase.co",
-              "frame-ancestors 'none'",
+              "frame-ancestors 'self' capacitor: ionic:",
               "base-uri 'self'",
               "form-action 'self'",
             ].join('; '),

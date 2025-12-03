@@ -1,0 +1,31 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "TEAM_ID.app.rybn.ios",
+        "paths": [
+          "/auth/callback",
+          "/auth/callback/*",
+          "/dashboard",
+          "/dashboard/*",
+          "/profile",
+          "/profile/*",
+          "/wishlist",
+          "/wishlist/*",
+          "/groups",
+          "/groups/*",
+          "/gifts",
+          "/gifts/*",
+          "/gift-exchange",
+          "/gift-exchange/*",
+          "/accept-invite",
+          "/accept-invite/*"
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["TEAM_ID.app.rybn.ios"]
+  }
+}

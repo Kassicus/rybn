@@ -2,10 +2,14 @@
 
 import * as React from "react";
 import { useState, useRef, useEffect } from "react";
+import { Camera, ImagePlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "./input";
 import { Text } from "./text";
+import { Button } from "./button";
 import { createClient } from "@/lib/supabase/client";
+import { isNativeApp } from "@/lib/capacitor/bridge";
+import { captureImage, dataUrlToFile } from "@/lib/capacitor/camera";
 
 interface ImageInputProps {
   value?: string | null;
@@ -142,6 +146,68 @@ export function ImageInput({
     }
   };
 
+  // Handle native camera capture (iOS/Android)
+  const handleNativeCapture = async (source: "camera" | "photos") => {
+    setUploadError(null);
+
+    const result = await captureImage(source);
+    if (!result) {
+      // User cancelled or not on native platform
+      return;
+    }
+
+    // Show preview immediately
+    setUploadedPreview(result.dataUrl);
+    setUrlValue("");
+    setIsUploading(true);
+
+    try {
+      // Convert data URL to File
+      const file = await dataUrlToFile(result.dataUrl, `capture-${Date.now()}`);
+
+      // Validate file size
+      if (file.size > MAX_FILE_SIZE) {
+        setUploadError("Image must be less than 5MB");
+        setUploadedPreview(null);
+        return;
+      }
+
+      const supabase = createClient();
+
+      // Generate unique filename
+      const fileExt = result.format || "jpeg";
+      const fileName = `${userId}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+
+      // Upload to Supabase Storage
+      const { data, error: uploadErr } = await supabase.storage
+        .from(bucket)
+        .upload(fileName, file, {
+          cacheControl: "3600",
+          upsert: false,
+        });
+
+      if (uploadErr) {
+        throw uploadErr;
+      }
+
+      // Get public URL
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from(bucket).getPublicUrl(data.path);
+
+      onChange(publicUrl);
+      setUploadedPreview(publicUrl);
+    } catch (err) {
+      console.error("Upload error:", err);
+      setUploadError(
+        err instanceof Error ? err.message : "Failed to upload image"
+      );
+      setUploadedPreview(null);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const displayError = uploadError || error;
 
   return (
@@ -199,7 +265,60 @@ export function ImageInput({
               x
             </button>
           </div>
+        ) : isNativeApp() ? (
+          // Native app: Show camera and photo library buttons
+          <div className="space-y-3">
+            <div className="flex gap-3">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => handleNativeCapture("camera")}
+                disabled={disabled || isUploading}
+                className="flex-1"
+              >
+                <Camera className="w-4 h-4 mr-2" />
+                Take Photo
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => handleNativeCapture("photos")}
+                disabled={disabled || isUploading}
+                className="flex-1"
+              >
+                <ImagePlus className="w-4 h-4 mr-2" />
+                Photo Library
+              </Button>
+            </div>
+            {isUploading && (
+              <div className="flex items-center justify-center gap-2 py-4">
+                <svg
+                  className="w-5 h-5 text-light-text-secondary animate-spin"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+                <Text size="sm" variant="secondary">
+                  Uploading...
+                </Text>
+              </div>
+            )}
+          </div>
         ) : (
+          // Web: Show file input
           <label
             className={cn(
               "flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer transition-colors",
