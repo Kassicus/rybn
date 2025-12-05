@@ -16,10 +16,12 @@ import {
   claimWishlistItem,
   unclaimWishlistItem,
   markAsPurchased,
+  markOutOfStock,
+  unmarkOutOfStock,
 } from "@/lib/actions/wishlist";
 import { getMyRecipients } from "@/lib/actions/gift-tracking";
 import { createGift } from "@/lib/actions/gift-tracking";
-import { Gift, Check, X, ShoppingBag, ClipboardList, Plus } from "lucide-react";
+import { Gift, Check, X, ShoppingBag, ClipboardList, Plus, AlertTriangle } from "lucide-react";
 
 interface ClaimerInfo {
   id: string;
@@ -45,6 +47,7 @@ interface ClaimActionsProps {
   itemId: string;
   claimedBy: string | null;
   purchased: boolean;
+  outOfStockMarkedBy: string | null;
   currentUserId: string;
   claimerInfo?: ClaimerInfo | null;
   variant?: "card" | "detail";
@@ -55,6 +58,7 @@ export function ClaimActions({
   itemId,
   claimedBy,
   purchased,
+  outOfStockMarkedBy,
   currentUserId,
   claimerInfo,
   variant = "card",
@@ -62,6 +66,7 @@ export function ClaimActions({
 }: ClaimActionsProps) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const [isStockLoading, setIsStockLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Gift tracker state
@@ -73,6 +78,7 @@ export function ClaimActions({
 
   const isClaimedByMe = claimedBy === currentUserId;
   const isClaimedByOther = claimedBy && !isClaimedByMe;
+  const isOutOfStock = !!outOfStockMarkedBy;
 
   // Fetch recipients when showing gift tracker option
   useEffect(() => {
@@ -114,7 +120,7 @@ export function ClaimActions({
       product_link: itemData.url || undefined,
       price: itemData.price || undefined,
       photo_url: itemData.image_url || undefined,
-      status: "ordered", // Since they claimed it, assume they'll order it
+      status: "planned", // Start as planned, user can update when ordered
       season_year: new Date().getFullYear(),
     });
 
@@ -149,6 +155,19 @@ export function ClaimActions({
     router.refresh();
   };
 
+  const handleToggleOutOfStock = async () => {
+    setIsStockLoading(true);
+    setError(null);
+    const result = isOutOfStock
+      ? await unmarkOutOfStock(itemId)
+      : await markOutOfStock(itemId);
+    if (result.error) {
+      setError(result.error);
+    }
+    setIsStockLoading(false);
+    router.refresh();
+  };
+
   const getClaimerDisplayName = () => {
     if (!claimerInfo) return "Someone";
     return claimerInfo.display_name || claimerInfo.username || "Someone";
@@ -173,15 +192,26 @@ export function ClaimActions({
         )}
 
         {!claimedBy && (
-          <Button
-            variant="secondary"
-            size="small"
-            onClick={handleClaim}
-            loading={isLoading}
-          >
-            <Gift className="w-4 h-4" />
-            I'll get this
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              size="small"
+              onClick={handleClaim}
+              loading={isLoading}
+            >
+              <Gift className="w-4 h-4" />
+              I'll get this
+            </Button>
+            <Button
+              variant={isOutOfStock ? "tertiary" : "secondary"}
+              size="small"
+              onClick={handleToggleOutOfStock}
+              loading={isStockLoading}
+            >
+              <AlertTriangle className="w-4 h-4" />
+              {isOutOfStock ? "Back in Stock" : "Out of Stock"}
+            </Button>
+          </>
         )}
 
         {isClaimedByMe && !purchased && (
@@ -387,10 +417,20 @@ export function ClaimActions({
             This item hasn't been claimed yet. Claim it to let others know
             you're getting it!
           </Text>
-          <Button variant="primary" onClick={handleClaim} loading={isLoading}>
-            <Gift className="w-4 h-4" />
-            I'll Get This Gift
-          </Button>
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="primary" onClick={handleClaim} loading={isLoading}>
+              <Gift className="w-4 h-4" />
+              I'll Get This Gift
+            </Button>
+            <Button
+              variant={isOutOfStock ? "tertiary" : "secondary"}
+              onClick={handleToggleOutOfStock}
+              loading={isStockLoading}
+            >
+              <AlertTriangle className="w-4 h-4" />
+              {isOutOfStock ? "Mark Back in Stock" : "Mark Out of Stock"}
+            </Button>
+          </div>
         </div>
       )}
 

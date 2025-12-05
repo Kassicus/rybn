@@ -30,6 +30,7 @@ interface WishlistItem {
   };
   claimed_by?: string | null;
   purchased?: boolean;
+  out_of_stock_marked_by?: string | null;
 }
 
 interface WishlistItemCardProps {
@@ -92,6 +93,11 @@ export function WishlistItemCard({
                     {item.purchased && !isOwnWishlist && (
                       <span className="px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">
                         Purchased
+                      </span>
+                    )}
+                    {item.out_of_stock_marked_by && !isOwnWishlist && (
+                      <span className="px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">
+                        Out of Stock
                       </span>
                     )}
                   </div>
@@ -163,6 +169,7 @@ export function WishlistItemCard({
             itemId={item.id}
             claimedBy={item.claimed_by || null}
             purchased={item.purchased || false}
+            outOfStockMarkedBy={item.out_of_stock_marked_by || null}
             currentUserId={currentUserId}
             claimerInfo={claimerInfo}
             variant="card"

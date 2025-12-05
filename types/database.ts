@@ -714,6 +714,8 @@ export type Database = {
           claimed_at: string | null
           purchased: boolean
           purchased_at: string | null
+          out_of_stock_marked_by: string | null
+          out_of_stock_marked_at: string | null
           created_at: string
           updated_at: string
         }
@@ -732,6 +734,8 @@ export type Database = {
           claimed_at?: string | null
           purchased?: boolean
           purchased_at?: string | null
+          out_of_stock_marked_by?: string | null
+          out_of_stock_marked_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -750,6 +754,8 @@ export type Database = {
           claimed_at?: string | null
           purchased?: boolean
           purchased_at?: string | null
+          out_of_stock_marked_by?: string | null
+          out_of_stock_marked_at?: string | null
           created_at?: string
           updated_at?: string
         }

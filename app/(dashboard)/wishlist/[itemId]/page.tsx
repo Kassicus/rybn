@@ -38,6 +38,7 @@ interface WishlistItem {
   };
   claimed_by?: string | null;
   purchased?: boolean;
+  out_of_stock_marked_by?: string | null;
 }
 
 
@@ -132,6 +133,11 @@ export default function WishlistItemDetailPage({
                   Purchased
                 </span>
               )}
+              {item.out_of_stock_marked_by && !isOwnWishlist && (
+                <span className="px-2 py-1 rounded text-sm bg-red-100 text-red-700">
+                  Out of Stock
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-4 flex-wrap">
@@ -208,6 +214,7 @@ export default function WishlistItemDetailPage({
             itemId={item.id}
             claimedBy={item.claimed_by || null}
             purchased={item.purchased || false}
+            outOfStockMarkedBy={item.out_of_stock_marked_by || null}
             currentUserId={currentUserId}
             claimerInfo={claimerInfo}
             variant="detail"

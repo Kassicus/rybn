@@ -30,13 +30,15 @@ export async function getMyWishlist() {
     return { error: error.message };
   }
 
-  // Strip claim data - owners should never see who claimed their items
+  // Strip claim/stock data - owners should never see who claimed or marked their items
   const sanitizedItems = items?.map((item) => ({
     ...item,
     claimed_by: null,
     claimed_at: null,
     purchased: false,
     purchased_at: null,
+    out_of_stock_marked_by: null,
+    out_of_stock_marked_at: null,
   }));
 
   return { data: sanitizedItems || [] };
@@ -70,7 +72,7 @@ export async function getUserWishlist(userId: string) {
     return { error: error.message };
   }
 
-  // If viewing own wishlist through this route, strip claim data
+  // If viewing own wishlist through this route, strip claim/stock data
   const isOwnWishlist = user.id === userId;
   const sanitizedItems = isOwnWishlist
     ? items?.map((item) => ({
@@ -79,6 +81,8 @@ export async function getUserWishlist(userId: string) {
         claimed_at: null,
         purchased: false,
         purchased_at: null,
+        out_of_stock_marked_by: null,
+        out_of_stock_marked_at: null,
       }))
     : items;
 
@@ -228,7 +232,7 @@ export async function getWishlistItem(itemId: string) {
     return { error: error.message };
   }
 
-  // If viewing own item, strip claim data
+  // If viewing own item, strip claim/stock data
   const isOwnItem = item.user_id === user.id;
   const sanitizedItem = isOwnItem
     ? {
@@ -237,6 +241,8 @@ export async function getWishlistItem(itemId: string) {
         claimed_at: null,
         purchased: false,
         purchased_at: null,
+        out_of_stock_marked_by: null,
+        out_of_stock_marked_at: null,
       }
     : item;
 
@@ -411,4 +417,74 @@ export async function getClaimerProfiles(claimerIds: string[]) {
   });
 
   return { data: profileMap };
+}
+
+/**
+ * Mark a wishlist item as out of stock
+ * Only visible to other viewers, not the item owner
+ */
+export async function markOutOfStock(itemId: string) {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return { error: "Not authenticated" };
+  }
+
+  const { data: item, error } = await supabase
+    .from("wishlist_items")
+    .update({
+      out_of_stock_marked_by: user.id,
+      out_of_stock_marked_at: new Date().toISOString(),
+    })
+    .eq("id", itemId)
+    .neq("user_id", user.id) // Can't mark your own items
+    .select()
+    .single();
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  revalidatePath("/wishlist");
+  return { data: item };
+}
+
+/**
+ * Unmark a wishlist item as out of stock
+ */
+export async function unmarkOutOfStock(itemId: string) {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return { error: "Not authenticated" };
+  }
+
+  // Anyone who can view the item can unmark it (to report it's back in stock)
+  const { data: item, error } = await supabase
+    .from("wishlist_items")
+    .update({
+      out_of_stock_marked_by: null,
+      out_of_stock_marked_at: null,
+    })
+    .eq("id", itemId)
+    .neq("user_id", user.id) // Can't modify your own items this way
+    .select()
+    .single();
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  revalidatePath("/wishlist");
+  return { data: item };
 }
