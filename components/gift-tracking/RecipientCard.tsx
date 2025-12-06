@@ -6,7 +6,7 @@ import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { GiftCard } from "./GiftCard";
-import type { GiftStatus } from "@/lib/schemas/gift-tracking";
+import { STATUS_INFO, type GiftStatus } from "@/lib/schemas/gift-tracking";
 
 interface TrackedGift {
   id: string;
@@ -36,6 +36,40 @@ interface RecipientCardProps {
   onGiftChange?: () => void;
 }
 
+/**
+ * Calculate progress percentage based on gift statuses
+ * Each status represents: planned=20%, ordered=40%, arrived=60%, wrapped=80%, given=100%
+ */
+function calculateProgressFromGifts(gifts: TrackedGift[]): {
+  progressPercent: number;
+  statusCounts: Record<GiftStatus, number>;
+} {
+  const statusCounts: Record<GiftStatus, number> = {
+    planned: 0,
+    ordered: 0,
+    arrived: 0,
+    wrapped: 0,
+    given: 0,
+  };
+
+  if (gifts.length === 0) {
+    return { progressPercent: 0, statusCounts };
+  }
+
+  let totalProgress = 0;
+  for (const gift of gifts) {
+    statusCounts[gift.status]++;
+    // Each step is worth 20% (step 1-5 maps to 20%-100%)
+    const stepProgress = (STATUS_INFO[gift.status].step / 5) * 100;
+    totalProgress += stepProgress;
+  }
+
+  return {
+    progressPercent: Math.round(totalProgress / gifts.length),
+    statusCounts,
+  };
+}
+
 export function RecipientCard({
   recipient,
   gifts = [],
@@ -44,10 +78,8 @@ export function RecipientCard({
 }: RecipientCardProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
-  const progressPercent =
-    recipient.giftCount > 0
-      ? Math.round((recipient.completedCount / recipient.giftCount) * 100)
-      : 0;
+  const { progressPercent, statusCounts } = calculateProgressFromGifts(gifts);
+  const isComplete = progressPercent === 100;
 
   return (
     <div className="border border-light-border rounded-lg bg-white overflow-hidden">
@@ -77,18 +109,49 @@ export function RecipientCard({
             </Text>
 
             {/* Progress */}
-            {recipient.giftCount > 0 && (
+            {gifts.length > 0 && (
               <div className="flex items-center gap-2">
-                <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${
-                      progressPercent === 100 ? "bg-success" : "bg-primary"
-                    }`}
-                    style={{ width: `${progressPercent}%` }}
-                  />
+                {/* Segmented progress bar showing status breakdown */}
+                <div className="w-28 h-2 bg-gray-200 rounded-full overflow-hidden flex">
+                  {/* Stack segments in order: given, wrapped, arrived, ordered, planned */}
+                  {statusCounts.given > 0 && (
+                    <div
+                      className="h-full bg-success"
+                      style={{ width: `${(statusCounts.given / gifts.length) * 100}%` }}
+                    />
+                  )}
+                  {statusCounts.wrapped > 0 && (
+                    <div
+                      className="h-full bg-purple-500"
+                      style={{ width: `${(statusCounts.wrapped / gifts.length) * 100}%` }}
+                    />
+                  )}
+                  {statusCounts.arrived > 0 && (
+                    <div
+                      className="h-full bg-warning"
+                      style={{ width: `${(statusCounts.arrived / gifts.length) * 100}%` }}
+                    />
+                  )}
+                  {statusCounts.ordered > 0 && (
+                    <div
+                      className="h-full bg-primary"
+                      style={{ width: `${(statusCounts.ordered / gifts.length) * 100}%` }}
+                    />
+                  )}
+                  {statusCounts.planned > 0 && (
+                    <div
+                      className="h-full bg-gray-400"
+                      style={{ width: `${(statusCounts.planned / gifts.length) * 100}%` }}
+                    />
+                  )}
                 </div>
-                <Text size="sm" variant="secondary">
-                  {recipient.completedCount}/{recipient.giftCount}
+                {/* Progress percentage or completion indicator */}
+                <Text size="sm" variant="secondary" className="min-w-[3ch]">
+                  {isComplete ? (
+                    <span className="text-success">✓</span>
+                  ) : (
+                    `${progressPercent}%`
+                  )}
                 </Text>
               </div>
             )}
