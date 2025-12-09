@@ -98,7 +98,7 @@ export default async function GiftTrackerPage() {
           </div>
           <div className="p-4 rounded-lg bg-light-background border border-light-border">
             <Text variant="secondary" size="sm">Planned Spending</Text>
-            <Text className="text-2xl font-bold text-warning">
+            <Text className="text-2xl font-bold" style={{ color: '#3B82F6' }}>
               ${stats.byStatus.planned.total.toFixed(2)}
             </Text>
           </div>

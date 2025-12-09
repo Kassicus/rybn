@@ -105,13 +105,14 @@ export type TrackedGiftFormData = z.infer<typeof trackedGiftSchema>;
 
 /**
  * Status display information
+ * Uses hex colors to match wishlist priority color scheme
  */
 export interface StatusInfo {
   value: GiftStatus;
   label: string;
   description: string;
-  color: string;
-  bgColor: string;
+  hexColor: string;
+  hexBgColor: string;
   icon: string;
   step: number;
 }
@@ -121,8 +122,8 @@ export const STATUS_INFO: Record<GiftStatus, StatusInfo> = {
     value: 'planned',
     label: 'Planned',
     description: 'Gift idea saved',
-    color: 'text-light-text-secondary',
-    bgColor: 'bg-light-background-hover',
+    hexColor: '#9CA3AF', // gray - matches wishlist "low" priority
+    hexBgColor: '#F3F4F6',
     icon: 'Lightbulb',
     step: 1,
   },
@@ -130,8 +131,8 @@ export const STATUS_INFO: Record<GiftStatus, StatusInfo> = {
     value: 'ordered',
     label: 'Ordered',
     description: 'Purchased or ordered',
-    color: 'text-primary',
-    bgColor: 'bg-primary/10',
+    hexColor: '#3B82F6', // blue - matches wishlist "medium" priority
+    hexBgColor: '#DBEAFE',
     icon: 'ShoppingCart',
     step: 2,
   },
@@ -139,8 +140,8 @@ export const STATUS_INFO: Record<GiftStatus, StatusInfo> = {
     value: 'arrived',
     label: 'Arrived',
     description: 'Item has arrived',
-    color: 'text-warning',
-    bgColor: 'bg-warning/10',
+    hexColor: '#14B8A6', // teal - matches wishlist "high" priority
+    hexBgColor: '#CCFBF1',
     icon: 'Package',
     step: 3,
   },
@@ -148,8 +149,8 @@ export const STATUS_INFO: Record<GiftStatus, StatusInfo> = {
     value: 'wrapped',
     label: 'Wrapped',
     description: 'Ready to give',
-    color: 'text-purple-600',
-    bgColor: 'bg-purple-100',
+    hexColor: '#10B981', // emerald - between teal and green
+    hexBgColor: '#D1FAE5',
     icon: 'Gift',
     step: 4,
   },
@@ -157,8 +158,8 @@ export const STATUS_INFO: Record<GiftStatus, StatusInfo> = {
     value: 'given',
     label: 'Given',
     description: 'Gift delivered!',
-    color: 'text-success',
-    bgColor: 'bg-success/10',
+    hexColor: '#009E01', // rybn green - matches wishlist "must-have" priority
+    hexBgColor: '#E6F9E6',
     icon: 'CheckCircle2',
     step: 5,
   },

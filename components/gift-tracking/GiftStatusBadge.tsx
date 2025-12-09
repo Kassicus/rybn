@@ -52,7 +52,7 @@ export function GiftStatusBadge({
     lg: "w-4 h-4",
   };
 
-  const baseClasses = `inline-flex items-center rounded-full font-medium ${info.bgColor} ${info.color} ${sizeClasses[size]}`;
+  const baseClasses = `inline-flex items-center rounded-full font-medium ${sizeClasses[size]}`;
   const interactiveClasses = onClick
     ? "cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-current/30 transition-all"
     : "";
@@ -60,6 +60,7 @@ export function GiftStatusBadge({
   return (
     <span
       className={`${baseClasses} ${interactiveClasses}`}
+      style={{ backgroundColor: info.hexBgColor, color: info.hexColor }}
       onClick={onClick}
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}

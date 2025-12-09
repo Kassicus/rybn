@@ -41,16 +41,24 @@ export function GiftCard({
   const [showMenu, setShowMenu] = useState(false);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, openAbove: false });
   const statusBadgeRef = useRef<HTMLDivElement>(null);
 
   // Calculate dropdown position when it opens
   useEffect(() => {
     if (showStatusDropdown && statusBadgeRef.current) {
       const rect = statusBadgeRef.current.getBoundingClientRect();
+      const dropdownHeight = giftStatuses.length * 40 + 8; // Approximate height: items + padding
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+
+      // Open above if not enough space below and more space above
+      const openAbove = spaceBelow < dropdownHeight && spaceAbove > spaceBelow;
+
       setDropdownPosition({
-        top: rect.bottom + 4,
+        top: openAbove ? rect.top - dropdownHeight - 4 : rect.bottom + 4,
         left: rect.left,
+        openAbove,
       });
     }
   }, [showStatusDropdown]);
@@ -159,20 +167,27 @@ export function GiftCard({
                     onClick={() => setShowStatusDropdown(false)}
                   />
                   <div
-                    className="fixed z-50 bg-white border border-light-border rounded-lg shadow-lg py-1 min-w-[140px]"
+                    className="fixed z-50 bg-white border border-light-border rounded-lg shadow-lg py-1 min-w-[140px] max-h-[300px] overflow-y-auto"
                     style={{ top: dropdownPosition.top, left: dropdownPosition.left }}
                   >
-                    {giftStatuses.map((status) => (
-                      <button
-                        key={status}
-                        onClick={() => handleStatusChange(status)}
-                        className={`w-full flex items-center gap-2 px-3 py-2 hover:bg-light-background-hover transition-colors ${
-                          status === gift.status ? "bg-light-background-hover" : ""
-                        }`}
-                      >
-                        <Text size="sm">{STATUS_INFO[status].label}</Text>
-                      </button>
-                    ))}
+                    {giftStatuses.map((status) => {
+                      const statusInfo = STATUS_INFO[status];
+                      return (
+                        <button
+                          key={status}
+                          onClick={() => handleStatusChange(status)}
+                          className={`w-full flex items-center gap-2 px-3 py-2 hover:bg-light-background-hover transition-colors ${
+                            status === gift.status ? "bg-light-background-hover" : ""
+                          }`}
+                        >
+                          <span
+                            className="w-3 h-3 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: statusInfo.hexColor }}
+                          />
+                          <Text size="sm">{statusInfo.label}</Text>
+                        </button>
+                      );
+                    })}
                   </div>
                 </>,
                 document.body

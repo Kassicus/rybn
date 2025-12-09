@@ -116,32 +116,47 @@ export function RecipientCard({
                   {/* Stack segments in order: given, wrapped, arrived, ordered, planned */}
                   {statusCounts.given > 0 && (
                     <div
-                      className="h-full bg-success"
-                      style={{ width: `${(statusCounts.given / gifts.length) * 100}%` }}
+                      className="h-full"
+                      style={{
+                        width: `${(statusCounts.given / gifts.length) * 100}%`,
+                        backgroundColor: STATUS_INFO.given.hexColor,
+                      }}
                     />
                   )}
                   {statusCounts.wrapped > 0 && (
                     <div
-                      className="h-full bg-purple-500"
-                      style={{ width: `${(statusCounts.wrapped / gifts.length) * 100}%` }}
+                      className="h-full"
+                      style={{
+                        width: `${(statusCounts.wrapped / gifts.length) * 100}%`,
+                        backgroundColor: STATUS_INFO.wrapped.hexColor,
+                      }}
                     />
                   )}
                   {statusCounts.arrived > 0 && (
                     <div
-                      className="h-full bg-warning"
-                      style={{ width: `${(statusCounts.arrived / gifts.length) * 100}%` }}
+                      className="h-full"
+                      style={{
+                        width: `${(statusCounts.arrived / gifts.length) * 100}%`,
+                        backgroundColor: STATUS_INFO.arrived.hexColor,
+                      }}
                     />
                   )}
                   {statusCounts.ordered > 0 && (
                     <div
-                      className="h-full bg-primary"
-                      style={{ width: `${(statusCounts.ordered / gifts.length) * 100}%` }}
+                      className="h-full"
+                      style={{
+                        width: `${(statusCounts.ordered / gifts.length) * 100}%`,
+                        backgroundColor: STATUS_INFO.ordered.hexColor,
+                      }}
                     />
                   )}
                   {statusCounts.planned > 0 && (
                     <div
-                      className="h-full bg-gray-400"
-                      style={{ width: `${(statusCounts.planned / gifts.length) * 100}%` }}
+                      className="h-full"
+                      style={{
+                        width: `${(statusCounts.planned / gifts.length) * 100}%`,
+                        backgroundColor: STATUS_INFO.planned.hexColor,
+                      }}
                     />
                   )}
                 </div>

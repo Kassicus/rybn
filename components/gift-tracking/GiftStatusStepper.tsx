@@ -31,6 +31,7 @@ export function GiftStatusStepper({
   compact = false,
 }: GiftStatusStepperProps) {
   const currentStep = STATUS_INFO[currentStatus].step;
+  const currentInfo = STATUS_INFO[currentStatus];
 
   return (
     <div className={`${compact ? "py-2" : "py-4"}`}>
@@ -42,6 +43,21 @@ export function GiftStatusStepper({
           const isCurrent = status === currentStatus;
           const isClickable = !!onStatusChange;
 
+          // Determine colors based on state
+          let bgColor: string;
+          let textColor: string;
+
+          if (isCurrent) {
+            bgColor = info.hexBgColor;
+            textColor = info.hexColor;
+          } else if (isCompleted) {
+            bgColor = info.hexColor; // Use the status color as background when completed
+            textColor = '#FFFFFF';
+          } else {
+            bgColor = '#F3F4F6'; // gray-100
+            textColor = '#9CA3AF'; // gray-400
+          }
+
           return (
             <div key={status} className="flex items-center flex-1">
               {/* Step */}
@@ -52,15 +68,10 @@ export function GiftStatusStepper({
                   className={`
                     relative flex items-center justify-center rounded-full transition-all
                     ${compact ? "w-8 h-8" : "w-12 h-12"}
-                    ${
-                      isCurrent
-                        ? `${info.bgColor} ${info.color} ring-2 ring-offset-2 ring-primary`
-                        : isCompleted
-                        ? "bg-success text-white"
-                        : "bg-gray-100 text-gray-400"
-                    }
+                    ${isCurrent ? "ring-2 ring-offset-2 ring-primary" : ""}
                     ${isClickable ? "cursor-pointer hover:opacity-80" : "cursor-default"}
                   `}
+                  style={{ backgroundColor: bgColor, color: textColor }}
                 >
                   {isCompleted ? (
                     <Check className={compact ? "w-4 h-4" : "w-5 h-5"} />
@@ -72,11 +83,8 @@ export function GiftStatusStepper({
                 {!compact && (
                   <Text
                     size="sm"
-                    className={`mt-2 text-center ${
-                      isCurrent || isCompleted
-                        ? "font-medium text-light-text-primary"
-                        : "text-light-text-secondary"
-                    }`}
+                    className="mt-2 text-center font-medium"
+                    style={{ color: isCurrent || isCompleted ? info.hexColor : '#676879' }}
                   >
                     {info.label}
                   </Text>
@@ -86,9 +94,10 @@ export function GiftStatusStepper({
               {/* Connector line */}
               {index < giftStatuses.length - 1 && (
                 <div
-                  className={`flex-1 h-1 mx-2 rounded-full transition-colors ${
-                    info.step < currentStep ? "bg-success" : "bg-gray-200"
-                  }`}
+                  className="flex-1 h-1 mx-2 rounded-full transition-colors"
+                  style={{
+                    backgroundColor: info.step < currentStep ? info.hexColor : '#E5E7EB'
+                  }}
                 />
               )}
             </div>
@@ -100,7 +109,7 @@ export function GiftStatusStepper({
       {!compact && (
         <div className="mt-4 text-center">
           <Text variant="secondary" size="sm">
-            {STATUS_INFO[currentStatus].description}
+            {currentInfo.description}
           </Text>
         </div>
       )}
