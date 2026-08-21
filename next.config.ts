@@ -62,10 +62,10 @@ const nextConfig: NextConfig = {
             key: 'Strict-Transport-Security',
             value: 'max-age=31536000; includeSubDomains',
           },
-          // Permissions Policy - restrict browser features
+          // Permissions Policy - deny camera, microphone and geolocation
           {
             key: 'Permissions-Policy',
-            value: 'camera=(self), microphone=(), geolocation=()',
+            value: 'camera=(), microphone=(), geolocation=()',
           },
           // Content Security Policy
           {
