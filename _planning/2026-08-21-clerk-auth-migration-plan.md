@@ -104,8 +104,9 @@ mid-window.
 - `proxy.ts`, `app/layout.tsx`, `next.config.ts`, `package.json`
 - 44 files containing `auth.getUser()` call sites
 - `components/ui/image-input.tsx`, `components/gifts/ChatWindow.tsx`,
-  `components/layout/TopBar.tsx`, `components/layout/MobileDrawer.tsx`,
-  `components/vibe/DashboardNav.tsx`
+  `app/(dashboard)/wishlist/[itemId]/page.tsx`
+- `components/layout/TopBar.tsx`, `components/layout/MobileDrawer.tsx`,
+  `components/vibe/DashboardNav.tsx` (Task 5 only — sign-out, no Supabase client)
 
 **Deleted:**
 - `ios/`, `lib/capacitor/`, `capacitor.config.ts`
@@ -275,6 +276,13 @@ end $$;
 Create `scripts/test-rls.sh`. Each file runs inside `begin … rollback` so
 tests can insert fixture rows without persisting them.
 
+**This was verified against the live project before the plan was executed:**
+`supabase db query --linked` intermittently fails at "Initialising login
+role" with `LegacyDbConfigLoginRoleStatusError`, before touching the
+database at all. The runner MUST distinguish that from a failing assertion —
+otherwise it reports a correct schema as broken. Do not simplify the retry
+logic away.
+
 ```bash
 #!/usr/bin/env bash
 # Runs every RLS test file against the linked Supabase project.
@@ -287,23 +295,49 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 failed=0
 ran=0
 
+# The Supabase CLI intermittently fails before it ever reaches the database,
+# with LegacyDbConfigLoginRoleStatusError / "Failed to create login role".
+# That is infrastructure flakiness, NOT a failing assertion -- treating it as
+# a test failure would report a correct schema as broken. Retry those;
+# fail only on an exception raised by the test SQL itself.
+is_infra_error() {
+  echo "$1" | grep -qE 'LoginRole|Failed to create login role|connection timeout|ECONNRESET|EAI_AGAIN|socket hang up'
+}
+
+run_with_retry() {
+  local sql="$1" attempt=1 out
+  while [ "$attempt" -le 4 ]; do
+    out=$($SUPABASE db query "$sql" --linked 2>&1)
+    if is_infra_error "$out"; then
+      [ "$attempt" -lt 4 ] && sleep $((attempt * 5))
+      attempt=$((attempt+1))
+      continue
+    fi
+    printf '%s' "$out"
+    return 0
+  done
+  printf 'INFRA_UNAVAILABLE %s' "$out"
+  return 2
+}
+
 for f in "$DIR"/supabase/tests/rls/*.sql; do
   [ -e "$f" ] || { echo "no test files found"; exit 1; }
   name="$(basename "$f")"
   sql="begin; $(cat "$f") ; rollback;"
 
-  if out=$($SUPABASE db query "$sql" --linked 2>&1); then
-    if echo "$out" | grep -qiE '"?(error|ERROR)"?[": ]'; then
-      echo "FAIL  $name"
-      echo "$out" | sed 's/^/      /' | head -20
-      failed=1
-    else
-      echo "PASS  $name"
-    fi
-  else
+  out=$(run_with_retry "$sql")
+  rc=$?
+
+  if [ "$rc" -eq 2 ]; then
+    echo "ERROR $name — database unreachable after 4 attempts (infrastructure, not a test failure)"
+    echo "$out" | sed 's/^/      /' | head -5
+    failed=1
+  elif echo "$out" | grep -qE '"_tag": *"Error"|FAIL:|HARNESS FAIL|RLS FAIL|OVERRIDE FAIL|PROVISIONING FAIL'; then
     echo "FAIL  $name"
     echo "$out" | sed 's/^/      /' | head -20
     failed=1
+  else
+    echo "PASS  $name"
   fi
   ran=$((ran+1))
 done
@@ -1083,7 +1117,29 @@ The `verifyGroupMembership`, `verifyGroupGiftMembership`,
 their signatures — their `userId: string` parameter now receives a Clerk ID
 instead of a uuid, which needs no code change.
 
-- [ ] **Step 5: Delete the client-side auth hook**
+- [ ] **Step 5: Replace the sign-out calls**
+
+Three components call `supabase.auth.signOut()`:
+`components/layout/TopBar.tsx:46`, `components/layout/MobileDrawer.tsx:69`,
+and `components/vibe/DashboardNav.tsx:47`. Step 7's gate requires that no
+`supabase.auth.` call survives this task, so they are replaced here.
+
+In each file, remove the `createClient` import and the `const supabase = …`
+line, then use Clerk:
+
+```tsx
+import { useClerk } from "@clerk/nextjs";
+
+const { signOut } = useClerk();
+// at the existing call site:
+await signOut({ redirectUrl: "/" });
+```
+
+`signOut()` is these components' only Supabase usage — verified before
+execution — so after this change none of them needs a Supabase client at
+all. Do not add one back in Task 6.
+
+- [ ] **Step 6: Delete the client-side auth hook**
 
 `lib/hooks/useAuth.ts` wraps `supabase.auth.getUser()` and
 `onAuthStateChange`, neither of which exists under the accessToken client.
@@ -1099,7 +1155,7 @@ For each remaining importer, replace `const { user } = useAuth()` with
 Clerk's user has `user.id`, `user.username`, and
 `user.primaryEmailAddress?.emailAddress`.
 
-- [ ] **Step 6: Verify no server-side supabase.auth calls remain**
+- [ ] **Step 7: Verify no server-side supabase.auth calls remain**
 
 ```bash
 grep -rn "supabase.auth\.\|\.auth\.getUser()" app lib components hooks
@@ -1108,7 +1164,7 @@ grep -rn "supabase.auth\.\|\.auth\.getUser()" app lib components hooks
 Expected: no output. This gate matters — Task 6 makes any survivor throw at
 runtime.
 
-- [ ] **Step 7: Verify types**
+- [ ] **Step 8: Verify types**
 
 ```bash
 npm run type-check
@@ -1118,7 +1174,7 @@ Expected: passes. TypeScript catches the `user.id` → `userId` substitution
 errors, which is the main reason this task is verified by the compiler rather
 than unit tests.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add -A
@@ -1224,10 +1280,17 @@ git rm lib/supabase/client.ts
 grep -rln "from \"@/lib/supabase/client\"" app components lib
 ```
 
-For each survivor — `app/(dashboard)/wishlist/[itemId]/page.tsx`,
-`components/ui/image-input.tsx`, `components/gifts/ChatWindow.tsx`,
-`components/layout/TopBar.tsx`, `components/layout/MobileDrawer.tsx`,
-`components/vibe/DashboardNav.tsx` — replace:
+Exactly three files should still import it:
+`app/(dashboard)/wishlist/[itemId]/page.tsx` (data),
+`components/ui/image-input.tsx` (storage), and
+`components/gifts/ChatWindow.tsx` (realtime).
+
+`TopBar.tsx`, `MobileDrawer.tsx`, and `DashboardNav.tsx` must **not** appear
+— their only Supabase usage was `signOut()`, replaced with Clerk in Task 5.
+If they still import the client, Task 5 was incomplete; fix it there rather
+than giving them a client they do not use.
+
+For each of the three, replace:
 
 ```ts
 import { createClient } from "@/lib/supabase/client";
@@ -1528,19 +1591,23 @@ git rm -r "app/(auth)/set-username" "app/(auth)/verify-email" app/auth/callback 
 
 Clerk owns the OAuth round trip, email verification, and username capture.
 
-- [ ] **Step 6: Replace sign-out affordances**
+- [ ] **Step 6: Confirm sign-out, and add UserButton where it fits**
 
-`TopBar.tsx`, `MobileDrawer.tsx`, and `DashboardNav.tsx` call
-`supabase.auth.signOut()`. Replace each with Clerk's `UserButton`, or where
-a plain menu item is wanted:
+The `supabase.auth.signOut()` calls in `TopBar.tsx`, `MobileDrawer.tsx`, and
+`DashboardNav.tsx` were already replaced with Clerk's `useClerk().signOut`
+in Task 5 Step 5. Verify that first:
 
-```tsx
-import { useClerk } from "@clerk/nextjs";
-
-const { signOut } = useClerk();
-// …
-<button onClick={() => signOut({ redirectUrl: "/" })}>Sign out</button>
+```bash
+grep -rn "signOut" components/layout components/vibe
 ```
+
+Expected: only `useClerk()`-based calls, no `supabase.auth`. If any Supabase
+call survives, that is a Task 5 regression — fix it before continuing.
+
+Optionally, replace the bespoke sign-out menu item in `TopBar.tsx` with
+Clerk's `<UserButton afterSignOutUrl="/" />`, which also gives users access
+to Clerk's account management. Leave `MobileDrawer` and `DashboardNav` as
+plain menu items — a `UserButton` inside a drawer is awkward on mobile.
 
 - [ ] **Step 7: Verify no dead references remain**
 
