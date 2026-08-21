@@ -38,10 +38,5 @@ next-env.d.ts
 !.vscode/extensions.json
 .idea
 
-# Capacitor native projects (regenerate with: npx cap add ios)
-# Uncomment to exclude native projects from git:
-# /ios
-# /android
-
 # Docs
 docs/
