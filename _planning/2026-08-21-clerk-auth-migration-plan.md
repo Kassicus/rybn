@@ -413,6 +413,10 @@ Write the isolation tests first, watch them fail against the current
 
 **Interfaces:**
 - Consumes: `npm run test:rls` from Task 2.
+- MUST register every new test file in `supabase/tests/rls/MANIFEST`. The
+  runner fails if a declared file is missing OR if an undeclared `.sql` file
+  is present. The manifest cannot know what SHOULD have been declared, so the
+  reviewer must diff it against the files actually created.
 - Produces: a schema where every identity column is `text` holding a Clerk
   user ID, `user_profiles.id text primary key` is the referent for all
   identity FKs, and the SQL function `requesting_user_id() returns text`
@@ -831,7 +835,46 @@ grep -rn "auth\.uid()\|auth\.users" supabase/migrations/
 
 Expected: no output.
 
-- [ ] **Step 13: Commit**
+- [ ] **Step 13: Prove each policy test is meaningful (mutation proof)**
+
+The RLS harness verifies that a test file has the right *shape* and that the
+RLS mechanism works. It cannot judge whether an assertion is *meaningful* —
+a file of `if 1 <> 1 then raise ...` stanzas passes every check while
+testing nothing. This step supplies the missing guarantee, and it is the
+reason the harness's static limits are acceptable.
+
+For EACH of the four policy test files (`01`-`04`), prove the test actually
+detects the failure it claims to:
+
+1. Drop (or disable) the specific policy that test depends on.
+2. Run `npm run test:rls`.
+3. Confirm THAT test file FAILS.
+4. Restore the policy and confirm it passes again.
+
+Record the real output of all four mutation proofs in your report. A test
+that still passes with its policy removed is testing nothing — fix the test,
+not the schema.
+
+Do this inside a transaction, or restore via `db reset --linked` afterwards,
+so the schema is left exactly as the baseline defines it.
+
+**Then prove the schema really is back to baseline.** This step deliberately
+drops policies, and the harness's leak check only detects relations
+*appearing*, not policies disappearing — so a dropped policy that escaped its
+transaction would leave the certified schema silently missing a rule. After
+the four mutation proofs:
+
+```bash
+npx --yes supabase@latest db reset --linked
+npm run test:rls
+```
+
+The reset guarantees the schema matches the baseline migration exactly, and
+the green run proves every policy is back. Do not skip the reset on the
+grounds that you restored each policy by hand — restoring by hand is the
+thing being checked.
+
+- [ ] **Step 14: Commit**
 
 ```bash
 git add -A
@@ -1818,13 +1861,38 @@ Expected: all three pass.
 
 - [ ] **Step 3: Confirm the global constraints hold**
 
+Search the whole tracked tree with NO extension filter, and search for the
+*identifiers* rather than only the vendor names. This is not pedantry: in
+Task 1 an iOS wrapper file survived removal precisely because the
+verification grep filtered on `*.ts`/`*.tsx`/`*.json` and searched for
+"capacitor", while the file had no extension and named only
+`TEAM_ID.app.rybn.ios`. The Supabase Auth removal has the same shape.
+
+Two paths legitimately contain historical references and are excluded:
+`_planning/` (the spec and this plan quote the old API) and
+`supabase/migrations_archive/` (kept deliberately for reference).
+
 ```bash
-grep -rn "auth\.uid()\|auth\.users" supabase/migrations/ app lib components
-grep -rn "@supabase/ssr\|@capacitor" package.json app lib components
-grep -rn "supabase.auth\." app lib components hooks
+git ls-files -z \
+  | grep -zv '^_planning/' \
+  | grep -zv '^supabase/migrations_archive/' \
+  | xargs -0 grep -nI \
+      -e 'auth\.uid()' \
+      -e 'auth\.users' \
+      -e 'supabase\.auth\.' \
+      -e '@supabase/ssr' \
+      -e 'capacitor' \
+      -e 'Capacitor' \
+      -e 'rybn\.ios' \
+      -e 'atzrokpgttmzgbawbzst'
 ```
 
-Expected: no output from any of the three.
+Expected: no output. Any hit is a real violation of a Global Constraint —
+including a hit in a file type you did not expect, which is exactly the case
+this form of the check exists to catch.
+
+`atzrokpgttmzgbawbzst` is the decommissioned Supabase project; a surviving
+reference to it means something still points at a dead database.
 
 - [ ] **Step 4: Walk the flows manually**
 
