@@ -112,7 +112,8 @@ for f in "$DIR"/supabase/tests/rls/*.sql; do
   elif ! echo "$out" | grep -qF "$token"; then
     echo "FAIL  $name — did not emit its success token '$token'"
     echo "      the file ran without raising but never proved it asserted anything;"
-    echo "      every test file must end with: select '$token' as result;"
+    echo "      see 00_harness_smoke.sql: count the assertions, then emit '$token' from"
+    echo "      inside the block only after the count clears its floor"
     echo "$out" | sed 's/^/      /' | head -20
     failed=1
   else
