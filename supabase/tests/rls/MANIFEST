@@ -1,0 +1,20 @@
+# Declared RLS test files, one per line. '#' starts a comment.
+#
+# The runner reconciles this list against supabase/tests/rls/*.sql before it
+# runs anything, and fails in both directions:
+#
+#   - a file listed here but missing from the directory  -> FAIL
+#   - a .sql file in the directory but not listed here   -> FAIL
+#
+# The first catches a test that was deleted or never delivered. Without it a
+# suite that shrank to nothing still reports "passed" and exit 0, which is
+# indistinguishable from a full pass -- the gate could not tell "everything
+# passed" from "almost nothing ran".
+#
+# The second catches a file arriving undeclared, which is how a stray probe or
+# a half-finished test slips into a green run.
+#
+# Declaring a test is therefore a deliberate act. Adding a test file means
+# adding a line here.
+
+00_harness_smoke.sql
