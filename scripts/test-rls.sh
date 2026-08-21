@@ -216,6 +216,40 @@ reject_file() {
   failed=1
 }
 
+# ---------------------------------------------------------------------------
+# Rollback guarantee, verified by outcome rather than by reading the source.
+#
+# Every file is wrapped in `begin ... rollback` so fixtures never persist. The
+# static check above rejects the common spellings of transaction control before
+# any SQL is sent, but it is a text check: `commit;`, `commit work;`, `end;`,
+# `prepare transaction`, or a statement hidden behind a mis-parsed string are
+# all the same leak wearing different words, and no denylist closes that.
+#
+# So the guarantee is checked by its effect instead. Snapshot every relation in
+# `public` before the suite and after it; anything that appeared escaped its
+# transaction. This cannot be evaded by re-spelling, because it never looks at
+# how the leak happened -- only at whether the database changed.
+#
+# Only `public` matters: temp tables live in pg_temp and vanish with the
+# session. All relation kinds are compared, not just tables.
+# ---------------------------------------------------------------------------
+RELATION_SNAPSHOT_SQL="select coalesce(string_agg(c.relname || '/' || c.relkind::text, '|' order by c.relname), '') as rels from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public';"
+
+snapshot_public_relations() {
+  run_with_retry "$RELATION_SNAPSHOT_SQL" || return 1
+  [ "$CLI_RC" -eq 0 ] || return 1
+  sed -n 's/.*"rels"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p' "$OUT_FILE" \
+    | tr '|' '\n' | grep -v '^$' | sort
+}
+
+leak_check=1
+if ! snapshot_public_relations > "$WORK_DIR/relations-before" 2>/dev/null; then
+  echo "ERROR could not snapshot public relations before the suite"
+  echo "      the rollback guarantee cannot be verified for this run"
+  leak_check=0
+  failed=1
+fi
+
 for f in "$TEST_DIR"/*.sql; do
   [ -e "$f" ] || { echo "no test files found"; exit 1; }
   name="$(basename "$f")"
@@ -438,6 +472,31 @@ for f in "$TEST_DIR"/*.sql; do
   fi
   ran=$((ran+1))
 done
+
+# ---------------------------------------------------------------------------
+# The other half of the rollback guarantee: did anything survive?
+#
+# Runs whether the suite passed or failed, because a failing file leaks just as
+# easily as a passing one. Nothing is dropped automatically -- a leak means
+# something is wrong, and a human should see the evidence before it disappears.
+# ---------------------------------------------------------------------------
+if [ "$leak_check" -eq 1 ]; then
+  if ! snapshot_public_relations > "$WORK_DIR/relations-after" 2>/dev/null; then
+    echo "ERROR could not snapshot public relations after the suite"
+    echo "      the rollback guarantee could not be verified for this run"
+    failed=1
+  else
+    leaked="$(grep -vxF -f "$WORK_DIR/relations-before" "$WORK_DIR/relations-after" | grep -v '^$')"
+    if [ -n "$leaked" ]; then
+      echo "LEAK  the suite left new relations in the public schema"
+      echo "      every test file runs inside a transaction that is rolled back,"
+      echo "      so nothing it creates may survive. These did:"
+      printf '%s\n' "$leaked" | sed 's|/r$| (table)|; s|/v$| (view)|; s|/m$| (materialized view)|; s|/i$| (index)|; s|/S$| (sequence)|; s|/p$| (partitioned table)|; s|/f$| (foreign table)|; s|/c$| (composite type)|' | sed 's/^/        /'
+      echo "      They were NOT dropped -- inspect them, then remove them by hand."
+      failed=1
+    fi
+  fi
+fi
 
 echo "---"
 if [ "$failed" -eq 0 ]; then
