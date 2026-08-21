@@ -1,0 +1,35 @@
+# Supabase CLI configuration for rybn.
+#
+# ============================================================================
+# TASK 4 MUST DO TWO THINGS HERE, NOT ONE:
+#   1. replace REPLACE_WITH_CLERK_DOMAIN with the real Clerk Frontend API
+#      domain (it looks like `clerk.rybn.app` for a production instance, or
+#      `<something>.clerk.accounts.dev` for a development one), and
+#   2. set `enabled = true`.
+# ============================================================================
+#
+# Why `enabled = false` rather than the `true` the plan called for: the CLI
+# validates `domain` whenever the block is enabled, and rejects the
+# placeholder outright --
+#
+#   Invalid config: auth.third_party.clerk has invalid domain, it usually is
+#   like clerk.example.com or example.clerk.accounts.dev
+#
+# -- which makes EVERY CLI command fail, including `db reset --linked` and the
+# RLS test harness. Disabling the block leaves the placeholder untouched and
+# unmistakable while keeping the CLI usable. The alternative, inventing a
+# syntactically valid but wrong domain, would be worse: it survives validation
+# and would quietly register a bogus issuer if anyone ran `config push`.
+#
+# Do not run `supabase config push` against the linked project until step 1
+# above is done.
+#
+# The database side of the Clerk migration does not depend on this file:
+# policies read the JWT `sub` claim through public.requesting_user_id(). This
+# block is what tells the Supabase platform which issuer to trust.
+
+project_id = "xomvbdvvrlbxoyqdsstt"
+
+[auth.third_party.clerk]
+enabled = false
+domain = "REPLACE_WITH_CLERK_DOMAIN"

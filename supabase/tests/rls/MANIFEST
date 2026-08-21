@@ -18,3 +18,7 @@
 # adding a line here.
 
 00_harness_smoke.sql
+01_wishlist_isolation.sql
+02_profile_isolation.sql
+03_group_membership.sql
+04_privacy_overrides.sql
