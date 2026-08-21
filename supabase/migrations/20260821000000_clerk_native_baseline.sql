@@ -41,6 +41,14 @@
 --      test plus find_group_by_invite_code(), a SECURITY DEFINER lookup that
 --      returns one group for an exact invite code and nothing else.
 --
+--   6. SECURITY DEFINER FUNCTIONS PIN THEIR OWN SUBJECT. A definer function
+--      runs with RLS suspended, so its arguments are attacker-controlled input
+--      and the EXECUTE grant is its only other defence. get_shared_groups(),
+--      can_view_field(), can_view_wishlist_item() and get_dates_today_for_user()
+--      each compare their subject against requesting_user_id() rather than
+--      trusting the caller, and section 9 grants EXECUTE per object with
+--      nothing at all to anon.
+--
 -- Privacy model (unchanged from the archive, only the parameter types move
 -- from uuid to text): privacy_settings is
 --   {"visibleToGroupTypes": [<group_type>...], "restrictToGroup": <uuid|null>}
@@ -557,7 +565,25 @@ stable
 security definer
 set search_path = public
 as $$
+declare
+  v_caller text := (select public.requesting_user_id());
 begin
+  -- SECURITY DEFINER runs this with RLS suspended, so the two parameters
+  -- cannot be trusted on their own. A signed-in caller may only ask about a
+  -- pair they are part of; without this, any authenticated user could map the
+  -- group graph between any two Clerk IDs.
+  --
+  -- A null caller means an internal call, and there are exactly two: the
+  -- SECURITY DEFINER chain from can_view_field()/can_view_wishlist_item()
+  -- (which have already pinned the viewer themselves), and the reminder job
+  -- running as service_role. Neither carries a `sub` claim and both are
+  -- already privileged.
+  if v_caller is not null
+     and v_caller is distinct from user_a
+     and v_caller is distinct from user_b then
+    return;
+  end if;
+
   return query
   select distinct g.id, g.type
   from groups g
@@ -584,7 +610,17 @@ declare
   restrict_to_group uuid;
   shared_group record;
   viewer_group_type public.group_type;
+  v_caller text := (select public.requesting_user_id());
 begin
+  -- A signed-in caller does not get to choose whose eyes to look through.
+  -- This function is SECURITY DEFINER and would otherwise be a boolean oracle
+  -- over other people's group memberships. Every policy already passes
+  -- requesting_user_id() as the viewer, so this is a no-op on the policy path.
+  -- A null caller is the reminder job (service_role), which is privileged.
+  if v_caller is not null and v_caller is distinct from viewer_id then
+    return false;
+  end if;
+
   -- Owner can always view their own fields
   if field_owner_id = viewer_id then
     return true;
@@ -649,7 +685,17 @@ declare
   restrict_to_group uuid;
   shared_group record;
   viewer_group_type public.group_type;
+  v_caller text := (select public.requesting_user_id());
 begin
+  -- A signed-in caller does not get to choose whose eyes to look through.
+  -- This function is SECURITY DEFINER and would otherwise be a boolean oracle
+  -- over other people's group memberships. Every policy already passes
+  -- requesting_user_id() as the viewer, so this is a no-op on the policy path.
+  -- A null caller is the reminder job (service_role), which is privileged.
+  if v_caller is not null and v_caller is distinct from viewer_id then
+    return false;
+  end if;
+
   -- Owner can always view their own items
   if item_owner_id = viewer_id then
     return true;
@@ -751,7 +797,14 @@ begin
   inner join user_profiles up on dn.celebrant_id = up.id
   inner join groups g on dn.group_id = g.id
   where
-    dn.notified_user_id = p_user_id
+    -- NOT `= p_user_id`. This is SECURITY DEFINER, so trusting the parameter
+    -- would drive straight around the date_notifications SELECT policy and
+    -- hand any caller any other user's celebrant names, dates and groups.
+    -- p_user_id is kept only so the existing call sites still type-check;
+    -- it is deliberately not used. Both callers
+    -- (lib/actions/date-reminders.ts, app/api/test-reminders/route.ts) pass
+    -- the signed-in user's own id, so pinning it changes nothing for them.
+    dn.notified_user_id = (select public.requesting_user_id())
     and dn.notification_year = extract(year from current_date)::integer
     and dn.celebration_date = current_date
     and dn.banner_shown = true
@@ -938,6 +991,44 @@ begin
 end;
 $$;
 
+-- Pins columns that a policy cannot. RLS has no access to the OLD row, so
+-- "this column may not change" is inexpressible in a WITH CHECK. For most
+-- tables the parent can still be constrained indirectly -- messages, for
+-- instance, can require is_group_gift_member() on the NEW group_gift_id,
+-- because that reads a DIFFERENT table. For a membership table it cannot: the
+-- row being updated IS the membership row, so a self-referential check depends
+-- on statement snapshot visibility. This trigger settles it deterministically.
+create or replace function public.reject_parent_reassignment()
+returns trigger
+language plpgsql
+as $$
+declare
+  v_col text;
+begin
+  foreach v_col in array tg_argv loop
+    if to_jsonb(old)->>v_col is distinct from to_jsonb(new)->>v_col then
+      raise exception
+        'IMMUTABLE COLUMN: %.% cannot be reassigned by update (% -> %)',
+        tg_table_name, v_col, to_jsonb(old)->>v_col, to_jsonb(new)->>v_col
+        using errcode = 'check_violation';
+    end if;
+  end loop;
+  return new;
+end;
+$$;
+
+-- Repointing a group_gift_members row at another gift would grant SELECT on
+-- that gift's chat through is_group_gift_member(); repointing a
+-- gift_exchange_participants row would expose another exchange's roster and
+-- its Secret Santa assignments.
+create trigger pin_group_gift_member_parent
+  before update on public.group_gift_members
+  for each row execute function public.reject_parent_reassignment('group_gift_id', 'user_id');
+
+create trigger pin_exchange_participant_parent
+  before update on public.gift_exchange_participants
+  for each row execute function public.reject_parent_reassignment('exchange_id', 'user_id');
+
 create trigger update_user_profiles_updated_at
   before update on public.user_profiles
   for each row execute function public.update_updated_at_column();
@@ -1095,7 +1186,8 @@ create policy "Users can add themselves as members"
 
 create policy "Owners and admins can update member roles"
   on public.group_members for update to authenticated
-  using (public.is_group_admin(group_id, (select public.requesting_user_id())));
+  using (public.is_group_admin(group_id, (select public.requesting_user_id())))
+  with check (public.is_group_admin(group_id, (select public.requesting_user_id())));
 
 create policy "Members can remove themselves, owners and admins can remove others"
   on public.group_members for delete to authenticated
@@ -1197,11 +1289,20 @@ create policy "Users can create their own wishlist items"
 
 create policy "Users can update their own wishlist items"
   on public.wishlist_items for update to authenticated
-  using ((select public.requesting_user_id()) = user_id);
+  using ((select public.requesting_user_id()) = user_id)
+  with check ((select public.requesting_user_id()) = user_id);
 
 create policy "Users can claim visible wishlist items"
   on public.wishlist_items for update to authenticated
   using (
+    (select public.requesting_user_id()) is not null
+    and (select public.requesting_user_id()) <> user_id
+    and public.can_view_wishlist_item(user_id, (select public.requesting_user_id()), privacy_settings)
+  )
+  -- Without this the claimer could rewrite user_id to themselves (stealing the
+  -- item) or loosen privacy_settings, since Postgres reuses USING as the check
+  -- and neither column would be constrained on the new row.
+  with check (
     (select public.requesting_user_id()) is not null
     and (select public.requesting_user_id()) <> user_id
     and public.can_view_wishlist_item(user_id, (select public.requesting_user_id()), privacy_settings)
@@ -1233,7 +1334,11 @@ create policy "group_gifts_insert"
 
 create policy "group_gifts_update"
   on public.group_gifts for update to authenticated
-  using (created_by = (select public.requesting_user_id()));
+  using (created_by = (select public.requesting_user_id()))
+  with check (
+    created_by = (select public.requesting_user_id())
+    and public.is_group_member(group_id, (select public.requesting_user_id()))
+  );
 
 create policy "group_gifts_delete"
   on public.group_gifts for delete to authenticated
@@ -1265,7 +1370,8 @@ create policy "group_gift_members_insert"
 
 create policy "group_gift_members_update"
   on public.group_gift_members for update to authenticated
-  using (user_id = (select public.requesting_user_id()));
+  using (user_id = (select public.requesting_user_id()))
+  with check (user_id = (select public.requesting_user_id()));
 
 create policy "group_gift_members_delete"
   on public.group_gift_members for delete to authenticated
@@ -1288,7 +1394,11 @@ create policy "Users can send messages to their gift groups"
 
 create policy "Users can update their own messages"
   on public.messages for update to authenticated
-  using ((select public.requesting_user_id()) = user_id);
+  using ((select public.requesting_user_id()) = user_id)
+  with check (
+    (select public.requesting_user_id()) = user_id
+    and public.is_group_gift_member(group_gift_id, (select public.requesting_user_id()))
+  );
 
 create policy "Users can delete their own messages"
   on public.messages for delete to authenticated
@@ -1311,7 +1421,11 @@ create policy "Users can create gift exchanges in their groups"
 
 create policy "Creators can update gift exchanges"
   on public.gift_exchanges for update to authenticated
-  using ((select public.requesting_user_id()) = created_by);
+  using ((select public.requesting_user_id()) = created_by)
+  with check (
+    (select public.requesting_user_id()) = created_by
+    and public.is_group_member(group_id, (select public.requesting_user_id()))
+  );
 
 create policy "Creators can delete gift exchanges"
   on public.gift_exchanges for delete to authenticated
@@ -1341,7 +1455,8 @@ create policy "Users can join gift exchanges"
 
 create policy "Users can update their own participation"
   on public.gift_exchange_participants for update to authenticated
-  using ((select public.requesting_user_id()) = user_id);
+  using ((select public.requesting_user_id()) = user_id)
+  with check ((select public.requesting_user_id()) = user_id);
 
 create policy "Users can leave gift exchanges"
   on public.gift_exchange_participants for delete to authenticated
@@ -1415,18 +1530,76 @@ create policy "Users can delete their own tracked gifts"
 -- =============================================================================
 -- 9. Grants
 --
--- Supabase's default privileges normally cover this; stating it explicitly
--- means a reset that has not replayed those defaults still produces a working
--- schema. RLS, not the grant, is what decides which rows come back.
+-- "RLS decides which rows come back, not the grant" is true for TABLES and
+-- FALSE for SECURITY DEFINER FUNCTIONS: those run as their owner with RLS
+-- suspended, so for them the EXECUTE grant IS the entire access control. This
+-- baseline introduces eleven such functions, so every grant below is explicit
+-- and per-object, and `anon` receives nothing at all.
+--
+-- Two defaults have to be actively undone, or a blanket grant hides them:
+--
+--   * PostgreSQL grants EXECUTE on every new function to PUBLIC. It shows in
+--     the ACL as a leading `=X/postgres` and is NOT removed by
+--     `revoke ... from anon`, so PUBLIC must be named explicitly.
+--   * Supabase's default privileges grant ALL on new public tables to anon and
+--     authenticated -- TRUNCATE included. Both are revoked and re-granted
+--     narrowly.
 -- =============================================================================
 
 grant usage on schema public to anon, authenticated, service_role;
 
-grant select, insert, update, delete on all tables in schema public
-  to authenticated, service_role;
-grant select on all tables in schema public to anon;
+-- Tables. `authenticated` gets the four DML verbs and nothing else; anon gets
+-- nothing. anon has no unauthenticated read path in this application, and a
+-- future policy written without an explicit `TO` clause defaults to PUBLIC --
+-- which would silently become an anonymous read if the grant were sitting
+-- there waiting for it.
+revoke all on all tables in schema public from anon, authenticated;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+grant all on all tables in schema public to service_role;
 grant usage, select on all sequences in schema public to authenticated, service_role;
-grant execute on all functions in schema public to anon, authenticated, service_role;
+
+-- Functions. Strip the automatic PUBLIC grant first, then hand back only what
+-- is demonstrably needed.
+revoke execute on all functions in schema public
+  from public, anon, authenticated, service_role;
+
+-- (a) Policy helpers. RLS policy expressions are evaluated with the privileges
+--     of the QUERYING role, so `authenticated` must be able to execute every
+--     function any policy calls. Verified: with EXECUTE on
+--     requesting_user_id() revoked, an ordinary authenticated SELECT fails
+--     with `42501: permission denied for function requesting_user_id`.
+--     None of these goes to anon.
+grant execute on function public.requesting_user_id() to authenticated, service_role;
+grant execute on function public.is_group_member(uuid, text) to authenticated, service_role;
+grant execute on function public.is_group_admin(uuid, text) to authenticated, service_role;
+grant execute on function public.is_group_owner(uuid, text) to authenticated, service_role;
+grant execute on function public.is_group_gift_member(uuid, text) to authenticated, service_role;
+grant execute on function public.is_exchange_participant(uuid, text) to authenticated, service_role;
+grant execute on function public.can_view_field(text, text, jsonb) to authenticated, service_role;
+grant execute on function public.can_view_wishlist_item(text, text, jsonb) to authenticated, service_role;
+
+-- (b) Called directly by the application over PostgREST /rest/v1/rpc/. Each one
+--     pins its subject to requesting_user_id() internally; see their bodies.
+grant execute on function public.get_shared_groups(text, text) to authenticated, service_role;
+grant execute on function public.get_dates_today_for_user(text) to authenticated, service_role;
+grant execute on function public.find_group_by_invite_code(text) to authenticated, service_role;
+
+-- (c) The reminder job, and nothing else. This function returns every user's
+--     email address, birthdate, username, group names and Clerk id in a single
+--     call, and it has no caller filter at all -- its only two arguments are a
+--     day window and a year. NEXT_PUBLIC_SUPABASE_ANON_KEY ships to every
+--     browser and PostgREST exposes public functions at /rest/v1/rpc/, so an
+--     EXECUTE grant to anon here is an unauthenticated dump of the user table.
+--     The archive granted it TO service_role only; so does this.
+--     lib/actions/date-reminders.ts reaches it through createAdminClient().
+grant execute on function public.get_upcoming_dates_for_notifications(integer, integer)
+  to service_role;
+
+-- (d) Trigger functions are granted to nobody, deliberately. PostgreSQL checks
+--     EXECUTE on a trigger function when the trigger is CREATED, not when it
+--     fires. Verified: with EXECUTE revoked from authenticated, an
+--     authenticated INSERT firing add_group_creator_as_owner() and an UPDATE
+--     firing update_updated_at_column() both still succeed.
 
 
 -- =============================================================================
