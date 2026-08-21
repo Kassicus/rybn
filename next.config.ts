@@ -1,5 +1,20 @@
 import type { NextConfig } from "next";
 
+// Derive the Supabase origin from the configured URL so the CSP can never
+// drift from the project the app actually talks to. Hardcoding it here once
+// left production pointing at a decommissioned project, which silently
+// blocked every browser-side Supabase call.
+const supabaseOrigin = process.env.NEXT_PUBLIC_SUPABASE_URL
+  ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin
+  : "";
+const connectSrc = [
+  "'self'",
+  supabaseOrigin,
+  supabaseOrigin.replace(/^https:/, "wss:"),
+]
+  .filter(Boolean)
+  .join(" ");
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   // TypeScript checking is now enabled - all errors fixed!
@@ -61,7 +76,7 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'", // Tailwind requires unsafe-inline
               "img-src 'self' data: https:",
               "font-src 'self' data:",
-              "connect-src 'self' https://atzrokpgttmzgbawbzst.supabase.co wss://atzrokpgttmzgbawbzst.supabase.co",
+              `connect-src ${connectSrc}`,
               "frame-ancestors 'self' capacitor: ionic:",
               "base-uri 'self'",
               "form-action 'self'",
