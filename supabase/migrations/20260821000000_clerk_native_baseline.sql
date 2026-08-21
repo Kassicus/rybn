@@ -464,6 +464,40 @@ as $$
   select auth.jwt()->>'sub'
 $$;
 
+-- Is the caller a role that bypasses RLS anyway?
+--
+-- This is how the privileged internal path is ASSERTED rather than inferred.
+-- The previous version treated "requesting_user_id() is null" as proof of an
+-- internal call, which conflates unauthenticated with trusted: it worked only
+-- because legacy service-role JWTs happen to carry no `sub` claim. A JWT
+-- signing-key migration that added one would have silently switched the date
+-- reminder job off -- no error, no log, reminders simply stop.
+--
+-- current_setting('role') is the caller's SET ROLE, and it survives into a
+-- SECURITY DEFINER body (current_user does NOT -- inside a definer function
+-- that is the owner). Verified on this database:
+--     role=authenticated + user claims  -> role_guc=authenticated
+--     role=service_role,  no claims     -> role_guc=service_role
+--     role=service_role + svc claims    -> role_guc=service_role
+-- so the answer no longer depends on which claims an external system happens
+-- to mint. Resolving it through rolbypassrls rather than a hardcoded name
+-- states the actual reason the caller is trusted: it can already read these
+-- tables directly, so pinning its subject would buy nothing.
+--
+-- 'none' (a direct database connection that never issued SET ROLE) resolves to
+-- false, i.e. NOT privileged. That is deliberate: fail closed.
+create or replace function public.is_service_context()
+returns boolean
+language sql
+stable
+as $$
+  select coalesce(
+    (select r.rolbypassrls
+       from pg_roles r
+      where r.rolname = nullif(current_setting('role', true), 'none')),
+    false)
+$$;
+
 comment on function public.requesting_user_id() is
   'The Clerk user id of the caller, from the JWT sub claim. Replaces the Supabase uid() helper, which returns uuid and is null for a Clerk subject.';
 
@@ -473,9 +507,20 @@ comment on function public.requesting_user_id() is
 --
 -- These exist to break RLS recursion. A policy on group_members that queries
 -- group_members re-enters itself; running the lookup as the function owner,
--- with RLS suspended, terminates that. Every one of them is a pure membership
--- predicate -- they answer "is this user in this thing", never "show me the
--- rows" -- so suspending RLS inside them leaks nothing.
+-- with RLS suspended, terminates that.
+--
+-- Being a pure boolean predicate is NOT on its own a reason they are safe.
+-- They are SECURITY DEFINER, executable by `authenticated`, and PostgREST
+-- exposes them at /rest/v1/rpc/, so an unpinned version answers precisely the
+-- questions RLS refuses: is_group_gift_member(<gift>, 'alice') and
+-- is_exchange_participant(<exchange>, 'bob') ARE the secrets a surprise-gift
+-- app exists to keep, and a group UUID kept after leaving a group would make
+-- that oracle permanent.
+--
+-- So every one of them is pinned to the caller: p_user_id must be the
+-- requesting user, or the caller must already bypass RLS. All 62 policies pass
+-- (select public.requesting_user_id()) as p_user_id, so the pin is a no-op on
+-- every real call path, and no application code calls them directly.
 -- =============================================================================
 
 create or replace function public.is_group_member(p_group_id uuid, p_user_id text)
@@ -485,7 +530,12 @@ stable
 security definer
 set search_path = public
 as $$
-  select exists (
+  -- Pinned: see the section header. `and` short-circuits, so an unrelated
+  -- caller never reaches the table at all.
+  select (
+    p_user_id is not distinct from (select public.requesting_user_id())
+    or public.is_service_context()
+  ) and exists (
     select 1 from public.group_members
     where group_id = p_group_id and user_id = p_user_id
   )
@@ -498,7 +548,12 @@ stable
 security definer
 set search_path = public
 as $$
-  select exists (
+  -- Pinned: see the section header. `and` short-circuits, so an unrelated
+  -- caller never reaches the table at all.
+  select (
+    p_user_id is not distinct from (select public.requesting_user_id())
+    or public.is_service_context()
+  ) and exists (
     select 1 from public.group_members
     where group_id = p_group_id
       and user_id = p_user_id
@@ -513,7 +568,12 @@ stable
 security definer
 set search_path = public
 as $$
-  select exists (
+  -- Pinned: see the section header. `and` short-circuits, so an unrelated
+  -- caller never reaches the table at all.
+  select (
+    p_user_id is not distinct from (select public.requesting_user_id())
+    or public.is_service_context()
+  ) and exists (
     select 1 from public.group_members
     where group_id = p_group_id
       and user_id = p_user_id
@@ -528,7 +588,12 @@ stable
 security definer
 set search_path = public
 as $$
-  select exists (
+  -- Pinned: see the section header. `and` short-circuits, so an unrelated
+  -- caller never reaches the table at all.
+  select (
+    p_user_id is not distinct from (select public.requesting_user_id())
+    or public.is_service_context()
+  ) and exists (
     select 1 from public.group_gift_members
     where group_gift_id = p_group_gift_id and user_id = p_user_id
   )
@@ -541,7 +606,12 @@ stable
 security definer
 set search_path = public
 as $$
-  select exists (
+  -- Pinned: see the section header. `and` short-circuits, so an unrelated
+  -- caller never reaches the table at all.
+  select (
+    p_user_id is not distinct from (select public.requesting_user_id())
+    or public.is_service_context()
+  ) and exists (
     select 1 from public.gift_exchange_participants
     where exchange_id = p_exchange_id and user_id = p_user_id
   )
@@ -573,12 +643,12 @@ begin
   -- pair they are part of; without this, any authenticated user could map the
   -- group graph between any two Clerk IDs.
   --
-  -- A null caller means an internal call, and there are exactly two: the
-  -- SECURITY DEFINER chain from can_view_field()/can_view_wishlist_item()
-  -- (which have already pinned the viewer themselves), and the reminder job
-  -- running as service_role. Neither carries a `sub` claim and both are
-  -- already privileged.
-  if v_caller is not null
+  -- The internal callers are the SECURITY DEFINER chain from
+  -- can_view_field()/can_view_wishlist_item() (which have already pinned the
+  -- viewer, so v_caller matches user_a) and the reminder job, which is
+  -- admitted by is_service_context() on the strength of its ROLE rather than
+  -- of a missing claim.
+  if not public.is_service_context()
      and v_caller is distinct from user_a
      and v_caller is distinct from user_b then
     return;
@@ -616,8 +686,9 @@ begin
   -- This function is SECURITY DEFINER and would otherwise be a boolean oracle
   -- over other people's group memberships. Every policy already passes
   -- requesting_user_id() as the viewer, so this is a no-op on the policy path.
-  -- A null caller is the reminder job (service_role), which is privileged.
-  if v_caller is not null and v_caller is distinct from viewer_id then
+  -- The reminder job is admitted by is_service_context(), which asserts the
+  -- caller's role rather than inferring trust from an absent claim.
+  if not public.is_service_context() and v_caller is distinct from viewer_id then
     return false;
   end if;
 
@@ -691,8 +762,9 @@ begin
   -- This function is SECURITY DEFINER and would otherwise be a boolean oracle
   -- over other people's group memberships. Every policy already passes
   -- requesting_user_id() as the viewer, so this is a no-op on the policy path.
-  -- A null caller is the reminder job (service_role), which is privileged.
-  if v_caller is not null and v_caller is distinct from viewer_id then
+  -- The reminder job is admitted by is_service_context(), which asserts the
+  -- caller's role rather than inferring trust from an absent claim.
+  if not public.is_service_context() and v_caller is distinct from viewer_id then
     return false;
   end if;
 
@@ -1595,11 +1667,78 @@ grant execute on function public.find_group_by_invite_code(text) to authenticate
 grant execute on function public.get_upcoming_dates_for_notifications(integer, integer)
   to service_role;
 
--- (d) Trigger functions are granted to nobody, deliberately. PostgreSQL checks
+-- (d) is_service_context() is granted to nobody. It is only ever called from
+--     inside SECURITY DEFINER bodies, where the effective user is the owner,
+--     so it needs no grant -- and not granting it keeps one more definer
+--     function off /rest/v1/rpc/.
+--
+-- (e) Trigger functions are granted to nobody, deliberately. PostgreSQL checks
 --     EXECUTE on a trigger function when the trigger is CREATED, not when it
 --     fires. Verified: with EXECUTE revoked from authenticated, an
 --     authenticated INSERT firing add_group_creator_as_owner() and an UPDATE
 --     firing update_updated_at_column() both still succeed.
+
+
+-- ---------------------------------------------------------------------------
+-- Default privileges, so the next migration does not undo all of the above.
+--
+-- Everything above is one-shot: it fixes the objects that exist right now.
+-- Supabase ships default privileges that grant ALL on every FUTURE table in
+-- this schema to anon -- select, insert, update, delete AND truncate -- and
+-- EXECUTE on every future function. PostgreSQL adds its own EXECUTE-to-PUBLIC
+-- on top. So without this block, the very next migration's table arrives
+-- anon-readable, anon-writable and anon-truncatable, reopening the exact class
+-- of hole this section exists to close.
+--
+-- Note these apply to objects created by THIS role (postgres), which is how
+-- migrations run. A parallel set of defaults owned by supabase_admin also
+-- exists and is out of reach here (postgres is not a member of supabase_admin);
+-- that path is Supabase's own tooling, not this application's migrations.
+--
+-- NOT fixed by this block, and worth knowing: a new table still arrives with
+-- RLS DISABLED. Grants cannot express that; only an event trigger could, and
+-- creating one needs privileges this role does not have. Every table in this
+-- baseline enables RLS explicitly, any future migration must do the same, and
+-- 06_anon_has_no_reach.sql fails the suite if one ever does not.
+-- ---------------------------------------------------------------------------
+alter default privileges in schema public revoke all on tables from anon;
+alter default privileges in schema public revoke all on sequences from anon;
+alter default privileges in schema public revoke all on functions from anon;
+
+-- PostgreSQL's own EXECUTE-to-PUBLIC default -- the one that is invisible until
+-- you look at an ACL and see a leading `=X`.
+--
+-- This statement is kept because it is correct and harmless, but MEASURED ON
+-- THIS DATABASE IT DOES NOT WORK, and the residue is a real hole. Verified in
+-- a rolled-back transaction: after issuing it (and again after issuing it as a
+-- grant/revoke pair), a freshly created function still carried
+--     =X/postgres , postgres=X/postgres , authenticated=X/postgres , ...
+-- while pg_default_acl recorded only
+--     postgres=X/postgres , authenticated=X/postgres , service_role=X/postgres
+-- with no PUBLIC entry at all. The stored default ACL is merged with the
+-- hardwired one rather than replacing it, and "PUBLIC has nothing" cannot be
+-- represented by an absent entry, so the built-in grant survives.
+--
+-- anon is a member of PUBLIC, so a function added by a FUTURE migration would
+-- be anon-executable again -- exactly the shape of the hole that made
+-- get_upcoming_dates_for_notifications an unauthenticated dump of the user
+-- table.
+--
+-- Since the default cannot be fixed, the invariant is ENFORCED instead:
+-- supabase/tests/rls/06_anon_has_no_reach.sql fails the suite if any function
+-- in this schema is anon-executable, if anon holds any table privilege, if any
+-- table has RLS disabled, or if any policy is left open to PUBLIC. That check
+-- is strictly stronger than a default privilege, because it holds regardless
+-- of which role created the object -- including objects created through
+-- supabase_admin's default ACLs, which this role cannot alter.
+--
+-- A future migration adding a function MUST therefore revoke it explicitly:
+--     revoke execute on function public.new_fn(...) from public, anon;
+alter default privileges in schema public revoke execute on functions from public;
+
+-- Match what section 9 grants existing tables: DML only, no TRUNCATE.
+alter default privileges in schema public
+  revoke truncate, references, trigger on tables from authenticated;
 
 
 -- =============================================================================

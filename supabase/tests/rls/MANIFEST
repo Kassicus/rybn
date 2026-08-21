@@ -22,3 +22,5 @@
 02_profile_isolation.sql
 03_group_membership.sql
 04_privacy_overrides.sql
+05_definer_pins.sql
+06_anon_has_no_reach.sql

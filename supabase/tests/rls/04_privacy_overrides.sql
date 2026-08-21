@@ -44,12 +44,13 @@
 -- "restrictToGroup": <group id>}: restrictToGroup IS the per-group override,
 -- and it takes precedence over the group-type list.
 --
--- ORDERING NOTE: the direct function calls all happen BEFORE any claims are
--- set. can_view_field() and can_view_wishlist_item() pin their viewer against
--- requesting_user_id() when there is one, so calling them for another user's
--- viewpoint only returns the real answer on the unauthenticated internal path
--- -- which is the path the reminder job uses and therefore worth testing. The
--- last three assertions then cover the authenticated path through RLS.
+-- CALLER NOTE: can_view_field() and can_view_wishlist_item() pin their viewer
+-- to requesting_user_id() unless the caller already bypasses RLS, and that pin
+-- fails CLOSED -- an unset caller gets false, not the real answer. So each
+-- direct call below sets the claims of the viewer it is asking about, which is
+-- exactly the shape the policy path uses. Assertion 9 then checks the pin
+-- itself: one user asking the question on another user's behalf must be
+-- refused even when the true answer is yes.
 
 create temp table _harness_result (token text);
 
@@ -120,6 +121,8 @@ begin
   ---------------------------------------------------------------------------
   -- can_view_field: the per-group override branch.
   ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"user_ov_peer","role":"authenticated"}', true);
   select can_view_field('user_ov_owner', 'user_ov_peer', v_shoe) into v_can;
   if v_can is not true then
     raise exception 'OVERRIDE FAIL: member of the restricted group cannot see the overridden field';
@@ -128,6 +131,8 @@ begin
 
   -- Shares a group with the owner, and it is even the same TYPE -- but it is
   -- not the group named in restrictToGroup.
+  perform set_config('request.jwt.claims',
+    '{"sub":"user_ov_other","role":"authenticated"}', true);
   select can_view_field('user_ov_owner', 'user_ov_other', v_shoe) into v_can;
   if v_can is not false then
     raise exception
@@ -135,12 +140,16 @@ begin
   end if;
   v_checks := v_checks + 1;
 
+  perform set_config('request.jwt.claims',
+    '{"sub":"user_ov_stranger","role":"authenticated"}', true);
   select can_view_field('user_ov_owner', 'user_ov_stranger', v_shoe) into v_can;
   if v_can is not false then
     raise exception 'OVERRIDE FAIL: stranger can see overridden field';
   end if;
   v_checks := v_checks + 1;
 
+  perform set_config('request.jwt.claims',
+    '{"sub":"user_ov_owner","role":"authenticated"}', true);
   select can_view_field('user_ov_owner', 'user_ov_owner', v_shoe) into v_can;
   if v_can is not true then
     raise exception 'OVERRIDE FAIL: owner cannot see their own field';
@@ -150,6 +159,8 @@ begin
   ---------------------------------------------------------------------------
   -- can_view_field: the visibleToGroupTypes branch.
   ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"user_ov_peer","role":"authenticated"}', true);
   select can_view_field('user_ov_owner', 'user_ov_peer', v_shirt) into v_can;
   if v_can is not true then
     raise exception 'OVERRIDE FAIL: family-visible field hidden from a family-group member';
@@ -157,6 +168,8 @@ begin
   v_checks := v_checks + 1;
 
   -- Shares a group, but a work group, and the field is family-only.
+  perform set_config('request.jwt.claims',
+    '{"sub":"user_ov_work","role":"authenticated"}', true);
   select can_view_field('user_ov_owner', 'user_ov_work', v_shirt) into v_can;
   if v_can is not false then
     raise exception
@@ -167,16 +180,36 @@ begin
   ---------------------------------------------------------------------------
   -- can_view_wishlist_item: same logic, separate copy, same two questions.
   ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"user_ov_peer","role":"authenticated"}', true);
   select can_view_wishlist_item('user_ov_owner', 'user_ov_peer', v_gift) into v_can;
   if v_can is not true then
     raise exception 'OVERRIDE FAIL: member of the restricted group cannot see the overridden wishlist item';
   end if;
   v_checks := v_checks + 1;
 
+  perform set_config('request.jwt.claims',
+    '{"sub":"user_ov_other","role":"authenticated"}', true);
   select can_view_wishlist_item('user_ov_owner', 'user_ov_other', v_gift) into v_can;
   if v_can is not false then
     raise exception
       'OVERRIDE FAIL: a wishlist item restricted to group G is visible to a member of a different group H';
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- The pin itself. user_ov_stranger asks the question on user_ov_peer's
+  -- behalf. The true answer is TRUE (the peer really can see the field), so a
+  -- false result here can only come from the caller pin, not from the privacy
+  -- logic. Without the pin these functions are a boolean oracle over other
+  -- people's group memberships.
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"user_ov_stranger","role":"authenticated"}', true);
+  select can_view_field('user_ov_owner', 'user_ov_peer', v_shoe) into v_can;
+  if v_can is not false then
+    raise exception
+      'PIN FAIL: user_ov_stranger got a real answer for user_ov_peer''s viewpoint';
   end if;
   v_checks := v_checks + 1;
 
@@ -228,9 +261,9 @@ begin
 
   perform set_config('role', v_orig_role, true);
 
-  if v_checks < 11 then
+  if v_checks < 12 then
     raise exception
-      'HARNESS FAIL: only % assertion(s) ran, expected at least 11. Assertions were skipped or commented out; this file proves nothing.',
+      'HARNESS FAIL: only % assertion(s) ran, expected at least 12. Assertions were skipped or commented out; this file proves nothing.',
       v_checks;
   end if;
 
