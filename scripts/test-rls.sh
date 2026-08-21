@@ -86,6 +86,60 @@ for f in "$DIR"/supabase/tests/rls/*.sql; do
   name="$(basename "$f")"
   token="OK_${name%.sql}"
 
+  # ---------------------------------------------------------------------------
+  # Structural checks on the file's SOURCE, before any SQL is sent.
+  #
+  # The runner cannot tell a passing file from one that asserted nothing by
+  # looking at results alone -- a bare `select 'OK_x' as result;` produces the
+  # same output as a file that ran six assertions. So the counter-gated pattern
+  # is enforced here rather than merely documented in 00_harness_smoke.sql.
+  #
+  # Comments are stripped first. The convention header in 00_harness_smoke.sql
+  # names these very identifiers, and a file must not satisfy the check by
+  # talking about the pattern instead of using it.
+  # ---------------------------------------------------------------------------
+  src="$(sed 's/--.*//' "$f")"
+  inc_re='v_checks[[:space:]]*:=[[:space:]]*v_checks[[:space:]]*\+[[:space:]]*1'
+
+  missing=""
+  printf '%s\n' "$src" | grep -q '_harness_result' || missing="${missing:+$missing, }_harness_result"
+  printf '%s\n' "$src" | grep -q 'v_checks'        || missing="${missing:+$missing, }v_checks"
+  printf '%s\n' "$src" | grep -qE "$inc_re"        || missing="${missing:+$missing, }v_checks := v_checks + 1"
+
+  if [ -n "$missing" ]; then
+    echo "FAIL  $name — does not use the counter-gated pattern (missing: $missing)."
+    echo "      A test file must write its token from inside a do-block gated on an"
+    echo "      assertion counter, or it can report PASS having asserted nothing."
+    echo "      See the convention header in 00_harness_smoke.sql."
+    failed=1
+    ran=$((ran+1))
+    continue
+  fi
+
+  # The floor must EQUAL the increment count. A floor below the count tolerates
+  # neutered assertions; a floor above it can never pass and is a latent
+  # always-fail. Both are bugs, so this is exact-equality, not >=.
+  increments="$(printf '%s\n' "$src" | grep -cE "$inc_re")"
+  floor="$(printf '%s\n' "$src" | grep -oE 'v_checks[[:space:]]*<[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -1)"
+
+  if [ -z "$floor" ]; then
+    echo "FAIL  $name — has an assertion counter but no floor guard, so the counter gates nothing."
+    echo "      Add before the token insert:"
+    echo "        if v_checks < $increments then raise exception 'HARNESS FAIL: ...'; end if;"
+    failed=1
+    ran=$((ran+1))
+    continue
+  fi
+
+  if [ "$floor" -ne "$increments" ]; then
+    echo "FAIL  $name — counter floor is stale: floor is $floor but the file performs $increments assertion(s)."
+    echo "      The floor must equal the number of 'v_checks := v_checks + 1' increments."
+    echo "      A lower floor lets neutered assertions pass; a higher one can never pass."
+    failed=1
+    ran=$((ran+1))
+    continue
+  fi
+
   # Real newlines around the file's contents. Command substitution strips the
   # trailing newline, so `; rollback;` appended on the same line would land
   # inside a trailing `--` comment and silently disable the rollback, letting
