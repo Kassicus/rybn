@@ -40,3 +40,10 @@ next-env.d.ts
 
 # Docs
 docs/
+
+# Supabase CLI local link state (scratch, machine-specific).
+# Never track this: a committed project-ref points every clone and worktree
+# at whatever project was linked when it was committed. A stale one here
+# silently aimed this repo at a decommissioned database. The project identity
+# belongs in supabase/config.toml (project_id), which IS tracked.
+supabase/.temp/
