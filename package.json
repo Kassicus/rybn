@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test:rls": "./scripts/test-rls.sh"
   },
   "dependencies": {
     "@fontsource/playwrite-de-sas": "^5.2.7",
