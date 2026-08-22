@@ -1402,16 +1402,25 @@ create policy "Users can view members of their groups"
 -- pin_group_member_subject and pin_invitation_parent triggers in section 7
 -- ABOVE this one, and 07_write_path_defences.sql fails if either goes away.
 --
--- WHAT REMOVAL DOES AND DOES NOT ACHIEVE. Removing a member is enforceable
--- against the TOKEN path: they cannot self-insert, their pending invitations
--- can be revoked by any group admin, and the invitations UPDATE policy below
--- re-checks membership, so they cannot resurrect a spent invitation they once
--- sent. It is NOT enforceable against the INVITE CODE path: a removed member
--- still knows the group's invite_code and can hand it to join_group_with_code()
--- to walk back in. Closing that needs code rotation -- a feature that does not
--- exist anywhere in this codebase, and an application change rather than a
--- policy one, since admins can already write groups.invite_code. Parked and
--- carried to the final review; do not read this file as claiming otherwise.
+-- WHAT REMOVAL ACHIEVES, AND WHERE IT IS ENFORCED. Removing a member is
+-- enforceable against the TOKEN path BY THIS SCHEMA: they cannot self-insert,
+-- their pending invitations can be revoked by any group admin, and the
+-- invitations UPDATE policy below re-checks membership, so they cannot
+-- resurrect a spent invitation they once sent.
+--
+-- The INVITE CODE path is NOT closed here, and cannot be. A removed member
+-- still knows the group's invite_code and could hand it to
+-- join_group_with_code() to walk back in. Closing that needs the code to be
+-- ROTATED on removal, which is an application change rather than a policy one:
+-- no `with check` can express "and destroy the credential the departing member
+-- memorised", while admins can already write groups.invite_code.
+--
+-- That rotation now exists, in leaveGroup() in lib/actions/groups.ts, which
+-- rotates BEFORE it deletes the membership row so a failed rotation aborts the
+-- removal rather than silently leaving a removed member holding a live key.
+-- Nothing in this file enforces that ordering -- if that function ever stops
+-- rotating, removal quietly stops removing again, and this schema will not
+-- notice.
 --
 -- The consequences were not subtle: anyone holding a group id could join, and
 -- then read the roster, every member's profile, their private wishlist items
