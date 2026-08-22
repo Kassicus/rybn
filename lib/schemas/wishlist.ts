@@ -6,6 +6,18 @@ import { z } from 'zod';
 import { imageValueProblem } from '@/lib/storage/image-value';
 
 /**
+ * Length limits for the free-text fields.
+ *
+ * Exported because they are not only a form rule: `wishlist_items` carries a
+ * `title_length between 1 and 200` check constraint, and
+ * `lib/link-metadata/extract.ts` trims auto-filled values to exactly these
+ * numbers so a fetched page can never produce a value the form would reject.
+ * One definition, so the two cannot drift apart.
+ */
+export const TITLE_MAX_LENGTH = 200;
+export const DESCRIPTION_MAX_LENGTH = 1000;
+
+/**
  * Priority levels for wishlist items
  */
 export const priorityLevels = ['low', 'medium', 'high', 'must-have'] as const;
@@ -17,10 +29,10 @@ export type Priority = typeof priorityLevels[number];
 export const wishlistItemSchema = z.object({
   title: z.string()
     .min(1, 'Title is required')
-    .max(200, 'Title must be less than 200 characters'),
+    .max(TITLE_MAX_LENGTH, `Title must be less than ${TITLE_MAX_LENGTH} characters`),
 
   description: z.string()
-    .max(1000, 'Description must be less than 1000 characters')
+    .max(DESCRIPTION_MAX_LENGTH, `Description must be less than ${DESCRIPTION_MAX_LENGTH} characters`)
     .optional()
     .nullable(),
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { extractMetadata } from "@/lib/link-metadata/extract";
+import { extractMetadata, reduceToMarkup } from "@/lib/link-metadata/extract";
+import { DESCRIPTION_MAX_LENGTH, TITLE_MAX_LENGTH } from "@/lib/schemas/wishlist";
 
 const PAGE = "https://shop.example.com/p/1";
 
@@ -231,6 +232,15 @@ describe("price: values that must be dropped, never coerced", () => {
   it("drops zero, which is an absent price rather than a free gift", () => {
     expect(ldPrice(`"0.00"`).price).toBeUndefined();
     expect(ldPrice(`0`).price).toBeUndefined();
+  });
+
+  it("drops a sub-cent price, which would render as $0.00", () => {
+    // Every render site formats with .toFixed(2), so 0.0000001 reaches the
+    // user as "$0.00" -- a price that says free about something that is not.
+    expect(ldPrice(`0.0000001`).price).toBeUndefined();
+    expect(ldPrice(`"0.001"`).price).toBeUndefined();
+    expect(ldPrice(`"0.009"`).price).toBeUndefined();
+    expect(ldPrice(`"0.01"`).price).toBe(0.01); // exactly one cent is a price
   });
 
   it("drops a non-scalar price", () => {
@@ -722,12 +732,16 @@ describe("pathological documents", () => {
 describe("output hygiene", () => {
   it("caps the title at the length the form accepts", () => {
     const html = `<meta property="og:title" content="${"a".repeat(5000)}">`;
-    expect(extractMetadata(html, PAGE).title).toHaveLength(200);
+    // Read from the schema, not repeated here: if someone raises the form's
+    // limit and not the extractor's, this is where they find out.
+    expect(extractMetadata(html, PAGE).title).toHaveLength(TITLE_MAX_LENGTH);
+    expect(TITLE_MAX_LENGTH).toBe(200);
   });
 
   it("caps the description at the length the form accepts", () => {
     const html = `<meta property="og:description" content="${"a".repeat(5000)}">`;
-    expect(extractMetadata(html, PAGE).description).toHaveLength(1000);
+    expect(extractMetadata(html, PAGE).description).toHaveLength(DESCRIPTION_MAX_LENGTH);
+    expect(DESCRIPTION_MAX_LENGTH).toBe(1000);
   });
 
   it("strips a NUL byte, which a Postgres text column cannot store", () => {
@@ -756,5 +770,183 @@ describe("output hygiene", () => {
     const r = extractMetadata(`<meta property="og:title" content="Only a title">`, PAGE);
     expect(r).toStrictEqual({ title: "Only a title" });
     expect(Object.keys(r)).toEqual(["title"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reduceToMarkup: the pre-pass that decides what the parser ever sees. Asserted
+// on its exact output, so these do not depend on a timing margin.
+// ---------------------------------------------------------------------------
+
+describe("reduceToMarkup", () => {
+  it("returns a document with nothing to drop byte for byte", () => {
+    const html =
+      `<html><head><title>T</title><meta property="og:title" content="x">` +
+      `<script type="application/ld+json">{"a":1}</script></head></html>`;
+    expect(reduceToMarkup(html)).toBe(html);
+  });
+
+  it("drops character data but keeps every tag", () => {
+    expect(reduceToMarkup("<p>hello</p>")).toBe("<p></p>");
+    expect(reduceToMarkup("<b></b>a".repeat(3))).toBe("<b></b>".repeat(3));
+  });
+
+  it("keeps a quoted > inside an attribute rather than cutting the tag in half", () => {
+    const html = `<meta property="og:description" content="a > b">`;
+    expect(reduceToMarkup(html)).toBe(html);
+    expect(extractMetadata(html, PAGE).description).toBe("a > b");
+  });
+
+  it("keeps raw-text content verbatim", () => {
+    const html = `<script>var a = "<b>x</b>";</script><style>.a{content:"<i>"}</style>`;
+    expect(reduceToMarkup(html)).toBe(html);
+  });
+
+  it("drops a comment and everything after an unterminated one", () => {
+    expect(reduceToMarkup(`<a><!-- gone --><b>`)).toBe("<a><b>");
+    expect(reduceToMarkup(`<a><!--` + "<!--".repeat(999))).toBe("<a>");
+    expect(reduceToMarkup(`<a><![CDATA[x]]><b>`)).toBe("<a><b>");
+  });
+
+  it("leaves a bare < in text alone rather than treating it as a tag", () => {
+    expect(reduceToMarkup("<p>1 < 2</p>")).toBe("<p></p>");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A `<!--` only opens a comment in the data state. Treating one inside a
+// script body or an attribute value as a comment discards the rest of an
+// ordinary page, which is a correctness regression, not a mitigation.
+// ---------------------------------------------------------------------------
+
+describe("comment-like text that is not a comment", () => {
+  it("keeps the page when a script body contains <!--", () => {
+    const html = `<script>var a="<!--";</script><meta property="og:title" content="Real">`;
+    expect(extractMetadata(html, PAGE).title).toBe("Real");
+  });
+
+  it("keeps the page when an attribute value contains <!--", () => {
+    const html =
+      `<meta property="og:description" content="a <!-- b">` +
+      `<meta property="og:title" content="Real">`;
+    const r = extractMetadata(html, PAGE);
+    expect(r.title).toBe("Real");
+    expect(r.description).toBe("a <!-- b");
+  });
+
+  it("keeps the JSON-LD when one of its strings contains <![CDATA[", () => {
+    const html =
+      `<script type="application/ld+json">` +
+      `{"@type":"Product","name":"Bracket <![CDATA[ Toy",` +
+      `"offers":{"price":"42.50","priceCurrency":"USD"}}</script>`;
+    const r = extractMetadata(html, PAGE);
+    expect(r.title).toBe("Bracket <![CDATA[ Toy");
+    expect(r.price).toBe(42.5);
+  });
+
+  it("keeps the page when a script body contains an unterminated comment", () => {
+    const html = `<script>/* <!-- */ var a = 1;</script><meta property="og:title" content="Real">`;
+    expect(extractMetadata(html, PAGE).title).toBe("Real");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sibling text nodes. node-html-parser appends one by calling remove() on a
+// node whose parentNode is already set, and remove() filters the parent's
+// whole child list -- quadratic in text nodes per parent. 313 KB costs 6.4
+// seconds unreduced; 2 MB costs about five minutes.
+// ---------------------------------------------------------------------------
+
+describe("sibling text nodes", () => {
+  it("parses 2 MB of alternating tags and text quickly", { timeout: 5000 }, () => {
+    const html =
+      `<meta property="og:title" content="Findable">` + "<b></b>a".repeat(262_144);
+    expect(extractMetadata(html, PAGE).title).toBe("Findable");
+  });
+
+  it("parses 2 MB of CDATA text nodes quickly", { timeout: 5000 }, () => {
+    const html =
+      `<meta property="og:title" content="Findable">` + "<![CDATA[a]]>".repeat(161_319);
+    expect(extractMetadata(html, PAGE).title).toBe("Findable");
+  });
+
+  it("is not bypassed by hiding the payload behind an unclosed <title>",
+    { timeout: 5000 }, () => {
+      // <title> content is preserved verbatim by the reduction, so the parser
+      // must be told it is raw text or it walks the payload as markup.
+      const html =
+        `<meta property="og:title" content="Findable"><title>` + "<b></b>a".repeat(262_144);
+      expect(extractMetadata(html, PAGE).title).toBe("Findable");
+    });
+
+  it("is not bypassed by an unterminated quoted attribute", { timeout: 5000 }, () => {
+    const html =
+      `<meta property="og:title" content="Findable"><a x="` + "<b></b>a".repeat(262_144);
+    expect(extractMetadata(html, PAGE).title).toBe("Findable");
+  });
+
+  it("is not bypassed by a bare < in front of the payload", { timeout: 5000 }, () => {
+    const html =
+      `<meta property="og:title" content="Findable">` + "< b></b>a".repeat(262_144);
+    expect(extractMetadata(html, PAGE).title).toBe("Findable");
+  });
+
+  it("reads a realistic 320 KB page unchanged, and quickly", { timeout: 2000 }, () => {
+    // The control for all of the above: nested markup at the same byte count
+    // is 500x cheaper than the crafted shape, so the mitigation must not be a
+    // size limit, and it must not change this answer.
+    const html =
+      `<html><head><title>Doc &amp; Title</title>` +
+      `<meta property="og:title" content="OG &eacute; Title">` +
+      `<meta property="og:description" content="a > b and 1 < 2">` +
+      `<meta property="og:image" content="/img/a.jpg">` +
+      `<script type="application/ld+json">{"@type":"Product","name":"Real Product",` +
+      `"offers":{"price":"42.50","priceCurrency":"USD"}}</script>` +
+      `<style>.a{content:"<b>"}</style></head><body>` +
+      '<div class="p"><span>item</span><p>desc text here</p></div>'.repeat(5600) +
+      `</body></html>`;
+    expect(html.length).toBeGreaterThan(320_000);
+    expect(extractMetadata(html, PAGE)).toStrictEqual({
+      title: "Real Product",
+      price: 42.5,
+      imageUrl: "https://shop.example.com/img/a.jpg",
+      description: "a > b and 1 < 2",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The remaining work ceilings, pinned from both sides so the numbers are
+// behaviour rather than decoration.
+// ---------------------------------------------------------------------------
+
+describe("work ceilings", () => {
+  const buried = (nodes: number) =>
+    extractMetadata(
+      "<b>".repeat(nodes) + `<meta property="og:title" content="Bottom">`,
+      PAGE,
+    ).title;
+
+  it("walks to a meta tag at the bottom of its DOM budget", { timeout: 5000 }, () => {
+    expect(buried(249_998)).toBe("Bottom");
+  });
+
+  it("stops one node past its DOM budget", { timeout: 5000 }, () => {
+    expect(buried(249_999)).toBeUndefined();
+  });
+
+  const inArray = (padding: number) =>
+    extractMetadata(
+      `<script type="application/ld+json">[${"0,".repeat(padding)}` +
+        `{"@type":"Product","name":"Last"}]</script>`,
+      PAGE,
+    ).title;
+
+  it("finds a Product at the bottom of its JSON budget", { timeout: 5000 }, () => {
+    expect(inArray(99_998)).toBe("Last");
+  });
+
+  it("stops one node past its JSON budget", { timeout: 5000 }, () => {
+    expect(inArray(99_999)).toBeUndefined();
   });
 });

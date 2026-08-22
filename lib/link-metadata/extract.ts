@@ -1,4 +1,8 @@
 import { NodeType, parse, type HTMLElement, type Node } from "node-html-parser";
+import {
+  DESCRIPTION_MAX_LENGTH,
+  TITLE_MAX_LENGTH,
+} from "@/lib/schemas/wishlist";
 
 export interface LinkMetadata {
   title?: string;
@@ -23,6 +27,13 @@ const ACCEPTED_CURRENCY = "USD";
 const MAX_PRICE = 1_000_000;
 
 /**
+ * One cent. The column is `numeric` and would happily store `0.0000001`, but
+ * every render site formats with `.toFixed(2)`, so anything below this reaches
+ * the user as `$0.00` -- a price that says "free" about something that is not.
+ */
+const MIN_PRICE = 0.01;
+
+/**
  * Prices must be written the way schema.org asks for them: digits, with `.`
  * as the decimal point and no readability separators. Anything else is
  * ambiguous -- `"1,299.99"` and `"1.299,99"` are the same number in different
@@ -38,11 +49,15 @@ const PLAIN_DECIMAL = /^\d+(?:\.\d+)?$/;
  */
 const MAX_OFFERS = 50;
 
-/** Matches the caps in `lib/schemas/wishlist.ts` and the `title_length` check
- * constraint on `wishlist_items`. A value the form would reject is worse than
- * no value: the design promises a failed lookup never blocks saving. */
-const MAX_TITLE_LENGTH = 200;
-const MAX_DESCRIPTION_LENGTH = 1000;
+/**
+ * The caps come from `lib/schemas/wishlist.ts`, which is also what the form
+ * validates against and what the `title_length` check constraint on
+ * `wishlist_items` enforces. Imported rather than repeated: a value the form
+ * would reject is worse than no value, because the design promises a failed
+ * lookup never blocks saving, and two copies of a number drift.
+ */
+const MAX_TITLE_LENGTH = TITLE_MAX_LENGTH;
+const MAX_DESCRIPTION_LENGTH = DESCRIPTION_MAX_LENGTH;
 
 /** Conventional practical URL ceiling. Real image URLs are a few hundred
  * bytes; something far longer is padding, not a picture. */
@@ -52,13 +67,13 @@ const MAX_IMAGE_URL_LENGTH = 2048;
  * Work ceilings. Task 6 hands us up to 2 MB of attacker-chosen HTML and calls
  * this synchronously inside a Server Action, so every loop here is bounded.
  *
- * Only `MAX_LD_SCRIPTS` is observable, and the tests pin it from both sides.
- * The other two sit above anything 2 MB of input can reach, and the loops they
- * guard are already linear and already terminate, so no test can tell whether
- * they are here -- they are a guarantee against a future edit, not a live
- * defence. Said plainly so nobody mistakes them for tested behaviour.
+ * All three are reachable inside a 2 MB page and all three are pinned from
+ * both sides by tests, so none of them is a number nobody can see. Sizing:
+ * after `reduceToMarkup` a node costs at least three bytes (`<b>`), so 2 MB
+ * cannot exceed ~700,000 nodes and 250,000 sits far above any real document
+ * while staying provable; `MAX_JSON_NODES` is reached by a ~200 KB JSON array.
  */
-const MAX_DOM_NODES = 1_000_000;
+const MAX_DOM_NODES = 250_000;
 const MAX_LD_SCRIPTS = 100;
 const MAX_JSON_NODES = 100_000;
 
@@ -66,12 +81,6 @@ const MAX_JSON_NODES = 100_000;
  * accessible name for an icon -- taking it would title a gift "icon" -- and
  * `<template>` content is inert until cloned. */
 const INERT_SUBTREES = new Set(["svg", "template"]);
-
-/** Openers whose region the parser finds with a lazy `[\s\S]*?` scan. */
-const BOGUS_COMMENTS: ReadonlyArray<readonly [string, string]> = [
-  ["<!--", "-->"],
-  ["<![CDATA[", "]]>"],
-];
 
 /**
  * C0 and C1 control characters, minus tab/newline/carriage return which the
@@ -129,7 +138,7 @@ function toPrice(amount: unknown, currency: unknown): number | undefined {
     return undefined;
   }
 
-  if (!Number.isFinite(value) || value <= 0 || value > MAX_PRICE) return undefined;
+  if (!Number.isFinite(value) || value < MIN_PRICE || value > MAX_PRICE) return undefined;
   return value;
 }
 
@@ -157,38 +166,162 @@ function toImageUrl(raw: unknown, pageUrl: string): string | undefined {
 }
 
 /**
- * Cut the document at its first unterminated comment, before the parser runs.
+ * Elements whose content the parser must not read as markup.
  *
- * node-html-parser tokenises with one regex whose first alternative is
- * `<!--[\s\S]*?-->`. When an opener has a closer, the lazy scan swallows the
- * whole span in a single match and skips every opener inside it -- linear, and
- * measured at 1 ms for 50,000 of them. When an opener has NO closer, the scan
- * runs to the end of the document, fails, and the engine restarts at the next
- * opener: quadratic. Measured at 195 KB of `<!--`, that is 2.5 seconds; at 391
- * KB, 10 seconds; extrapolated to Task 6's 2 MB fetch cap, several minutes of
- * one CPU inside a Server Action. `<![CDATA[`/`]]>` is the same shape.
- *
- * Cutting there is what the HTML spec's eof-in-comment rule says the document
- * means anyway: everything after an unterminated `<!--` IS comment content.
- * A well-formed page comes back byte-identical, and the walk is O(n) because
- * each `indexOf` starts where the previous span ended.
+ * The first four are node-html-parser's own defaults. `title` is added because
+ * a title is RCDATA in HTML -- a browser does not parse tags inside it -- and
+ * because leaving it out is exploitable: `<title>` followed by 313 KB of
+ * `<b></b>a` bypasses the reduction below entirely, since the reducer must
+ * preserve raw-text content verbatim and the parser would then walk it as
+ * markup. Declaring it here makes the two agree, and it also removes the
+ * `<title>`-subtree stack overflow at the root instead of catching it.
  */
-function truncateAtUnterminatedComment(html: string): string {
-  let out = html;
-  for (const [open, close] of BOGUS_COMMENTS) {
-    let cursor = 0;
-    for (;;) {
-      const start = out.indexOf(open, cursor);
-      if (start === -1) break;
-      const end = out.indexOf(close, start + open.length);
-      if (end === -1) {
-        out = out.slice(0, start);
+const BLOCK_TEXT_ELEMENTS = {
+  script: true,
+  noscript: true,
+  style: true,
+  pre: true,
+  title: true,
+} as const;
+
+const RAW_TEXT_ELEMENTS = new Set(Object.keys(BLOCK_TEXT_ELEMENTS));
+
+/**
+ * Find the `>` that closes a tag, or -1.
+ *
+ * Quote-aware, because node-html-parser honours a `>` inside a quoted
+ * attribute value (measured: `<meta content="a > b">` yields `a > b`), so a
+ * naive scan would cut a legitimate tag in half. If a quote never closes, the
+ * parser recovers at the first `>` it saw, so this falls back to the same
+ * place rather than running to the end of the document -- otherwise a leading
+ * `<a x="` would opt the payload behind it out of the reduction.
+ */
+function findTagEnd(html: string, start: number): number {
+  let quote = 0;
+  let firstGt = -1;
+  for (let j = start + 1; j < html.length; j++) {
+    const c = html.charCodeAt(j);
+    if (c === 0x3e && firstGt === -1) firstGt = j;
+    if (quote !== 0) {
+      if (c === quote) quote = 0;
+      continue;
+    }
+    if (c === 0x22 || c === 0x27) {
+      quote = c;
+      continue;
+    }
+    if (c === 0x3e) return j;
+  }
+  return firstGt;
+}
+
+/** The lower-cased tag name at `start`, or "" if there is not one. */
+function readTagName(html: string, start: number): string {
+  let from = start + 1;
+  if (html.charCodeAt(from) === 0x2f) from += 1;
+  let to = from;
+  while (to < html.length) {
+    const c = html.charCodeAt(to);
+    const isName =
+      (c >= 0x61 && c <= 0x7a) ||
+      (c >= 0x41 && c <= 0x5a) ||
+      (c >= 0x30 && c <= 0x39) ||
+      c === 0x2d ||
+      c === 0x3a;
+    if (!isName) break;
+    to += 1;
+  }
+  return html.slice(from, to).toLowerCase();
+}
+
+/**
+ * Strip everything the extractor does not read, before the parser sees it.
+ *
+ * Keeps every tag byte-for-byte, and keeps the content of raw-text elements
+ * byte-for-byte. Drops character data and comments. Nothing this module reads
+ * lives in either -- titles and script bodies are raw text, everything else is
+ * an attribute -- so the extraction is unchanged and a realistic page comes
+ * back with the same answer (asserted in the tests, not assumed).
+ *
+ * **Why.** node-html-parser appends a text node by calling `remove()` on a
+ * node whose constructor already set `parentNode` (`append` ->
+ * `resolveInsertable` -> `remove`), and `remove()` filters the parent's entire
+ * child list. The cost is therefore quadratic in the number of text nodes
+ * under one parent. Measured against the shipped module:
+ *
+ *     '<b></b>a'.repeat(10_000)     78 KB      303 ms
+ *     '<b></b>a'.repeat(20_000)    156 KB    1,456 ms
+ *     '<b></b>a'.repeat(40_000)    313 KB    6,444 ms
+ *
+ * -- about 300 seconds at Task 6's 2 MB cap, from a page with no unclosed tags
+ * and no comments. The same tags with the character data removed cost 14 ms,
+ * and 1.7 MB of them cost 119 ms, so dropping it turns the curve linear.
+ * `<![CDATA[a]]>` reaches the same append path and is dropped here too.
+ *
+ * This also subsumes the earlier eof-in-comment truncation, and corrects it: a
+ * `<!--` only opens a comment in the data state, so one inside a script body
+ * or an attribute value is now left alone rather than discarding the rest of
+ * the page.
+ *
+ * Linear: every `indexOf` resumes where the previous span ended.
+ */
+export function reduceToMarkup(html: string): string {
+  const out: string[] = [];
+  const length = html.length;
+  let i = 0;
+
+  while (i < length) {
+    const lt = html.indexOf("<", i);
+    if (lt === -1) break; // trailing character data
+    i = lt;
+
+    if (html.startsWith("<!--", i)) {
+      const end = html.indexOf("-->", i + 4);
+      // eof-in-comment: the rest of the document IS the comment.
+      if (end === -1) return out.join("");
+      i = end + 3;
+      continue;
+    }
+    if (html.startsWith("<![CDATA[", i)) {
+      const end = html.indexOf("]]>", i + 9);
+      if (end === -1) return out.join("");
+      i = end + 3;
+      continue;
+    }
+
+    const next = html.charCodeAt(i + 1);
+    const startsName = (next >= 0x61 && next <= 0x7a) || (next >= 0x41 && next <= 0x5a);
+    if (!startsName && next !== 0x2f && next !== 0x21 && next !== 0x3f) {
+      i += 1; // a bare "<" in text, which the parser does not treat as a tag
+      continue;
+    }
+
+    const end = findTagEnd(html, i);
+    if (end === -1) {
+      // No `>` anywhere after this, so the parser finds no further tags and
+      // builds no further nodes. Keeping it verbatim costs nothing.
+      out.push(html.slice(i));
+      break;
+    }
+    out.push(html.slice(i, end + 1));
+    const name = startsName ? readTagName(html, i) : "";
+    i = end + 1;
+
+    if (name !== "" && RAW_TEXT_ELEMENTS.has(name)) {
+      // Mirror the parser exactly: it looks for the literal `</name>` spelled
+      // as the opening tag spelled it, and runs to the end of the document
+      // when that is not there.
+      const close = html.indexOf(`</${html.slice(lt + 1, lt + 1 + name.length)}>`, i);
+      if (close === -1) {
+        out.push(html.slice(i));
         break;
       }
-      cursor = end + close.length;
+      out.push(html.slice(i, close));
+      i = close;
     }
   }
-  return out;
+
+  return out.join("");
 }
 
 interface PageParts {
@@ -235,16 +368,11 @@ function collect(root: HTMLElement): PageParts {
           metas.set(key, content);
         }
       } else if (tag === "title") {
-        // `.text` walks the element's subtree recursively, so a `<title>` with
-        // a few thousand nested tags inside it overflows the stack. A page can
-        // do that to us; it must cost us the document title, not the page.
-        if (documentTitle === undefined) {
-          try {
-            documentTitle = element.text;
-          } catch {
-            documentTitle = undefined;
-          }
-        }
+        // Safe to read without a guard only because `title` is declared a
+        // block-text element above: its content is then a single text node, so
+        // `.text` does not recurse. Without that declaration a `<title>`
+        // holding a few thousand nested tags overflows the stack right here.
+        documentTitle ??= element.text;
       } else if (tag === "script" && ldJson.length < MAX_LD_SCRIPTS) {
         const type = element.getAttribute("type")?.trim().toLowerCase();
         // Per HTML, a type is matched ASCII case-insensitively, and pages do
@@ -338,10 +466,11 @@ export function extractMetadata(html: string, pageUrl: string): LinkMetadata {
     return read(html, pageUrl);
   } catch {
     // Last resort, and honestly untested: every throw this module was able to
-    // provoke -- a `<title>` deep enough to overflow `.text`, an unparseable
-    // page URL, malformed JSON-LD -- is now caught closer to where it happens,
-    // so removing this catch breaks nothing in the suite. It stays because the
-    // contract is "never throws" and the parser is third-party code.
+    // provoke -- an unparseable page URL, malformed JSON-LD, a `<title>` deep
+    // enough to overflow `.text` -- is now handled at its source, so removing
+    // this catch breaks nothing in the suite. It stays because the contract is
+    // "never throws" and the parser is third-party code. It is the only guard
+    // here that no test can see; every other bound is pinned from both sides.
     return {};
   }
 }
@@ -352,7 +481,10 @@ function read(html: string, pageUrl: string): LinkMetadata {
   // is super-linear: 8,000 unclosed `<div>`s -- 40 KB, a fiftieth of Task 6's
   // fetch cap -- takes ~36 seconds with it on and ~10 ms with it off. We read
   // meta tags and script bodies, so the repaired tree shape buys us nothing.
-  const root = parse(truncateAtUnterminatedComment(html), { parseNoneClosedTags: true });
+  const root = parse(reduceToMarkup(html), {
+    parseNoneClosedTags: true,
+    blockTextElements: BLOCK_TEXT_ELEMENTS,
+  });
   const { documentTitle, metas, ldJson } = collect(root);
   const out: LinkMetadata = {};
 
