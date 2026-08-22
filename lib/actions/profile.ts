@@ -362,7 +362,12 @@ export async function isUsernameAvailable(username: string, excludeUserId?: stri
 }
 
 /**
- * Set username for OAuth users (first-time setup)
+ * Set username for OAuth users (first-time setup).
+ *
+ * Currently has no caller: its only one was app/(auth)/set-username, deleted
+ * in Task 8 because Clerk now requires a username at sign-up. Kept because
+ * updateProfile() is the only other writer of user_profiles.username and this
+ * is the narrower, validated entry point; delete it if nothing claims it.
  */
 export async function setUsername(username: string) {
   const supabase = await createClient();
@@ -444,7 +449,6 @@ export async function setUsername(username: string) {
     return { error: "Failed to update username. Please try again or contact support." };
   }
 
-  revalidatePath("/set-username");
   revalidatePath("/dashboard");
   return { data: profile };
 }
