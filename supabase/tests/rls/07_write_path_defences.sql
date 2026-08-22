@@ -37,6 +37,7 @@ declare
   v_update_total  int;
   v_gm_insert     int;
   v_pin           int;
+  v_inv_upd       int;
   v_checks        int := 0;
 begin
   ---------------------------------------------------------------------------
@@ -176,6 +177,31 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
+  -- 3d. The invitations UPDATE policy must re-check group membership.
+  --
+  --     `invited_by = me` alone left a removed member in write control of
+  --     every invitation they ever sent, SPENT ones included: un-accept a used
+  --     invitation, roll expires_at forward, re-token it, redeem it -- or pass
+  --     the fresh token to a stranger. The owner's obvious remedy, deleting
+  --     the pending invitations, removes nothing, because the dangerous row is
+  --     an accepted one.
+  ---------------------------------------------------------------------------
+  select count(*) into v_inv_upd
+    from pg_policies
+   where schemaname = 'public'
+     and tablename = 'invitations'
+     and cmd = 'UPDATE'
+     and qual like '%is_group_member%'
+     and with_check like '%is_group_member%';
+
+  if v_inv_upd <> 1 then
+    raise exception
+      'WRITE PATH: the invitations UPDATE policy no longer re-checks is_group_member on both sides (matched % policy/policies, expected 1). A removed member would regain write control of every invitation they ever sent, including spent ones.',
+      v_inv_upd;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
   -- 4. group_members must have NO INSERT policy at all.
   --
   --    Membership is the key to nearly everything in this schema --
@@ -203,9 +229,9 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 7 then
+  if v_checks < 8 then
     raise exception
-      'HARNESS FAIL: only % assertion(s) ran, expected at least 7. Assertions were skipped or commented out; this file proves nothing.',
+      'HARNESS FAIL: only % assertion(s) ran, expected at least 8. Assertions were skipped or commented out; this file proves nothing.',
       v_checks;
   end if;
 

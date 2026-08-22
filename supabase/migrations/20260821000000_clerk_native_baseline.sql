@@ -1396,11 +1396,22 @@ create policy "Users can view members of their groups"
 -- checked. The group id is not a secret either -- it is in the URL.
 --
 -- COUNT CAREFULLY. Membership is created by three things, but only because two
--- further MUTATION paths are pinned shut by triggers further down. Without
--- those, the list is five: rewriting group_members.user_id to conscript a
--- stranger, and repointing an invitation's group_id before redeeming your own
--- token. Both are closed by pin_group_member_subject and pin_invitation_parent,
--- and 07_write_path_defences.sql fails if either trigger goes away.
+-- further MUTATION paths are pinned shut. Without those pins the list is five:
+-- rewriting group_members.user_id to conscript a stranger, and repointing an
+-- invitation's group_id before redeeming your own token. Both are closed by the
+-- pin_group_member_subject and pin_invitation_parent triggers in section 7
+-- ABOVE this one, and 07_write_path_defences.sql fails if either goes away.
+--
+-- WHAT REMOVAL DOES AND DOES NOT ACHIEVE. Removing a member is enforceable
+-- against the TOKEN path: they cannot self-insert, their pending invitations
+-- can be revoked by any group admin, and the invitations UPDATE policy below
+-- re-checks membership, so they cannot resurrect a spent invitation they once
+-- sent. It is NOT enforceable against the INVITE CODE path: a removed member
+-- still knows the group's invite_code and can hand it to join_group_with_code()
+-- to walk back in. Closing that needs code rotation -- a feature that does not
+-- exist anywhere in this codebase, and an application change rather than a
+-- policy one, since admins can already write groups.invite_code. Parked and
+-- carried to the final review; do not read this file as claiming otherwise.
 --
 -- The consequences were not subtle: anyone holding a group id could join, and
 -- then read the roster, every member's profile, their private wishlist items
@@ -1467,15 +1478,36 @@ create policy "Group members can create invitations"
     and expires_at <= now() + interval '30 days'
   );
 
--- The cap is repeated on UPDATE deliberately. An insert-only cap is not a cap:
--- the sender can simply extend the row afterwards, indefinitely, which is the
--- planted-invitation scenario again. The application uses 7 days
--- (getInviteExpiration), so 30 is generous headroom.
+-- Membership is re-checked on BOTH sides, not just `invited_by = me`.
+--
+-- Without it, a removed member kept write control over every invitation they
+-- ever sent, including SPENT ones: un-accept a used invitation, roll
+-- expires_at forward, re-token it, and redeem it -- or hand the fresh token to
+-- a stranger. The owner's obvious remedy, deleting the PENDING invitations,
+-- removes nothing, because the dangerous row is an accepted one. Revocation
+-- would have meant deleting every invitation that member ever sent, spent ones
+-- included, which no sane UI offers.
+--
+-- accepted/accepted_at are not pinned by a trigger because they legitimately
+-- change -- accept_group_invitation() writes them. That function is SECURITY
+-- DEFINER, so it is unaffected by this policy.
+--
+-- The cap is repeated here on UPDATE, not only on INSERT, because an
+-- insert-only cap is not a cap: the sender could otherwise extend the row
+-- afterwards. Note precisely what it buys -- it bounds a SINGLE expiry at 30
+-- days, not the lifetime of an invitation. A sender who is still a member can
+-- roll it forward to now() + 29 days as often as they like and keep a row
+-- alive forever. Treat it as a 30-day notice window, not a 30-day lifetime.
+-- The application uses 7 days (getInviteExpiration).
 create policy "Invitation senders can update their invitations"
   on public.invitations for update to authenticated
-  using (invited_by = (select public.requesting_user_id()))
+  using (
+    invited_by = (select public.requesting_user_id())
+    and public.is_group_member(group_id, (select public.requesting_user_id()))
+  )
   with check (
     invited_by = (select public.requesting_user_id())
+    and public.is_group_member(group_id, (select public.requesting_user_id()))
     and expires_at <= now() + interval '30 days'
   );
 
