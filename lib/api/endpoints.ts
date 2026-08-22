@@ -25,55 +25,22 @@ export interface ApiEndpoint {
   notes?: string[];
 }
 
+// /api/test-email is deliberately absent, and so is /api/admin/migrate-email-preferences.
+//
+// The first let any signed-in user send mail from the app's verified sending
+// domain to an address of their choosing, on the live Resend key -- a spam and
+// domain-reputation vector wearing a diagnostic's clothes. There is no
+// site-admin concept in this app to gate it behind, and inventing one for a
+// mail-tester helper is not worth what it costs. Deliverability is checked from
+// the Resend dashboard instead.
+//
+// The second was a one-shot data migration whose own docstring said to delete
+// it once run. user_profiles.email_preferences and its GIN index are both in
+// the schema baseline, so the endpoint could no longer do anything but report
+// that its work was already done.
+//
+// If either comes back, it needs a gate, not a registry entry.
 export const API_ENDPOINTS: ApiEndpoint[] = [
-  // Email Testing
-  {
-    path: '/api/test-email',
-    method: 'GET',
-    description: 'Get information about the test email endpoint',
-    category: 'Email',
-    requiresAuth: false,
-    exampleResponse: {
-      endpoint: '/api/test-email',
-      description: 'Send test emails to mail-tester.com',
-      method: 'POST',
-      features: ['HTML and plain text versions', 'SPF authentication', 'DKIM signatures']
-    }
-  },
-  {
-    path: '/api/test-email',
-    method: 'POST',
-    description: 'Send a test email to mail-tester.com for deliverability testing',
-    category: 'Email',
-    requiresAuth: true,
-    bodyParams: [
-      {
-        name: 'email',
-        type: 'string',
-        required: true,
-        description: 'Email address from mail-tester.com',
-        example: 'test-xxxxx@mail-tester.com'
-      }
-    ],
-    exampleRequest: {
-      email: 'test-xxxxx@mail-tester.com'
-    },
-    exampleResponse: {
-      success: true,
-      message: 'Test email sent successfully!',
-      details: {
-        emailId: 'abc123',
-        sentTo: 'test-xxxxx@mail-tester.com',
-        timestamp: '2025-01-19T12:00:00Z'
-      }
-    },
-    notes: [
-      'Get a test email address from https://www.mail-tester.com/',
-      'After sending, check your score on mail-tester.com',
-      'Aim for a score of 8+/10'
-    ]
-  },
-
   // Database Testing
   {
     path: '/api/test-reminders',
