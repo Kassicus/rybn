@@ -1,0 +1,50 @@
+-- =============================================================================
+-- rybn: the link-fetch ledger stops referencing user_profiles
+-- =============================================================================
+--
+-- 20260825000000 created link_fetch_log with
+--
+--     user_id text not null references public.user_profiles(id) on delete cascade
+--
+-- That FK was a mistake, and not a cosmetic one: it handed the user two ways to
+-- turn their own rate limit off.
+--
+--   1. A CASCADE RESET LEVER. The baseline grants every user DELETE on their
+--      own profile row:
+--
+--          create policy "Users can delete their own profile"
+--            on public.user_profiles for delete to authenticated
+--            using ((select public.requesting_user_id()) = id);
+--
+--      With `on delete cascade`, one permitted API call wipes that user's
+--      entire ledger. Exhaust the quota, delete the profile, and the counter is
+--      back at zero -- repeatable, and entirely within the user's rights.
+--
+--   2. A MISSING-ROW BYPASS. The server action identifies the caller with
+--      getUserId(), which does NOT provision a profile row -- only
+--      requireAuthWithProfile() calls ensureProfile(), and that helper is
+--      documented fail-soft: it logs and returns the id whether or not the row
+--      landed (lib/auth/require-auth.ts). A caller with no profile row makes
+--      every ledger insert fail 23503, so the count never rises and the limit
+--      never engages. Server Action ids are stable build hashes, so reaching
+--      the action without ever loading the dashboard is a choice, not an
+--      accident. On the linked project -- which has no user_profiles rows at
+--      all -- this was not an edge case: the control had never functioned once.
+--
+-- The ledger needs no referential integrity. It is a counter keyed by an opaque
+-- Clerk id, holding an id and a timestamp; it is never joined to a profile,
+-- never rendered, and an orphaned row is exactly as meaningful as a live one --
+-- a fetch happened at a time. Deleting the constraint removes both bypasses at
+-- once, and removes the dependence on a fail-soft helper that could never have
+-- carried this guarantee.
+--
+-- Deletion of the ROWS on profile deletion is not replaced by anything, and
+-- should not be: keeping a departed user's counter for the length of the
+-- ten-minute window is the correct behaviour for a rate limit. Retention of the
+-- table as a whole is a separate, tracked concern -- it grows one row per fetch
+-- and nothing prunes it yet.
+--
+-- `user_id` stays `not null`. The column must still identify someone; it just
+-- no longer requires that someone to have a profile row.
+alter table public.link_fetch_log
+  drop constraint link_fetch_log_user_id_fkey;

@@ -31,7 +31,10 @@ export interface LinkMetadataResult {
  *   - The rate-limit ledger uses the SERVICE-ROLE client. `link_fetch_log` has
  *     RLS on and zero policies, so nothing but the service role can touch it.
  *     That is the point: the row is a counter, not user content, and a user
- *     who could delete their own rows would have no rate limit at all.
+ *     who could delete their own rows would have no rate limit at all. For the
+ *     same reason the table carries NO foreign key to `user_profiles`: users
+ *     may delete their own profile row, and a cascade from that DELETE would
+ *     have been a one-call reset of their own quota (see 20260826000000).
  *
  *   - `ingestImage` gets the USER-SCOPED client. The storage INSERT policy
  *     `(storage.foldername(name))[1] = requesting_user_id()` is the only thing
@@ -49,6 +52,11 @@ export async function fetchLinkMetadata(url: string): Promise<LinkMetadataResult
   const admin = createAdminClient();
   const since = new Date(Date.now() - RATE_WINDOW_MINUTES * 60_000).toISOString();
 
+  // A failed READ is deliberately not checked, and does not need to be:
+  // `count` comes back null, which reads as 0 and lets the request past this
+  // branch -- but the WRITE below is where an unreachable ledger stops it.
+  // These are one policy, not two contradictory ones. An outage cannot open the
+  // gate, because the gate is the insert.
   const { count } = await admin
     .from("link_fetch_log")
     .select("id", { count: "exact", head: true })
@@ -58,17 +66,32 @@ export async function fetchLinkMetadata(url: string): Promise<LinkMetadataResult
   if ((count ?? 0) >= RATE_LIMIT) {
     return { error: "You have looked up a lot of links just now. Try again in a few minutes." };
   }
+
+  // THE LEDGER IS AUTHORITATIVE: if the fetch cannot be recorded, it does not
+  // happen. supabase-js reports a rejected write by RETURNING `{ error }`
+  // rather than throwing, so discarding this result would let a ledger that had
+  // stopped accepting rows read as a ledger at zero -- a rate limit that has
+  // silently ceased to exist, looking exactly like one that works.
+  //
+  // With the user_profiles foreign key dropped (migration 20260826000000) there
+  // is no ordinary way for this to fail, and that is precisely why it is now
+  // fatal rather than merely logged: it fires only for a real outage, and an
+  // outage should cost the lookup rather than the limit.
+  //
+  // Refusing here does not block SAVING. The user types the title and price
+  // themselves, exactly as they did before this feature existed; what is lost
+  // is the convenience, not the item.
+  //
   // Read-then-write, not an atomic reservation: two requests racing can both
-  // read 19 and both proceed. A limit that is occasionally 21 instead of 20 is
-  // fine -- this bounds a user turning the fetcher into a scanner, and the
-  // bound survives. What is NOT fine is failing to record the attempt, so the
-  // error is logged rather than swallowed: a ledger that quietly stops being
-  // written is a rate limit that quietly stops existing.
+  // read 19 and both proceed. A limit that is occasionally 21 instead of 20
+  // still bounds a user turning the fetcher into a scanner, which is what it is
+  // for.
   const { error: logError } = await admin
     .from("link_fetch_log")
     .insert({ user_id: userId });
   if (logError) {
     console.error("fetchLinkMetadata: rate-limit ledger insert failed", logError);
+    return { error: "We could not look that link up just now. Please try again." };
   }
 
   const page = await safeFetch(url, {

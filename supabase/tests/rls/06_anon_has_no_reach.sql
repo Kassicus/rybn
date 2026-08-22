@@ -194,7 +194,7 @@ begin
     select 1 from pg_tables
     where schemaname = 'public' and tablename = 'link_fetch_log' and rowsecurity
   ) then
-    raise exception 'link_fetch_log does not have RLS enabled';
+    raise exception 'link_fetch_log is missing or does not have RLS enabled';
   end if;
   v_checks := v_checks + 1;
 

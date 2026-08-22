@@ -583,6 +583,7 @@ export type Database = {
       // policies at all, so only the service-role client (lib/supabase/admin.ts)
       // can see or write these rows -- a user must not be able to read, and
       // above all must not be able to delete, the counter that bounds them.
+      // Which is also why there is no FK on user_id; see Relationships below.
       link_fetch_log: {
         Row: {
           id: string
@@ -599,15 +600,11 @@ export type Database = {
           user_id?: string
           fetched_at?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "link_fetch_log_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "user_profiles"
-            referencedColumns: ["id"]
-          }
-        ]
+        // No relationships, deliberately. `user_id` is an opaque Clerk id and
+        // NOT a foreign key: users may delete their own user_profiles row, so a
+        // cascade from that DELETE would have let anyone reset their own rate
+        // limit in one call (migration 20260826000000).
+        Relationships: []
       }
       messages: {
         Row: {
