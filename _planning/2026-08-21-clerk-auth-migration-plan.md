@@ -1058,6 +1058,32 @@ every query silently returns empty."
 
 ---
 
+> **HARD DEPENDENCY FROM TASK 3 — read before starting Task 5.**
+> The baseline schema removed the permissive INSERT policy on `group_members`,
+> because it made group membership self-grantable: any authenticated user
+> holding a group UUID (which is in the URL) could join any group and read
+> private wishlists, profile fields, invite codes and Secret Santa
+> assignments, and a removed member could rejoin unaided.
+>
+> Joining is now server-side only, via two `SECURITY DEFINER` functions:
+> - `join_group_with_code(p_invite_code text) returns uuid`
+> - `accept_group_invitation(p_token text) returns uuid`
+>
+> Both pin the actor to `requesting_user_id()` and return the group id.
+>
+> Three write paths are therefore BROKEN until rewired, and this is required
+> work, not cleanup:
+> - `lib/actions/invitations.ts:316` (`acceptInvitation`) → call
+>   `accept_group_invitation`
+> - `lib/actions/invitations.ts:394` (`joinGroupByCode`) → call
+>   `join_group_with_code`
+> - `lib/actions/invitations.ts:369` and `lib/actions/groups.ts:42` still read
+>   `groups` by invite code directly, which now returns nothing for
+>   non-members → use `find_group_by_invite_code`
+>
+> Because both RPCs return the group uuid, the existing "then fetch the group"
+> step continues to work unchanged.
+
 ### Task 5: requireAuth choke point and call-site migration
 
 The mechanical bulk of the migration: 104 `auth.getUser()` call sites across
