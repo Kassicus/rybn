@@ -579,6 +579,36 @@ export type Database = {
           }
         ]
       }
+      // The rate-limit ledger behind the link-preview fetcher. RLS is on with no
+      // policies at all, so only the service-role client (lib/supabase/admin.ts)
+      // can see or write these rows -- a user must not be able to read, and
+      // above all must not be able to delete, the counter that bounds them.
+      link_fetch_log: {
+        Row: {
+          id: string
+          user_id: string
+          fetched_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          fetched_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          fetched_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "link_fetch_log_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       messages: {
         Row: {
           id: string
