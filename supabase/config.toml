@@ -1,28 +1,19 @@
 # Supabase CLI configuration for rybn.
 #
-# ============================================================================
-# TASK 4 MUST DO TWO THINGS HERE, NOT ONE:
-#   1. replace REPLACE_WITH_CLERK_DOMAIN with the real Clerk Frontend API
-#      domain (it looks like `clerk.rybn.app` for a production instance, or
-#      `<something>.clerk.accounts.dev` for a development one), and
-#   2. set `enabled = true`.
-# ============================================================================
+# The Clerk instance is registered below. Both required changes are done:
+# the real Frontend API domain is set, and the block is enabled.
 #
-# Why `enabled = false` rather than the `true` the plan called for: the CLI
-# validates `domain` whenever the block is enabled, and rejects the
-# placeholder outright --
+# Historical note, kept because it will bite whoever edits this next: the CLI
+# validates `domain` whenever this block is enabled, and rejects a placeholder
+# outright --
 #
 #   Invalid config: auth.third_party.clerk has invalid domain, it usually is
 #   like clerk.example.com or example.clerk.accounts.dev
 #
 # -- which makes EVERY CLI command fail, including `db reset --linked` and the
-# RLS test harness. Disabling the block leaves the placeholder untouched and
-# unmistakable while keeping the CLI usable. The alternative, inventing a
-# syntactically valid but wrong domain, would be worse: it survives validation
-# and would quietly register a bogus issuer if anyone ran `config push`.
-#
-# Do not run `supabase config push` against the linked project until step 1
-# above is done.
+# RLS test harness. So never leave this enabled with a placeholder domain, and
+# never substitute a syntactically valid but wrong one: that survives
+# validation and would quietly register a bogus issuer on `config push`.
 #
 # The database side of the Clerk migration does not depend on this file:
 # policies read the JWT `sub` claim through public.requesting_user_id(). This
@@ -31,5 +22,5 @@
 project_id = "xomvbdvvrlbxoyqdsstt"
 
 [auth.third_party.clerk]
-enabled = false
-domain = "REPLACE_WITH_CLERK_DOMAIN"
+enabled = true
+domain = "smiling-peacock-9097.clerk.accounts.dev"

@@ -1004,24 +1004,27 @@ git rm lib/supabase/middleware.ts
 
 - [ ] **Step 9: Mount ClerkProvider**
 
-In `app/layout.tsx`, import `ClerkProvider` from `@clerk/nextjs` and wrap the
-existing tree. It must sit outside `QueryProvider`.
+In `app/layout.tsx`, import `ClerkProvider` from `@clerk/nextjs`.
+
+**`ClerkProvider` must sit INSIDE `<body>`, not wrapping `<html>`.** Wrapping
+`<html>` is the deprecated Core 2 pattern; the current SDK requires it inside
+the body. It must still be outside `QueryProvider`.
 
 ```tsx
 import { ClerkProvider } from "@clerk/nextjs";
 
-// …inside RootLayout's return, wrapping <html>:
+// …inside RootLayout's return:
 return (
-  <ClerkProvider>
-    <html lang="en" className={quicksand.variable}>
-      <body className={`${quicksand.className} overflow-x-hidden`}>
+  <html lang="en" className={quicksand.variable}>
+    <body className={`${quicksand.className} overflow-x-hidden`}>
+      <ClerkProvider>
         <QueryProvider>
           {children}
           <Analytics />
         </QueryProvider>
-      </body>
-    </html>
-  </ClerkProvider>
+      </ClerkProvider>
+    </body>
+  </html>
 );
 ```
 
