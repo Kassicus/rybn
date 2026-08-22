@@ -70,6 +70,15 @@ matches no `with check` and is rejected as "not found" rather than
 "forbidden". Nothing in the logs says "wrong issuer", because from
 Postgres's point of view nothing went wrong.
 
+This same symptom can also happen mid-migration without any step being
+skipped, purely from timing. `supabase/config.toml` holds one issuer, so
+pushing it (step 7) flips Supabase's trust the instant the push lands — but
+the Vercel Production environment variables set earlier (step 2) do nothing
+in the running app until Production is redeployed (step 8). Do steps 2, 7
+and 8 close together in one sitting: the gap between the issuer switch and
+the next redeploy is a live production outage of exactly this kind, and
+nothing will tell you it's happening.
+
 Every step below is required. Skipping any one of them produces that same
 symptom, which is why the verification at the end is a real browser
 walkthrough and not a health check.
@@ -80,17 +89,40 @@ walkthrough and not a health check.
    environment switcher to create Production for this application. It is a
    *separate instance*: it shares no configuration with Development. Every
    setting configured by hand during the migration has to be configured
-   again, which is what steps 4 and 5 are.
+   again, which is what steps 4, 5 and 6 are.
 
-2. **Put the production keys in Vercel Production.** The production instance
-   issues `pk_live_…` / `sk_live_…`; the development instance's `pk_test_…` /
-   `sk_test_…` must not reach the Production environment.
+2. **Put the required environment variables in Vercel Production.** The
+   production instance issues `pk_live_…` / `sk_live_…`; the development
+   instance's `pk_test_…` / `sk_test_…` must not reach the Production
+   environment. Beyond the two Clerk keys, Production also needs the rest of
+   what `.env.example` documents:
+
+   - `NEXT_PUBLIC_CLERK_SIGN_IN_URL`, `NEXT_PUBLIC_CLERK_SIGN_UP_URL`,
+     `NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL`,
+     `NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL` — without
+     `NEXT_PUBLIC_CLERK_SIGN_IN_URL` in particular, `clerkMiddleware` sends
+     protected routes to Clerk's hosted portal instead of this app's
+     `/login`. `.env.example` documents this too.
+   - `CRON_SECRET` — both the cron route and the server action it calls
+     check this; without it in Production, the daily reminder job refuses
+     to run (fails closed, not silently).
 
    ```bash
    npx vercel@latest env add NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY production
    npx vercel@latest env add CLERK_SECRET_KEY production
+   npx vercel@latest env add NEXT_PUBLIC_CLERK_SIGN_IN_URL production
+   npx vercel@latest env add NEXT_PUBLIC_CLERK_SIGN_UP_URL production
+   npx vercel@latest env add NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL production
+   npx vercel@latest env add NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL production
+   npx vercel@latest env add CRON_SECRET production
    npx vercel@latest env ls production
    ```
+
+   **These do nothing until Production is redeployed (step 8).** Vercel
+   environment variables are baked in at build/deploy time, not read live —
+   see the note in step 7 and the redeploy in step 8. Treat this step and
+   steps 7–8 as one operation done close together, not three independent
+   checklist items.
 
    The Content-Security-Policy needs no change: `next.config.ts` decodes the
    Clerk Frontend API host out of the publishable key at build time, so it
@@ -123,7 +155,20 @@ walkthrough and not a health check.
    with a perfectly valid Clerk session. This is the single easiest step to
    forget and the hardest to diagnose after the fact.
 
-5. **Create a production Google OAuth client.** The development instance uses
+5. **Enable and require username.** Clerk Dashboard → **User & Authentication**
+   → **Email, Phone, Username** → turn on **Username** and set it
+   **Required**. This is exactly as per-instance as the `role` claim above
+   and the OAuth client below: it was set by hand on the development
+   instance, and the production instance starts without it.
+
+   Unlike the other steps here, forgetting this one degrades rather than
+   fails: `sanitizeUsername(null, userId)` (`lib/auth/username.ts`) falls
+   back to generating `user_xxxxxxxx` for anyone Clerk hands back without a
+   username, and the user can change it later at `/profile/edit`. So this is
+   not a cutover blocker — but it belongs on this list, not discovered later
+   as oddly-named accounts.
+
+6. **Create a production Google OAuth client.** The development instance uses
    Clerk's shared pre-configured Google credentials; production instances
    cannot, and Google sign-in is one of only two sign-in methods this app
    offers. In Google Cloud Console create an OAuth 2.0 Client ID for
@@ -132,7 +177,7 @@ walkthrough and not a health check.
    the client ID and secret, using the Authorized redirect URI Clerk shows on
    that screen.
 
-6. **Point Supabase at the new issuer.** Update the domain in
+7. **Point Supabase at the new issuer.** Update the domain in
    `supabase/config.toml` to the production Clerk Frontend API host (the one
    from step 3, e.g. `clerk.rybn.app`) and push it:
 
@@ -146,35 +191,56 @@ walkthrough and not a health check.
    whole Supabase CLI — including `npm run test:rls` — fails while this value
    is invalid, so a broken edit here is loud; a wrong one is not.
 
-7. **Re-register Clerk in the Supabase dashboard.** Project
+   **This push takes effect immediately** — it is not gated by a deploy.
+   From this moment, Supabase trusts only the production issuer, so proceed
+   straight to step 8. If the currently-deployed Production build hasn't
+   redeployed onto the keys from step 2 yet, it is still issuing/expecting
+   development-issuer tokens, and every request hits the empty-app symptom
+   described at the top of this section.
+
+8. **Redeploy Production.** Immediately after the previous step, not at the
+   end of the checklist:
+
+   ```bash
+   npx vercel@latest --prod
+   ```
+
+   This is what makes the environment variables from step 2 — the
+   `pk_live_…` / `sk_live_…` keys above all — actually take effect in the
+   running app. Skip or delay this step and Production keeps running on
+   whatever it last deployed with while Supabase (step 7) already trusts
+   only the new issuer: signed in, `/dashboard` loads, silently empty, no
+   errors. Do not let other work land between steps 7 and 8.
+
+9. **Re-register Clerk in the Supabase dashboard.** Project
    `xomvbdvvrlbxoyqdsstt` → **Authentication** → **Sign In / Providers** →
    **Third Party Auth**. Add (or update) the Clerk entry with the production
-   domain. This is the platform-side record; step 6 is the checked-in copy of
+   domain. This is the platform-side record; step 7 is the checked-in copy of
    it, and the two must agree.
 
-8. **Verify in a real browser, against production.** Nothing above proves
-   itself, and the failure mode is silent, so this is not optional:
+10. **Verify in a real browser, against production.** Nothing above proves
+    itself, and the failure mode is silent, so this is not optional:
 
-   - Sign up with a new email/password account; land on `/dashboard`.
-   - Sign out, sign in again.
-   - Sign in with Google (this is what step 5 proves).
-   - **Add one wishlist item.** This is the check that matters. It is the
-     only step that proves the whole chain — Clerk issues the token, the
-     `role` claim maps it to `authenticated`, Supabase trusts the issuer, and
-     an RLS policy matched a write. A read returning rows can be explained
-     away; a successful write cannot.
-   - Open a group gift chat in two browsers and confirm a message arrives in
-     realtime.
-   - Confirm the new user has a profile row:
+    - Sign up with a new email/password account; land on `/dashboard`.
+    - Sign out, sign in again.
+    - Sign in with Google (this is what step 6 proves).
+    - **Add one wishlist item.** This is the check that matters. It is the
+      only step that proves the whole chain — Clerk issues the token, the
+      `role` claim maps it to `authenticated`, Supabase trusts the issuer, and
+      an RLS policy matched a write. A read returning rows can be explained
+      away; a successful write cannot.
+    - Open a group gift chat in two browsers and confirm a message arrives in
+      realtime.
+    - Confirm the new user has a profile row:
 
-     ```bash
-     npx supabase@latest db query "select id, username, email from user_profiles order by created_at desc limit 5" --linked
-     ```
+      ```bash
+      npx supabase@latest db query "select id, username, email from user_profiles order by created_at desc limit 5" --linked
+      ```
 
-     A Clerk **production** user id appears (`user_…`). If the row is missing
-     while sign-in succeeded, provisioning is failing, not authentication —
-     `ensureProfile()` uses the service-role key and does not depend on any of
-     the above.
+      A Clerk **production** user id appears (`user_…`). If the row is missing
+      while sign-in succeeded, provisioning is failing, not authentication —
+      `ensureProfile()` uses the service-role key and does not depend on any of
+      the above.
 
 ## Tech Stack
 
