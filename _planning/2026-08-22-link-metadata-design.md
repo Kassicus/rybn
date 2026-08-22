@@ -98,8 +98,20 @@ Requirements:
   `255.255.255.255`.
 - **Blocked IPv6:** `::1`, `::`, `fc00::/7` (unique local), `fe80::/10`
   (link-local), `ff00::/8` (multicast), `2001:db8::/32`, `64:ff9b::/96` (NAT64).
-- **IPv4-mapped IPv6 must be unmapped and re-checked.** `::ffff:169.254.169.254`
-  is a real bypass of a naive IPv6-only check.
+- **IPv4-mapped IPv6 (`::ffff:0:0/96`) must be unmapped and re-checked.**
+  Corrected during implementation: under an allowlist this is not what blocks
+  `::ffff:169.254.169.254` — the `ipv4Mapped` classification already fails the
+  `unicast` test. Unmapping exists for the opposite direction, so that a
+  genuinely public IPv4 host handed back by `getaddrinfo` in mapped form is
+  still fetchable. Both directions need a test; the blocking one alone passes
+  even with the unmapping deleted.
+- **IPv4-compatible IPv6 (`::/96`) must be unmapped and re-checked too.**
+  Found during implementation, and a live hole in this design as first written.
+  It is a *different* range from the mapped one above and `ipaddr.js` does not
+  model it: `ipaddr.parse("::a9fe:a9fe").range()` is `"unicast"`, so an
+  allowlist passes it. That string is exactly what
+  `new URL("http://[::169.254.169.254]/").hostname` yields — the library
+  rescues only the dotted spelling, which is never the spelling we see.
 - **Re-validate after every redirect.** A public URL that 302s to the metadata
   endpoint is the standard bypass, so redirects cannot be followed blindly.
 - **Limits:** short connect and total timeout, a response size cap, a low
