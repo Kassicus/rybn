@@ -109,7 +109,16 @@ export function ChatWindow({
         });
     };
 
-    subscribe();
+    subscribe().catch((e) => {
+      // Do not let this float. setAuth() resolves Clerk's getToken(), which can
+      // reject on a network blip or a revoked session; an unhandled rejection
+      // would leave no channel, no error and a chat that silently never updates
+      // again -- the exact failure this effect was rewritten to remove.
+      console.error("Failed to subscribe to chat updates:", e);
+      if (!cancelled) {
+        setError("Live updates are unavailable. Refresh to see new messages.");
+      }
+    });
 
     return () => {
       cancelled = true;

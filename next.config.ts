@@ -22,7 +22,26 @@ const clerkOrigin = (() => {
   return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(host) ? `https://${host}` : "";
 })();
 
+// Fail the build rather than emit a policy with a hole in it. Both values are
+// read at build time and both fall back to "", which .filter(Boolean) below
+// would quietly drop -- leaving a CSP that blocks the very origins the app
+// depends on. A stale NEXT_PUBLIC_SUPABASE_URL is what caused the production
+// incident the derivation above exists to prevent, so it gets the same guard.
+if (!supabaseOrigin) {
+  throw new Error(
+    "NEXT_PUBLIC_SUPABASE_URL is missing: the Content-Security-Policy cannot be built without the Supabase origin."
+  );
+}
+if (!clerkOrigin) {
+  throw new Error(
+    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is missing or does not decode to a Clerk Frontend API host: the Content-Security-Policy cannot be built without the Clerk origin."
+  );
+}
+
 // Clerk's telemetry endpoint is a fixed origin, separate from the instance host.
+// Kept deliberately: it is a connect-src entry only, it executes nothing, and
+// turning it off is a vendor decision rather than a security one. To drop it,
+// pass telemetry={{ disabled: true }} to <ClerkProvider> and delete this line.
 const clerkTelemetry = "https://clerk-telemetry.com";
 // Clerk's bot protection renders a Cloudflare Turnstile widget in an iframe and
 // loads its script from Cloudflare, not from the Clerk instance host.

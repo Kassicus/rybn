@@ -8,7 +8,7 @@ Gift giving, beautifully wrapped. A full-stack gift coordination app built with 
 
 **Foundation & Authentication ✓**
 
-- Next.js 15 with TypeScript and App Router
+- Next.js 16 with TypeScript and App Router
 - Monday.com Vibe design system with theme support (light/dark mode)
 - Clerk authentication (login, register, Google OAuth)
 - Protected routes with middleware
@@ -46,7 +46,7 @@ Gift giving, beautifully wrapped. A full-stack gift coordination app built with 
 
 ## Tech Stack
 
-- **Next.js 15** - React framework with App Router
+- **Next.js 16** - React framework with App Router
 - **TypeScript** - Type safety
 - **Clerk** - Authentication
 - **Supabase** - Database and real-time
