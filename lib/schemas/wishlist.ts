@@ -3,7 +3,7 @@
  */
 
 import { z } from 'zod';
-import { isValidImageValue } from '@/lib/storage/image-value';
+import { imageValueProblem } from '@/lib/storage/image-value';
 
 /**
  * Priority levels for wishlist items
@@ -39,8 +39,15 @@ export const wishlistItemSchema = z.object({
   // Holds EITHER an external image URL the user pasted OR an object path in the
   // private `wishlist-images` bucket, which is what our upload now returns. A
   // bare .url() would reject every uploaded image; see lib/storage/image-value.ts.
+  //
+  // superRefine rather than refine so the SPECIFIC reason reaches the user. The
+  // most likely way to fail this is pasting the image address off your own
+  // wishlist, and "please enter a valid image URL" is a useless answer to that.
   image_url: z.string()
-    .refine(isValidImageValue, 'Please enter a valid image URL')
+    .superRefine((value, ctx) => {
+      const problem = imageValueProblem(value);
+      if (problem) ctx.addIssue({ code: 'custom', message: problem });
+    })
     .optional()
     .nullable()
     .or(z.literal('')),

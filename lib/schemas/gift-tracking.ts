@@ -3,7 +3,7 @@
  */
 
 import { z } from 'zod';
-import { isValidImageValue } from '@/lib/storage/image-value';
+import { imageValueProblem } from '@/lib/storage/image-value';
 
 /**
  * Gift status workflow
@@ -67,7 +67,10 @@ export const trackedGiftSchema = z.object({
   // External image URL, or an object path in the private `gift-photos` bucket.
   // See the same note on wishlist_items.image_url.
   photo_url: z.string()
-    .refine(isValidImageValue, 'Please enter a valid image URL')
+    .superRefine((value, ctx) => {
+      const problem = imageValueProblem(value);
+      if (problem) ctx.addIssue({ code: 'custom', message: problem });
+    })
     .optional()
     .nullable()
     .or(z.literal('')),

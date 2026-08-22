@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Circle, Lock, ExternalLink } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
@@ -45,6 +45,18 @@ interface WishlistItem {
 }
 
 
+/**
+ * Why a load is happening, which decides two things:
+ *
+ *   mount   - the first load. Nothing is on screen, so any failure means there
+ *             is nothing to show and /404 is the honest answer.
+ *   saved   - the user just changed the item. Must not be skipped or dropped.
+ *   refresh - the timer or a tab focus, renewing the signed image URL. Skipped
+ *             when the data is still fresh, and never evicts on a transient
+ *             failure.
+ */
+type LoadReason = "mount" | "saved" | "refresh";
+
 export default function WishlistItemDetailPage({
   params,
 }: {
@@ -58,39 +70,89 @@ export default function WishlistItemDetailPage({
   const [claimerInfo, setClaimerInfo] = useState<ClaimerInfo | null>(null);
   const router = useRouter();
 
-  const loadData = useCallback(async () => {
-    const { data: itemData, error: itemError, currentUserId: userId } =
-      await getWishlistItem(itemId);
+  // When the data on screen was last successfully replaced, and whether a load
+  // is already running. Refs, not state: neither should cause a render, and the
+  // interval callback below must read the CURRENT value rather than the one
+  // captured when it was scheduled.
+  const lastLoadRef = useRef(0);
+  const inFlightRef = useRef<Promise<void> | null>(null);
 
-    if (itemError || !itemData) {
-      router.push("/404");
-      return;
-    }
-
-    if (!userId) {
-      router.push("/404");
-      return;
-    }
-
-    setItem(itemData as any);
-    setCurrentUserId(userId);
-    setIsOwnWishlist(itemData.user_id === userId);
-
-    // Fetch claimer info if claimed and not own item
-    if (itemData.claimed_by && itemData.user_id !== userId) {
-      const { data: claimer } = await getClaimerProfile(itemData.claimed_by);
-      if (claimer) {
-        setClaimerInfo(claimer);
+  const loadData = useCallback(
+    async (reason: LoadReason = "refresh"): Promise<void> => {
+      // One load at a time. Dropping a refresh costs nothing -- whatever is in
+      // flight is fetching the same row -- and it also removes the chance of two
+      // responses resolving out of order and the older one winning. A save must
+      // not be dropped though, so it waits its turn instead.
+      const inFlight = inFlightRef.current;
+      if (inFlight) {
+        if (reason === "refresh") return;
+        await inFlight;
       }
-    } else {
-      setClaimerInfo(null);
-    }
 
-    setLoading(false);
-  }, [itemId, router]);
+      // Nothing to renew yet. Without this, alt-tabbing ten times in a minute is
+      // ten server actions, each a database read plus a storage signing call.
+      if (
+        reason === "refresh" &&
+        Date.now() - lastLoadRef.current < SIGNED_IMAGE_REFRESH_MS
+      ) {
+        return;
+      }
+
+      const load = (async () => {
+        // A throw here is the request itself failing (offline, aborted), which
+        // is transient by definition -- never a missing item.
+        const result = await getWishlistItem(itemId).catch(() => null);
+
+        if (!result || result.error || !result.data || !result.currentUserId) {
+          // Only a GENUINE not-found evicts a reader.
+          //
+          // This path used to run once, at mount, where any failure meant there
+          // was nothing to show anyway. It now also runs on a timer and on every
+          // tab focus, so treating a pooler blip as "this item is gone" would
+          // navigate someone off the page they were reading -- the kind of thing
+          // reported as "it randomly threw me out". On a refresh the data on
+          // screen is still valid and its signed URL still has most of an hour
+          // left, so the right response to a transient failure is to do nothing.
+          const gone = !!result && "notFound" in result && result.notFound === true;
+          if (reason === "mount" || gone) {
+            router.push("/404");
+          }
+          return;
+        }
+
+        const itemData = result.data;
+        const userId = result.currentUserId;
+
+        lastLoadRef.current = Date.now();
+        setItem(itemData as any);
+        setCurrentUserId(userId);
+        setIsOwnWishlist(itemData.user_id === userId);
+
+        // Fetch claimer info if claimed and not own item
+        if (itemData.claimed_by && itemData.user_id !== userId) {
+          const { data: claimer } = await getClaimerProfile(itemData.claimed_by);
+          if (claimer) {
+            setClaimerInfo(claimer);
+          }
+        } else {
+          setClaimerInfo(null);
+        }
+
+        setLoading(false);
+      })();
+
+      inFlightRef.current = load;
+      try {
+        await load;
+      } finally {
+        if (inFlightRef.current === load) inFlightRef.current = null;
+      }
+    },
+    [itemId, router]
+  );
 
   useEffect(() => {
-    loadData();
+    loadData("mount");
   }, [loadData]);
 
   // Renew the signed image URL before it expires.
@@ -106,10 +168,19 @@ export default function WishlistItemDetailPage({
   // timers throttled and a sleeping machine does not run them at all, so a tab
   // returned to after two hours would still be showing dead URLs until the
   // interval next fired. The visibility handler covers exactly that case.
+  //
+  // Both fire far more often than they need to -- every tab focus, for a URL
+  // valid for the better part of an hour -- so the staleness check and in-flight
+  // guard inside loadData are what keep this from being a request per focus.
+  // Passing the reason explicitly rather than relying on the default: a callback
+  // handed straight to setInterval is one runtime quirk away from being invoked
+  // with an argument nobody intended.
   useEffect(() => {
-    const interval = setInterval(loadData, SIGNED_IMAGE_REFRESH_MS);
+    const interval = setInterval(() => {
+      loadData("refresh");
+    }, SIGNED_IMAGE_REFRESH_MS);
     const onVisible = () => {
-      if (document.visibilityState === "visible") loadData();
+      if (document.visibilityState === "visible") loadData("refresh");
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
@@ -197,7 +268,7 @@ export default function WishlistItemDetailPage({
               itemId={item.id}
               itemTitle={item.title}
               item={item}
-              onSaved={loadData}
+              onSaved={() => loadData("saved")}
             />
           )}
         </div>

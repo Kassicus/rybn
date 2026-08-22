@@ -238,7 +238,7 @@ export async function getWishlistItem(itemId: string) {
   const userId = await getUserId();
 
   if (!userId) {
-    return { error: "Not authenticated" };
+    return { error: "Not authenticated", notFound: true };
   }
 
   // RLS handles privacy filtering
@@ -249,7 +249,16 @@ export async function getWishlistItem(itemId: string) {
     .single();
 
   if (error) {
-    return { error: error.message };
+    // `notFound` means "not there FOR YOU" -- deleted, never existed, privacy
+    // revoked, or signed out. PGRST116 is what .single() returns for zero rows,
+    // and RLS filtering is indistinguishable from deletion from here, which is
+    // correct: both mean stop showing this item.
+    //
+    // Everything else is infrastructure -- a pooler blip, a timeout -- and is
+    // deliberately NOT reported as a missing item. The detail page re-fetches on
+    // a timer and on every tab focus, so conflating the two would navigate a
+    // reader off the page they were reading because the database hiccuped once.
+    return { error: error.message, notFound: error.code === "PGRST116" };
   }
 
   // If viewing own item, strip claim/stock data

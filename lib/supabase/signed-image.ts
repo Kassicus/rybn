@@ -9,11 +9,6 @@ import {
   SIGNED_IMAGE_TTL_SECONDS,
 } from "@/lib/storage/image-value";
 
-// Re-exported so server code can reach the lifetime without importing the
-// shared module directly. It LIVES there, not here, because the one client
-// page that renews its own signed URLs needs the same number and cannot import
-// this server-only module to get it.
-export { SIGNED_IMAGE_TTL_SECONDS };
 
 /**
  * Turning a stored object path into something an <img> can load.

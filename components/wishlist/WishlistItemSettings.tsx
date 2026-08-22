@@ -46,8 +46,12 @@ interface WishlistItemSettingsProps {
    * this component fetches in a useEffect, which refresh() does not re-run. Left
    * unwired, `item` stays at its mount-time value while the form holds the newly
    * saved one -- so reopening the modal shows previewUrl = signed(OLD path)
-   * against a form holding the NEW path, and a second save would write the old
-   * path back over the new one.
+   * beside a form holding the NEW path. The thumbnail is of the wrong image.
+   *
+   * The save itself was never at risk: useForm captures defaultValues once at
+   * mount, so the form keeps the new path and a second save writes it again. An
+   * earlier version of this comment claimed the old path would be written back
+   * over the new one. It would not.
    */
   onSaved?: () => void;
 }

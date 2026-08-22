@@ -73,6 +73,31 @@ export const SIGNED_IMAGE_REFRESH_MS = (SIGNED_IMAGE_TTL_SECONDS - 300) * 1000;
  * host that decides that. (URL lower-cases the hostname, so the comparison is
  * already case-insensitive.)
  */
+/**
+ * Compare two hostnames as the DNS does, ignoring the root label.
+ *
+ * `example.com` and `example.com.` are the same name -- the trailing dot just
+ * says "already fully qualified" -- but they are different STRINGS, and a plain
+ * === let `https://<our host>./storage/v1/object/sign/...` through as a
+ * third-party URL. So did `..`, and so did the `%2E` spelling, because the URL
+ * parser percent-decodes the host before handing it over. None of them changes
+ * whose bytes are on the other end.
+ *
+ * Not exploitable against this project today: Supabase resolves the tenant from
+ * the Host header including the dot and answers TenantNotFound before it looks
+ * at the token, so such a value stored a permanently dead link rather than a
+ * live-for-an-hour one. That is luck, not design -- if any layer in front ever
+ * normalises the dot, the same value becomes exactly the hour-long re-serve this
+ * check exists to prevent. Normalise here instead of relying on someone else not
+ * to.
+ *
+ * Both sides, because the env var can carry the dot just as easily as the input.
+ */
+function sameHost(a: string, b: string): boolean {
+  const root = /\.+$/;
+  return a.replace(root, "") === b.replace(root, "");
+}
+
 const OWN_STORAGE_HOST = (() => {
   try {
     return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").hostname;
@@ -103,7 +128,7 @@ const OWN_STORAGE_HOST = (() => {
 export function isOwnStorageHost(value: string): boolean {
   if (!OWN_STORAGE_HOST) return false;
   try {
-    return new URL(value).hostname === OWN_STORAGE_HOST;
+    return sameHost(new URL(value).hostname, OWN_STORAGE_HOST);
   } catch {
     return false;
   }
@@ -143,16 +168,35 @@ export function isStorageObjectPath(value: string): boolean {
 }
 
 /**
- * Form-level validation: is this something we are willing to store at all?
+ * The two reasons a value is refused, defined once.
+ *
+ * Both the form and the write guard raise them, from the same strings. They used
+ * to be separate: the guard had the specific same-host wording and the form had
+ * a flat "valid image URL", and since the form runs first the specific message
+ * was unreachable -- the user pasting the image address off their own wishlist
+ * (the way someone actually hits this) got told only that their obviously-valid
+ * URL was invalid.
+ */
+export const OWN_STORAGE_IMAGE_ERROR =
+  "That link points at rybn's own image storage and stops working within the hour. Upload the image instead of pasting its link.";
+
+export const INVALID_IMAGE_ERROR =
+  "That image reference is not valid. Upload an image or paste an image URL.";
+
+/**
+ * Why this value cannot be stored, or null when it can.
  *
  * Shape only, because a form cannot answer the ownership question -- the field
  * is either a URL the user typed or a path our own upload just produced. The
  * server re-checks ownership on write; this only keeps a typo from reaching it.
  */
-export function isValidImageValue(value: string): boolean {
-  if (isExternalImageUrl(value)) return !isOwnStorageHost(value);
-  return isStorageObjectPath(value);
+export function imageValueProblem(value: string): string | null {
+  if (isExternalImageUrl(value)) {
+    return isOwnStorageHost(value) ? OWN_STORAGE_IMAGE_ERROR : null;
+  }
+  return isStorageObjectPath(value) ? null : INVALID_IMAGE_ERROR;
 }
+
 
 /**
  * True when the value is an object path whose first folder is this user's id.
@@ -185,24 +229,23 @@ export function resolveStoredImageValue(
   if (value === null || value === undefined || value === "") {
     return { ok: true, value: null };
   }
+
+  // Shape first, and with the SAME wording the form would have used.
+  const problem = imageValueProblem(value);
+  if (problem) {
+    return { ok: false, error: problem };
+  }
+
   if (isExternalImageUrl(value)) {
-    if (isOwnStorageHost(value)) {
-      return {
-        ok: false,
-        error:
-          "That link points at rybn's own image storage and stops working within the hour. Upload the image instead of pasting its link.",
-      };
-    }
     return { ok: true, value: value as StoredImageValue };
   }
   if (isOwnedStoragePath(value, userId)) {
     return { ok: true, value: value as StoredImageValue };
   }
-  return {
-    ok: false,
-    error:
-      "That image reference is not valid. Upload an image or paste an image URL.",
-  };
+
+  // A well-formed path in someone else's folder. Deliberately the same message
+  // as a malformed one: a prober learns nothing about whether it exists.
+  return { ok: false, error: INVALID_IMAGE_ERROR };
 }
 
 /**
