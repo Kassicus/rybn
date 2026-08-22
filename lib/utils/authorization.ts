@@ -20,12 +20,12 @@ import { createClient } from "@/lib/supabase/server";
 /**
  * Verify that a user is a member of a group
  *
- * @param userId - The user's UUID
+ * @param userId - The user's Clerk ID
  * @param groupId - The group's UUID
  * @returns true if user is a member, false otherwise
  *
  * @example
- * const isMember = await verifyGroupMembership(user.id, groupId);
+ * const isMember = await verifyGroupMembership(userId, groupId);
  * if (!isMember) {
  *   return { error: "You are not a member of this group" };
  * }
@@ -50,12 +50,12 @@ export async function verifyGroupMembership(
 /**
  * Verify that a user is a member of a group gift
  *
- * @param userId - The user's UUID
+ * @param userId - The user's Clerk ID
  * @param groupGiftId - The group gift's UUID
  * @returns true if user is a member, false otherwise
  *
  * @example
- * const isMember = await verifyGroupGiftMembership(user.id, giftId);
+ * const isMember = await verifyGroupGiftMembership(userId, giftId);
  * if (!isMember) {
  *   return { error: "You are not a member of this group gift" };
  * }
@@ -80,12 +80,12 @@ export async function verifyGroupGiftMembership(
 /**
  * Verify that a user owns a group gift (created it)
  *
- * @param userId - The user's UUID
+ * @param userId - The user's Clerk ID
  * @param groupGiftId - The group gift's UUID
  * @returns true if user owns the resource, false otherwise
  *
  * @example
- * const isOwner = await verifyGroupGiftOwnership(user.id, giftId);
+ * const isOwner = await verifyGroupGiftOwnership(userId, giftId);
  * if (!isOwner) {
  *   return { error: "You do not own this group gift" };
  * }
@@ -109,12 +109,12 @@ export async function verifyGroupGiftOwnership(
 /**
  * Verify that a user is a member of a gift exchange
  *
- * @param userId - The user's UUID
+ * @param userId - The user's Clerk ID
  * @param exchangeId - The gift exchange's UUID
  * @returns true if user is a member, false otherwise
  *
  * @example
- * const isMember = await verifyGiftExchangeMembership(user.id, exchangeId);
+ * const isMember = await verifyGiftExchangeMembership(userId, exchangeId);
  * if (!isMember) {
  *   return { error: "You are not a member of this gift exchange" };
  * }
@@ -137,29 +137,17 @@ export async function verifyGiftExchangeMembership(
 }
 
 /**
- * Get authenticated user or throw error
+ * Identity helpers.
  *
- * @returns The authenticated user object
- * @throws Error if user is not authenticated
+ * `requireAuth()` returns the Clerk user ID or throws; `getUserId()` returns
+ * the ID or null. Re-exported here so existing importers of this module keep
+ * working — the single source of truth is `lib/auth/require-auth.ts`.
  *
  * @example
- * const user = await requireAuth();
- * // user is guaranteed to be defined here
+ * const userId = await requireAuth();
+ * // userId is guaranteed to be a string here
  */
-export async function requireAuth() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    throw new Error("Not authenticated");
-  }
-
-  return user;
-}
+export { requireAuth, getUserId } from "@/lib/auth/require-auth";
 
 /**
  * Verify that a user can view another user's profile based on privacy settings

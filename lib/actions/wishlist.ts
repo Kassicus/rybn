@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { WishlistItemFormData } from "@/lib/schemas/wishlist";
 
+import { getUserId } from "@/lib/auth/require-auth";
 /**
  * Get the current user's wishlist
  * Note: Claim data is stripped since owners should not see who claimed their items
@@ -11,19 +12,16 @@ import type { WishlistItemFormData } from "@/lib/schemas/wishlist";
 export async function getMyWishlist() {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
   const { data: items, error } = await supabase
     .from("wishlist_items")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -51,12 +49,9 @@ export async function getMyWishlist() {
 export async function getUserWishlist(userId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const currentUserId = await getUserId();
 
-  if (userError || !user) {
+  if (!currentUserId) {
     return { error: "Not authenticated" };
   }
 
@@ -73,7 +68,7 @@ export async function getUserWishlist(userId: string) {
   }
 
   // If viewing own wishlist through this route, strip claim/stock data
-  const isOwnWishlist = user.id === userId;
+  const isOwnWishlist = currentUserId === userId;
   const sanitizedItems = isOwnWishlist
     ? items?.map((item) => ({
         ...item,
@@ -86,7 +81,7 @@ export async function getUserWishlist(userId: string) {
       }))
     : items;
 
-  return { data: sanitizedItems || [], currentUserId: user.id };
+  return { data: sanitizedItems || [], currentUserId };
 }
 
 /**
@@ -95,19 +90,16 @@ export async function getUserWishlist(userId: string) {
 export async function createWishlistItem(formData: WishlistItemFormData) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
   const { data: item, error } = await supabase
     .from("wishlist_items")
     .insert({
-      user_id: user.id,
+      user_id: userId,
       title: formData.title,
       description: formData.description || null,
       url: formData.url || null,
@@ -137,12 +129,9 @@ export async function createWishlistItem(formData: WishlistItemFormData) {
 export async function updateWishlistItem(itemId: string, formData: WishlistItemFormData) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -163,7 +152,7 @@ export async function updateWishlistItem(itemId: string, formData: WishlistItemF
       updated_at: new Date().toISOString(),
     })
     .eq("id", itemId)
-    .eq("user_id", user.id) // Extra security check
+    .eq("user_id", userId) // Extra security check
     .select()
     .single();
 
@@ -182,12 +171,9 @@ export async function updateWishlistItem(itemId: string, formData: WishlistItemF
 export async function deleteWishlistItem(itemId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -195,7 +181,7 @@ export async function deleteWishlistItem(itemId: string) {
     .from("wishlist_items")
     .delete()
     .eq("id", itemId)
-    .eq("user_id", user.id); // Extra security check
+    .eq("user_id", userId); // Extra security check
 
   if (error) {
     return { error: error.message };
@@ -212,12 +198,9 @@ export async function deleteWishlistItem(itemId: string) {
 export async function getWishlistItem(itemId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -233,7 +216,7 @@ export async function getWishlistItem(itemId: string) {
   }
 
   // If viewing own item, strip claim/stock data
-  const isOwnItem = item.user_id === user.id;
+  const isOwnItem = item.user_id === userId;
   const sanitizedItem = isOwnItem
     ? {
         ...item,
@@ -246,7 +229,7 @@ export async function getWishlistItem(itemId: string) {
       }
     : item;
 
-  return { data: sanitizedItem, currentUserId: user.id };
+  return { data: sanitizedItem, currentUserId: userId };
 }
 
 /**
@@ -255,23 +238,20 @@ export async function getWishlistItem(itemId: string) {
 export async function claimWishlistItem(itemId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
   const { data: item, error } = await supabase
     .from("wishlist_items")
     .update({
-      claimed_by: user.id,
+      claimed_by: userId,
       claimed_at: new Date().toISOString(),
     })
     .eq("id", itemId)
-    .neq("user_id", user.id) // Can't claim your own items
+    .neq("user_id", userId) // Can't claim your own items
     .is("claimed_by", null) // Item must not already be claimed
     .select()
     .single();
@@ -290,12 +270,9 @@ export async function claimWishlistItem(itemId: string) {
 export async function unclaimWishlistItem(itemId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -306,7 +283,7 @@ export async function unclaimWishlistItem(itemId: string) {
       claimed_at: null,
     })
     .eq("id", itemId)
-    .eq("claimed_by", user.id) // Can only unclaim your own claims
+    .eq("claimed_by", userId) // Can only unclaim your own claims
     .select()
     .single();
 
@@ -324,12 +301,9 @@ export async function unclaimWishlistItem(itemId: string) {
 export async function markAsPurchased(itemId: string, purchased: boolean) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -340,7 +314,7 @@ export async function markAsPurchased(itemId: string, purchased: boolean) {
       purchased_at: purchased ? new Date().toISOString() : null,
     })
     .eq("id", itemId)
-    .eq("claimed_by", user.id) // Only the claimer can mark as purchased
+    .eq("claimed_by", userId) // Only the claimer can mark as purchased
     .select()
     .single();
 
@@ -359,12 +333,9 @@ export async function markAsPurchased(itemId: string, purchased: boolean) {
 export async function getClaimerProfile(claimedById: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -392,12 +363,9 @@ export async function getClaimerProfiles(claimerIds: string[]) {
 
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -426,23 +394,20 @@ export async function getClaimerProfiles(claimerIds: string[]) {
 export async function markOutOfStock(itemId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
   const { data: item, error } = await supabase
     .from("wishlist_items")
     .update({
-      out_of_stock_marked_by: user.id,
+      out_of_stock_marked_by: userId,
       out_of_stock_marked_at: new Date().toISOString(),
     })
     .eq("id", itemId)
-    .neq("user_id", user.id) // Can't mark your own items
+    .neq("user_id", userId) // Can't mark your own items
     .select()
     .single();
 
@@ -460,12 +425,9 @@ export async function markOutOfStock(itemId: string) {
 export async function unmarkOutOfStock(itemId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -477,7 +439,7 @@ export async function unmarkOutOfStock(itemId: string) {
       out_of_stock_marked_at: null,
     })
     .eq("id", itemId)
-    .neq("user_id", user.id) // Can't modify your own items this way
+    .neq("user_id", userId) // Can't modify your own items this way
     .select()
     .single();
 

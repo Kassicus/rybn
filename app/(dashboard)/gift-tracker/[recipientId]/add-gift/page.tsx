@@ -1,10 +1,10 @@
 import { redirect, notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { getRecipientById, getMyRecipients } from "@/lib/actions/gift-tracking";
 import { Heading, Text } from "@/components/ui/text";
 import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { GiftForm } from "@/components/gift-tracking";
 
+import { getUserId } from "@/lib/auth/require-auth";
 interface PageProps {
   params: Promise<{
     recipientId: string;
@@ -14,12 +14,9 @@ interface PageProps {
 export default async function AddGiftPage({ params }: PageProps) {
   const { recipientId } = await params;
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     redirect("/login");
   }
 

@@ -1,5 +1,4 @@
 import { notFound, redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { getUserProfile, getSharedGroups } from "@/lib/actions/profile";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
 import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
@@ -9,24 +8,22 @@ import { Separator } from "@/components/ui/separator";
 import { Text } from "@/components/ui/text";
 import { Eye, Users } from "lucide-react";
 
+import { getUserId } from "@/lib/auth/require-auth";
 export default async function UserProfilePage({
   params,
 }: {
   params: Promise<{ userId: string }>;
 }) {
   const { userId } = await params;
-  const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const currentUserId = await getUserId();
 
-  if (!user) {
+  if (!currentUserId) {
     redirect("/login");
   }
 
   // Don't allow viewing your own profile through this route
-  if (user.id === userId) {
+  if (currentUserId === userId) {
     redirect("/profile");
   }
 

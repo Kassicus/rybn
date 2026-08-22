@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
+import { getUserId } from "@/lib/auth/require-auth";
 export interface EmailPreferences {
   email_group_invites: boolean;
   email_date_reminders: boolean;
@@ -26,12 +27,9 @@ export interface UserSettings {
 export async function getMySettings() {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { data: null, error: "Not authenticated" };
   }
 
@@ -39,7 +37,7 @@ export async function getMySettings() {
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
     .select("*")
-    .eq("id", user.id)
+    .eq("id", userId)
     .single();
 
   if (profileError) {
@@ -51,7 +49,7 @@ export async function getMySettings() {
   const { data: profileInfo, error: profileInfoError } = await supabase
     .from("profile_info")
     .select("*")
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (profileInfoError) {
     console.error("Error fetching profile info:", profileInfoError);
@@ -92,12 +90,9 @@ export async function getMySettings() {
 export async function updateEmailPreferences(preferences: EmailPreferences) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { data: null, error: "Not authenticated" };
   }
 
@@ -108,7 +103,7 @@ export async function updateEmailPreferences(preferences: EmailPreferences) {
       email_preferences: preferences,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", user.id);
+    .eq("id", userId);
 
   if (updateError) {
     console.error("Error updating email preferences:", updateError);
@@ -125,12 +120,9 @@ export async function updateEmailPreferences(preferences: EmailPreferences) {
 export async function updatePrivacySettings(settings: PrivacySettings) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { data: null, error: "Not authenticated" };
   }
 
@@ -138,7 +130,7 @@ export async function updatePrivacySettings(settings: PrivacySettings) {
   const { data: profileInfo, error: fetchError } = await supabase
     .from("profile_info")
     .select("*")
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (fetchError) {
     console.error("Error fetching profile info:", fetchError);

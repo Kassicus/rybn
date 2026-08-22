@@ -8,6 +8,7 @@ import { SortableWishlistItems } from "@/components/wishlist/SortableWishlistIte
 import { Gift, Eye, Users, Lock } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
+import { getUserId } from "@/lib/auth/require-auth";
 export default async function UserWishlistPage({
   params,
 }: {
@@ -16,16 +17,14 @@ export default async function UserWishlistPage({
   const { userId } = await params;
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const viewerId = await getUserId();
 
-  if (!user) {
+  if (!viewerId) {
     redirect("/login");
   }
 
   // Don't allow viewing your own wishlist through this route
-  if (user.id === userId) {
+  if (viewerId === userId) {
     redirect("/wishlist");
   }
 

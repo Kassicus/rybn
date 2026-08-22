@@ -7,7 +7,7 @@ import { MobileDrawer } from "@/components/layout/MobileDrawer";
 import { Logo } from "@/components/vibe/Logo";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { SearchBar } from "@/components/search/SearchBar";
-import { createClient } from "@/lib/supabase/client";
+import { useClerk } from "@clerk/nextjs";
 
 interface TopBarProps {
   user: {
@@ -22,7 +22,7 @@ interface TopBarProps {
 
 export function TopBar({ user, profile }: TopBarProps) {
   const router = useRouter();
-  const supabase = createClient();
+  const { signOut } = useClerk();
   const [showSearch, setShowSearch] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showMobileNav, setShowMobileNav] = useState(false);
@@ -43,9 +43,7 @@ export function TopBar({ user, profile }: TopBarProps) {
   }, [showProfileMenu]);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.push("/login");
-    router.refresh();
+    await signOut({ redirectUrl: "/" });
   };
 
   return (

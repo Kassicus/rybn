@@ -8,16 +8,15 @@ import { AssignmentReveal } from "@/components/gift-exchange/AssignmentReveal";
 import { GiftExchangeActions } from "@/components/gift-exchange/GiftExchangeActions";
 import { GiftExchangeSettings } from "@/components/gift-exchange/GiftExchangeSettings";
 import { getGiftExchangeById, getMyAssignment } from "@/lib/actions/gift-exchange";
-import { createClient } from "@/lib/supabase/server";
 import { format } from "date-fns";
 
+import { getUserId } from "@/lib/auth/require-auth";
 export default async function GiftExchangeDetailPage({
   params,
 }: {
   params: Promise<{ exchangeId: string }>;
 }) {
   const { exchangeId } = await params;
-  const supabase = await createClient();
 
   const { data: exchange, error } = await getGiftExchangeById(exchangeId);
   const { data: assignedUser } = await getMyAssignment(exchangeId);
@@ -26,15 +25,13 @@ export default async function GiftExchangeDetailPage({
     notFound();
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     notFound();
   }
 
-  const isCreator = exchange.created_by === user.id;
+  const isCreator = exchange.created_by === userId;
   const isParticipating = !!exchange.my_participation;
 
   const exchangeTypeLabels: Record<string, string> = {
@@ -205,7 +202,7 @@ export default async function GiftExchangeDetailPage({
         <div>
           <ParticipantList
             participants={exchange.participants || []}
-            currentUserId={user.id}
+            currentUserId={userId}
             showAssignmentStatus={exchange.assignments_generated}
           />
         </div>

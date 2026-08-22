@@ -17,6 +17,7 @@ import { GROUP_TYPES } from "@/types/privacy";
 import type { GroupType } from "@/types/privacy";
 import JoinGroupButton from "@/components/groups/JoinGroupButton";
 
+import { getUserId } from "@/lib/auth/require-auth";
 // Simple Group Card Component
 function GroupCard({ group }: { group: any }) {
   return (
@@ -97,9 +98,9 @@ export default async function DashboardPage() {
   // Fetch data
   const supabase = await createClient();
   const adminClient = createAdminClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return null;
   }
 
@@ -148,7 +149,7 @@ export default async function DashboardPage() {
         .from("gift_exchange_participants")
         .select("id")
         .eq("exchange_id", exchange.id)
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .eq("opted_in", true)
         .single();
 

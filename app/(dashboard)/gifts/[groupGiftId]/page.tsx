@@ -9,15 +9,14 @@ import { MemberManager } from "@/components/gifts/MemberManager";
 import { GroupGiftSettings } from "@/components/gifts/GroupGiftSettings";
 import { getGroupGiftById } from "@/lib/actions/gifts";
 import { getMessages } from "@/lib/actions/messages";
-import { createClient } from "@/lib/supabase/server";
 
+import { getUserId } from "@/lib/auth/require-auth";
 export default async function GroupGiftDetailPage({
   params,
 }: {
   params: Promise<{ groupGiftId: string }>;
 }) {
   const { groupGiftId } = await params;
-  const supabase = await createClient();
 
   const { data: groupGift, error } = await getGroupGiftById(groupGiftId);
   const { data: messages = [] } = await getMessages(groupGiftId);
@@ -26,15 +25,13 @@ export default async function GroupGiftDetailPage({
     notFound();
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     notFound();
   }
 
-  const isCreator = groupGift.created_by === user.id;
+  const isCreator = groupGift.created_by === userId;
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
@@ -115,7 +112,7 @@ export default async function GroupGiftDetailPage({
             members={groupGift.group_gift_members || []}
             targetAmount={groupGift.target_amount}
             currentAmount={groupGift.current_amount}
-            currentUserId={user.id}
+            currentUserId={userId}
             myMembership={groupGift.my_membership}
           />
         </div>
@@ -125,7 +122,7 @@ export default async function GroupGiftDetailPage({
           <ChatWindow
             groupGiftId={groupGift.id}
             initialMessages={messages}
-            currentUserId={user.id}
+            currentUserId={userId}
           />
         </div>
       </div>

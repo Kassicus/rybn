@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { RecipientFormData, TrackedGiftFormData, GiftStatus, GiftTrackingStats } from "@/lib/schemas/gift-tracking";
 
+import { getUserId } from "@/lib/auth/require-auth";
 // =================================================================
 // RECIPIENTS
 // =================================================================
@@ -14,19 +15,16 @@ import type { RecipientFormData, TrackedGiftFormData, GiftStatus, GiftTrackingSt
 export async function getMyRecipients(includeArchived: boolean = false) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
   let query = supabase
     .from("gift_recipients")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .order("name");
 
   if (!includeArchived) {
@@ -48,12 +46,9 @@ export async function getMyRecipients(includeArchived: boolean = false) {
 export async function getRecipientById(recipientId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -61,7 +56,7 @@ export async function getRecipientById(recipientId: string) {
     .from("gift_recipients")
     .select("*")
     .eq("id", recipientId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single();
 
   if (error) {
@@ -77,19 +72,16 @@ export async function getRecipientById(recipientId: string) {
 export async function createRecipient(formData: RecipientFormData) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
   const { data: recipient, error } = await supabase
     .from("gift_recipients")
     .insert({
-      user_id: user.id,
+      user_id: userId,
       name: formData.name,
       notes: formData.notes || null,
     })
@@ -113,12 +105,9 @@ export async function createRecipient(formData: RecipientFormData) {
 export async function updateRecipient(recipientId: string, formData: Partial<RecipientFormData>) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -130,7 +119,7 @@ export async function updateRecipient(recipientId: string, formData: Partial<Rec
       updated_at: new Date().toISOString(),
     })
     .eq("id", recipientId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .select()
     .single();
 
@@ -152,12 +141,9 @@ export async function updateRecipient(recipientId: string, formData: Partial<Rec
 export async function archiveRecipient(recipientId: string, archived: boolean = true) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -168,7 +154,7 @@ export async function archiveRecipient(recipientId: string, archived: boolean = 
       updated_at: new Date().toISOString(),
     })
     .eq("id", recipientId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .select()
     .single();
 
@@ -186,12 +172,9 @@ export async function archiveRecipient(recipientId: string, archived: boolean = 
 export async function deleteRecipient(recipientId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -199,7 +182,7 @@ export async function deleteRecipient(recipientId: string) {
     .from("gift_recipients")
     .delete()
     .eq("id", recipientId)
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (error) {
     return { error: error.message };
@@ -219,12 +202,9 @@ export async function deleteRecipient(recipientId: string) {
 export async function getGiftsForRecipient(recipientId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -232,7 +212,7 @@ export async function getGiftsForRecipient(recipientId: string) {
     .from("tracked_gifts")
     .select("*")
     .eq("recipient_id", recipientId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -252,19 +232,16 @@ export async function getAllMyGifts(filters?: {
 }) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
   let query = supabase
     .from("tracked_gifts")
     .select("*, gift_recipients(id, name)")
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (filters?.status) {
     query = query.eq("status", filters.status);
@@ -295,12 +272,9 @@ export async function getAllMyGifts(filters?: {
 export async function getGiftById(giftId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -308,7 +282,7 @@ export async function getGiftById(giftId: string) {
     .from("tracked_gifts")
     .select("*, gift_recipients(id, name)")
     .eq("id", giftId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single();
 
   if (error) {
@@ -324,19 +298,16 @@ export async function getGiftById(giftId: string) {
 export async function createGift(formData: TrackedGiftFormData) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
   const { data: gift, error } = await supabase
     .from("tracked_gifts")
     .insert({
-      user_id: user.id,
+      user_id: userId,
       recipient_id: formData.recipient_id,
       name: formData.name,
       description: formData.description || null,
@@ -366,12 +337,9 @@ export async function createGift(formData: TrackedGiftFormData) {
 export async function updateGift(giftId: string, formData: Partial<TrackedGiftFormData>) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -395,7 +363,7 @@ export async function updateGift(giftId: string, formData: Partial<TrackedGiftFo
     .from("tracked_gifts")
     .update(updateData)
     .eq("id", giftId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .select()
     .single();
 
@@ -420,12 +388,9 @@ export async function updateGiftStatus(giftId: string, status: GiftStatus) {
 export async function archiveGift(giftId: string, archived: boolean = true) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -436,7 +401,7 @@ export async function archiveGift(giftId: string, archived: boolean = true) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", giftId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .select()
     .single();
 
@@ -454,12 +419,9 @@ export async function archiveGift(giftId: string, archived: boolean = true) {
 export async function archiveSeasonGifts(seasonYear: number) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -469,7 +431,7 @@ export async function archiveSeasonGifts(seasonYear: number) {
       is_archived: true,
       updated_at: new Date().toISOString(),
     })
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .eq("season_year", seasonYear)
     .in("status", ["wrapped", "given"]) // Archive completed gifts (wrapped or given)
     .select();
@@ -488,12 +450,9 @@ export async function archiveSeasonGifts(seasonYear: number) {
 export async function deleteGift(giftId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -501,7 +460,7 @@ export async function deleteGift(giftId: string) {
     .from("tracked_gifts")
     .delete()
     .eq("id", giftId)
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (error) {
     return { error: error.message };
@@ -521,12 +480,9 @@ export async function deleteGift(giftId: string) {
 export async function getGiftTrackingStats(seasonYear?: number): Promise<{ data?: GiftTrackingStats; error?: string }> {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -534,7 +490,7 @@ export async function getGiftTrackingStats(seasonYear?: number): Promise<{ data?
   let query = supabase
     .from("tracked_gifts")
     .select("price, status")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .eq("is_archived", false);
 
   if (seasonYear) {
@@ -551,7 +507,7 @@ export async function getGiftTrackingStats(seasonYear?: number): Promise<{ data?
   const { count: recipientCount, error: recipientError } = await supabase
     .from("gift_recipients")
     .select("*", { count: "exact", head: true })
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .eq("is_archived", false);
 
   if (recipientError) {
@@ -591,12 +547,9 @@ export async function getGiftTrackingStats(seasonYear?: number): Promise<{ data?
 export async function getRecipientsWithStats(includeArchived: boolean = false) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -604,7 +557,7 @@ export async function getRecipientsWithStats(includeArchived: boolean = false) {
   let recipientQuery = supabase
     .from("gift_recipients")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .order("name");
 
   if (!includeArchived) {
@@ -621,7 +574,7 @@ export async function getRecipientsWithStats(includeArchived: boolean = false) {
   let giftQuery = supabase
     .from("tracked_gifts")
     .select("recipient_id, price, status")
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (!includeArchived) {
     giftQuery = giftQuery.eq("is_archived", false);
@@ -661,19 +614,16 @@ export async function getRecipientsWithStats(includeArchived: boolean = false) {
 export async function getAvailableSeasons() {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
   const { data: seasons, error } = await supabase
     .from("tracked_gifts")
     .select("season_year")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .order("season_year", { ascending: false });
 
   if (error) {

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { useClerk } from "@clerk/nextjs";
 import { Home, Users, Gift, ListChecks, Calendar, User as UserIcon, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Heading } from "@/components/ui/text";
@@ -25,7 +25,7 @@ interface UserProfile {
 export function DashboardNav({ user }: DashboardNavProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const supabase = createClient();
+  const { signOut } = useClerk();
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
   // Load user profile
@@ -44,9 +44,7 @@ export function DashboardNav({ user }: DashboardNavProps) {
   }, []);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.push("/login");
-    router.refresh();
+    await signOut({ redirectUrl: "/" });
   };
 
   const navItems = [

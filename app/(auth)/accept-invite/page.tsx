@@ -5,22 +5,18 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Users } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { acceptInvitation } from "@/lib/actions/invitations";
-import { signupFromInvitation } from "@/lib/actions/auth";
-import { createClient } from "@/lib/supabase/client";
+import { useAuth, SignUp } from "@clerk/nextjs";
 
 function AcceptInviteContent() {
   const router = useRouter();
+  const { isLoaded, isSignedIn } = useAuth();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [username, setUsername] = useState("");
   const autoAccept = searchParams.get("autoAccept") === "true";
 
   useEffect(() => {
@@ -29,75 +25,27 @@ function AcceptInviteContent() {
       return;
     }
 
+    // Wait for Clerk to hydrate before deciding
+    if (!isLoaded) {
+      return;
+    }
+
     // Check if user is already authenticated
     const checkAuth = async () => {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      const isAuth = !!user;
+      const isAuth = !!isSignedIn;
       setIsAuthenticated(isAuth);
 
       // If just signed up (autoAccept=true in URL), auto-accept the invitation
       if (isAuth && autoAccept) {
         console.log("Just signed up, auto-accepting invitation...");
-        // Small delay to ensure cookies are fully synced
+        // Small delay to ensure the session is fully synced
         await new Promise(resolve => setTimeout(resolve, 500));
         await handleAccept();
       }
     };
 
     checkAuth();
-  }, [token, autoAccept]);
-
-  const handleSignup = async () => {
-    if (!email || !password || !username) {
-      setError("Please fill in all fields");
-      return;
-    }
-
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters");
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      // Use server action to create user with auto-confirmed email
-      const result = await signupFromInvitation({
-        email,
-        password,
-        username,
-      });
-
-      if (result.error) {
-        setError(result.error);
-        setIsLoading(false);
-        return;
-      }
-
-      if (result.success) {
-        console.log("User created and auto-confirmed");
-
-        // Wait a moment for the session to fully propagate
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        // Update auth state
-        setIsAuthenticated(true);
-
-        // Directly accept the invitation now that they're authenticated
-        console.log("Attempting to accept invitation with token:", token);
-        await handleAccept();
-      } else {
-        setError("Failed to create account. Please try again.");
-        setIsLoading(false);
-      }
-    } catch (error) {
-      console.error("Exception during signup:", error);
-      setError("Failed to create account. Please try again.");
-      setIsLoading(false);
-    }
-  };
+  }, [token, autoAccept, isLoaded, isSignedIn]);
 
   const handleAccept = async () => {
     if (!token) return;
@@ -163,10 +111,11 @@ function AcceptInviteContent() {
     );
   }
 
-  // Not authenticated - show signup form
+  // Not authenticated - sign up through Clerk, preserving the token so the
+  // invitation is auto-accepted on return.
   if (!isAuthenticated) {
     return (
-      <div className="max-w-md mx-auto space-y-6">
+      <div className="space-y-6">
         <div className="text-center space-y-4">
           <div className="w-16 h-16 rounded-full bg-primary-50 flex items-center justify-center mx-auto">
             <Users className="w-8 h-8 text-primary" />
@@ -187,71 +136,19 @@ function AcceptInviteContent() {
           </div>
         )}
 
-        <div className="space-y-4">
-          <div>
-            <label className="block mb-2">
-              <Text size="sm" className="font-medium">
-                Email
-              </Text>
-            </label>
-            <Input
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={isLoading}
-            />
-          </div>
-
-          <div>
-            <label className="block mb-2">
-              <Text size="sm" className="font-medium">
-                Username
-              </Text>
-            </label>
-            <Input
-              type="text"
-              placeholder="johndoe"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              disabled={isLoading}
-            />
-          </div>
-
-          <div>
-            <label className="block mb-2">
-              <Text size="sm" className="font-medium">
-                Password
-              </Text>
-            </label>
-            <Input
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={isLoading}
-            />
-          </div>
-
-          <div className="flex flex-col gap-3">
-            <Button
-              variant="primary"
-              size="large"
-              onClick={handleSignup}
-              loading={isLoading}
-              className="w-full"
-            >
-              Create Account & Join Group
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => router.push("/login")}
-              className="w-full"
-              disabled={isLoading}
-            >
-              Already have an account? Sign In
-            </Button>
-          </div>
+        <div className="flex justify-center">
+          <SignUp
+            forceRedirectUrl={`/accept-invite?token=${encodeURIComponent(
+              token
+            )}&autoAccept=true`}
+            appearance={{
+              variables: {
+                colorPrimary: "#009E01",
+                fontFamily: "var(--font-quicksand)",
+                borderRadius: "0.75rem",
+              },
+            }}
+          />
         </div>
       </div>
     );

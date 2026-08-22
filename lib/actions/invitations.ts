@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getUserId } from "@/lib/auth/require-auth";
 import { generateInviteToken, getInviteExpiration } from "@/lib/utils/groups";
 import { sendGroupInviteEmail } from "@/lib/resend/send";
 import { revalidatePath } from "next/cache";
@@ -14,21 +15,29 @@ export async function sendGroupInvitation(data: {
   const supabase = await createClient();
 
   // Get current user
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
+
+  // Clerk's auth() only returns ids, so the inviter's display details come
+  // from their profile row.
+  const { data: inviterProfile } = await supabase
+    .from("user_profiles")
+    .select("username, email")
+    .eq("id", userId)
+    .maybeSingle();
+
+  const inviterName =
+    inviterProfile?.username || inviterProfile?.email || "A friend";
 
   // Security: Rate limiting - check how many invitations this user has sent in the last hour
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const { data: recentInvites, error: rateLimitError } = await supabase
     .from("invitations")
     .select("id")
-    .eq("invited_by", user.id)
+    .eq("invited_by", userId)
     .gte("created_at", oneHourAgo);
 
   if (rateLimitError) {
@@ -44,7 +53,7 @@ export async function sendGroupInvitation(data: {
     .from("group_members")
     .select("role")
     .eq("group_id", data.groupId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (membershipError) {
@@ -104,7 +113,7 @@ export async function sendGroupInvitation(data: {
       .update({
         token,
         expires_at: expiresAt.toISOString(),
-        invited_by: user.id,
+        invited_by: userId,
         created_at: new Date().toISOString(), // Update timestamp to reflect resend
       })
       .eq("id", existingInvite.id)
@@ -132,7 +141,7 @@ export async function sendGroupInvitation(data: {
       .insert({
         group_id: data.groupId,
         email: data.email,
-        invited_by: user.id,
+        invited_by: userId,
         token,
         expires_at: expiresAt.toISOString(),
       })
@@ -160,7 +169,7 @@ export async function sendGroupInvitation(data: {
     const result = await sendGroupInviteEmail({
       toEmail: data.email,
       groupName: data.groupName,
-      inviterName: user.user_metadata?.username || user.email || "A friend",
+      inviterName,
       inviteToken: token,
     });
     console.log("Email sent successfully:", result);
@@ -170,7 +179,7 @@ export async function sendGroupInvitation(data: {
     console.error("Email details:", {
       toEmail: data.email,
       groupName: data.groupName,
-      inviterName: user.user_metadata?.username || user.email || "A friend",
+      inviterName,
     });
     emailError = error instanceof Error ? error.message : "Unknown error";
     // Don't fail the invitation creation if email fails
@@ -193,15 +202,12 @@ export async function acceptInvitation(token: string): Promise<
   const supabase = await createClient();
 
   // Get current user
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  console.log("User check:", { user: user?.id, error: userError?.message });
+  console.log("User check:", { user: userId });
 
-  if (userError || !user) {
-    console.error("Not authenticated:", userError);
+  if (!userId) {
+    console.error("Not authenticated");
     return { error: "Not authenticated" };
   }
 
@@ -238,14 +244,14 @@ export async function acceptInvitation(token: string): Promise<
   }
 
   // Check if user is already a member
-  console.log("Checking membership for user:", user.id, "in group:", invitation.group_id);
+  console.log("Checking membership for user:", userId, "in group:", invitation.group_id);
 
   // Check all memberships to see if there are duplicates
   const { data: allMemberships } = await supabase
     .from("group_members")
     .select("id, role, joined_at")
     .eq("group_id", invitation.group_id)
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   console.log("All memberships found:", allMemberships);
 
@@ -315,7 +321,7 @@ export async function acceptInvitation(token: string): Promise<
   // Add user to group
   const { error: memberError } = await supabase.from("group_members").insert({
     group_id: invitation.group_id,
-    user_id: user.id,
+    user_id: userId,
     role: "member",
   });
 
@@ -353,12 +359,9 @@ export async function joinGroupByCode(inviteCode: string) {
   const supabase = await createClient();
 
   // Get current user
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -383,7 +386,7 @@ export async function joinGroupByCode(inviteCode: string) {
     .from("group_members")
     .select("id")
     .eq("group_id", group.id)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (existingMember) {
@@ -393,7 +396,7 @@ export async function joinGroupByCode(inviteCode: string) {
   // Add user to group
   const { error: memberError } = await supabase.from("group_members").insert({
     group_id: group.id,
-    user_id: user.id,
+    user_id: userId,
     role: "member",
   });
 

@@ -8,9 +8,9 @@ import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { getGroupById } from "@/lib/actions/groups";
 import { CopyInviteCode } from "@/components/groups/CopyInviteCode";
 import { InviteMembersButton } from "@/components/groups/InviteMembersButton";
-import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 
+import { getUserId } from "@/lib/auth/require-auth";
 const groupTypeIcons = {
   family: Home,
   friends: Users,
@@ -31,10 +31,7 @@ export default async function GroupDetailPage({
   }
 
   // Get current user to check if viewing own profile
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
   const Icon = groupTypeIcons[group.type as keyof typeof groupTypeIcons] || Grid;
 
@@ -128,7 +125,7 @@ export default async function GroupDetailPage({
 
         <div className="space-y-2">
           {group.group_members?.map((member) => {
-            const isCurrentUser = user?.id === member.user_id;
+            const isCurrentUser = userId === member.user_id;
             return (
               <div
                 key={member.id}

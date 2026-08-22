@@ -13,7 +13,7 @@ import { Heading, Text } from "@/components/ui/text";
 import { ImageInput } from "@/components/ui/image-input";
 import { WishlistPrivacySelector } from "@/components/wishlist/WishlistPrivacySelector";
 import { FormSection } from "@/components/profile/FormSection";
-import { useAuth } from "@/lib/hooks/useAuth";
+import { useUser } from "@clerk/nextjs";
 import { deleteWishlistItem, updateWishlistItem } from "@/lib/actions/wishlist";
 import { wishlistItemSchema, type WishlistItemFormData, PRIORITY_INFO } from "@/lib/schemas/wishlist";
 import type { GroupType } from "@/types/privacy";
@@ -42,7 +42,7 @@ export function WishlistItemSettings({
   item,
 }: WishlistItemSettingsProps) {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user } = useUser();
   const [showModal, setShowModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [viewMode, setViewMode] = useState<'menu' | 'edit'>('menu');

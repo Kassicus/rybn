@@ -6,18 +6,16 @@ import { revalidatePath } from "next/cache";
 import type { GiftExchangeFormData, ParticipantUpdateData } from "@/lib/schemas/gift-exchange";
 import { generateAssignments, type Participant } from "@/lib/utils/gift-exchange";
 
+import { getUserId } from "@/lib/auth/require-auth";
 /**
  * Create a new gift exchange
  */
 export async function createGiftExchange(formData: GiftExchangeFormData) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -26,7 +24,7 @@ export async function createGiftExchange(formData: GiftExchangeFormData) {
     .from("group_members")
     .select("id")
     .eq("group_id", formData.group_id)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single();
 
   if (!membership) {
@@ -49,7 +47,7 @@ export async function createGiftExchange(formData: GiftExchangeFormData) {
       registration_deadline: formData.registration_deadline || null,
       is_active: formData.is_active,
       assignments_generated: false,
-      created_by: user.id,
+      created_by: userId,
     })
     .select()
     .single();
@@ -102,11 +100,9 @@ export async function createGiftExchange(formData: GiftExchangeFormData) {
 export async function getGiftExchangesByGroup(groupId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -115,7 +111,7 @@ export async function getGiftExchangesByGroup(groupId: string) {
     .from("group_members")
     .select("id")
     .eq("group_id", groupId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single();
 
   if (!membership) {
@@ -144,11 +140,9 @@ export async function getGiftExchangeById(exchangeId: string) {
   const supabase = await createClient();
   const adminClient = createAdminClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -168,7 +162,7 @@ export async function getGiftExchangeById(exchangeId: string) {
     .from("group_members")
     .select("id")
     .eq("group_id", exchange.group_id)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single();
 
   if (!membership) {
@@ -199,7 +193,7 @@ export async function getGiftExchangeById(exchangeId: string) {
   }));
 
   // Get current user's participation
-  const myParticipation = participants.find((p) => p.user_id === user.id);
+  const myParticipation = participants.find((p) => p.user_id === userId);
 
   return {
     data: {
@@ -216,11 +210,9 @@ export async function getGiftExchangeById(exchangeId: string) {
 export async function joinGiftExchange(exchangeId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -256,7 +248,7 @@ export async function joinGiftExchange(exchangeId: string) {
     .from("group_members")
     .select("id")
     .eq("group_id", exchange.group_id)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single();
 
   if (!membership) {
@@ -268,7 +260,7 @@ export async function joinGiftExchange(exchangeId: string) {
     .from("gift_exchange_participants")
     .insert({
       exchange_id: exchangeId,
-      user_id: user.id,
+      user_id: userId,
       opted_in: true,
     });
 
@@ -287,11 +279,9 @@ export async function joinGiftExchange(exchangeId: string) {
 export async function leaveGiftExchange(exchangeId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -311,7 +301,7 @@ export async function leaveGiftExchange(exchangeId: string) {
     .from("gift_exchange_participants")
     .delete()
     .eq("exchange_id", exchangeId)
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (error) {
     return { error: error.message };
@@ -328,11 +318,9 @@ export async function leaveGiftExchange(exchangeId: string) {
 export async function generateGiftExchangeAssignments(exchangeId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -343,7 +331,7 @@ export async function generateGiftExchangeAssignments(exchangeId: string) {
     .eq("id", exchangeId)
     .single();
 
-  if (!exchange || exchange.created_by !== user.id) {
+  if (!exchange || exchange.created_by !== userId) {
     return { error: "Only the creator can generate assignments" };
   }
 
@@ -400,11 +388,9 @@ export async function generateGiftExchangeAssignments(exchangeId: string) {
 export async function getMyAssignment(exchangeId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -413,7 +399,7 @@ export async function getMyAssignment(exchangeId: string) {
     .from("gift_exchange_participants")
     .select("assigned_to")
     .eq("exchange_id", exchangeId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single();
 
   if (!participation || !participation.assigned_to) {
@@ -439,11 +425,9 @@ export async function updateMyParticipation(
 ) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -452,7 +436,7 @@ export async function updateMyParticipation(
     .from("gift_exchange_participants")
     .update(data)
     .eq("exchange_id", exchangeId)
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (error) {
     return { error: error.message };
@@ -470,11 +454,9 @@ export async function deleteGiftExchange(exchangeId: string) {
   const supabase = await createClient();
   const adminClient = createAdminClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -485,7 +467,7 @@ export async function deleteGiftExchange(exchangeId: string) {
     .eq("id", exchangeId)
     .single();
 
-  if (!exchange || exchange.created_by !== user.id) {
+  if (!exchange || exchange.created_by !== userId) {
     return { error: "Only the creator can delete this gift exchange" };
   }
 

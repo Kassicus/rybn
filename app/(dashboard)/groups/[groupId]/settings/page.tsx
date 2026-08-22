@@ -5,8 +5,8 @@ import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { getGroupById } from "@/lib/actions/groups";
 import { LeaveGroupButton } from "@/components/groups/LeaveGroupButton";
 import { DeleteGroupButton } from "@/components/groups/DeleteGroupButton";
-import { createClient } from "@/lib/supabase/server";
 
+import { getUserId } from "@/lib/auth/require-auth";
 export default async function GroupSettingsPage({
   params,
 }: {
@@ -19,18 +19,15 @@ export default async function GroupSettingsPage({
     notFound();
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     redirect("/login");
   }
 
   // Find user's role in the group
   const userMember = group.group_members?.find(
-    (member) => member.user_id === user.id
+    (member) => member.user_id === userId
   );
 
   const isOwner = userMember?.role === "owner";

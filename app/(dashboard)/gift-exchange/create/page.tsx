@@ -6,6 +6,7 @@ import { ExchangeForm } from "@/components/gift-exchange/ExchangeForm";
 import { GroupSelector } from "@/components/gift-exchange/GroupSelector";
 import { createClient } from "@/lib/supabase/server";
 
+import { getUserId } from "@/lib/auth/require-auth";
 interface GroupData {
   id: string;
   name: string;
@@ -19,11 +20,9 @@ export default async function CreateGiftExchangePage({
   const params = await searchParams;
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     redirect("/login");
   }
 
@@ -31,7 +30,7 @@ export default async function CreateGiftExchangePage({
   const { data: userGroups } = await supabase
     .from("group_members")
     .select("group_id, groups(id, name)")
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (!userGroups || userGroups.length === 0) {
     return (

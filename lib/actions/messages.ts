@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import type { MessageFormData, MessageEditData } from "@/lib/schemas/gifts";
 
+import { getUserId } from "@/lib/auth/require-auth";
 /**
  * Send a message to a group gift
  */
@@ -12,12 +13,9 @@ export async function sendMessage(data: MessageFormData) {
   const supabase = await createClient();
   const adminClient = createAdminClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -26,7 +24,7 @@ export async function sendMessage(data: MessageFormData) {
     .from("group_gift_members")
     .select("id")
     .eq("group_gift_id", data.group_gift_id)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single();
 
   if (!membership) {
@@ -38,7 +36,7 @@ export async function sendMessage(data: MessageFormData) {
     .from("messages")
     .insert({
       group_gift_id: data.group_gift_id,
-      user_id: user.id,
+      user_id: userId,
       content: data.content,
       attachment_url: data.attachment_url || null,
       is_edited: false,
@@ -62,11 +60,9 @@ export async function getMessages(groupGiftId: string, limit = 50, offset = 0) {
   const supabase = await createClient();
   const adminClient = createAdminClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -75,7 +71,7 @@ export async function getMessages(groupGiftId: string, limit = 50, offset = 0) {
     .from("group_gift_members")
     .select("id")
     .eq("group_gift_id", groupGiftId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single();
 
   if (!membership) {
@@ -116,11 +112,9 @@ export async function getMessages(groupGiftId: string, limit = 50, offset = 0) {
 export async function editMessage(messageId: string, data: MessageEditData) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -135,7 +129,7 @@ export async function editMessage(messageId: string, data: MessageEditData) {
     return { error: "Message not found" };
   }
 
-  if (message.user_id !== user.id) {
+  if (message.user_id !== userId) {
     return { error: "You can only edit your own messages" };
   }
 
@@ -163,11 +157,9 @@ export async function editMessage(messageId: string, data: MessageEditData) {
 export async function deleteMessage(messageId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -182,7 +174,7 @@ export async function deleteMessage(messageId: string) {
     return { error: "Message not found" };
   }
 
-  if (message.user_id !== user.id) {
+  if (message.user_id !== userId) {
     return { error: "You can only delete your own messages" };
   }
 
@@ -209,11 +201,9 @@ export async function canAccessGroupGift(groupGiftId: string): Promise<boolean> 
   const supabase = await createClient();
   const adminClient = createAdminClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return false;
   }
 
@@ -222,7 +212,7 @@ export async function canAccessGroupGift(groupGiftId: string): Promise<boolean> 
     .from("group_gift_members")
     .select("id")
     .eq("group_gift_id", groupGiftId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single();
 
   return !!membership;

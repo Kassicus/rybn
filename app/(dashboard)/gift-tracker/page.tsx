@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import {
   getRecipientsWithStats,
   getAllMyGifts,
@@ -13,13 +12,11 @@ import { UserPlus } from "lucide-react";
 import Link from "next/link";
 import type { GiftStatus } from "@/lib/schemas/gift-tracking";
 
+import { getUserId } from "@/lib/auth/require-auth";
 export default async function GiftTrackerPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     redirect("/login");
   }
 

@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import type { GroupGiftFormData, ContributionUpdateData } from "@/lib/schemas/gifts";
 
+import { getUserId } from "@/lib/auth/require-auth";
 /**
  * Create a new group gift
  */
@@ -12,12 +13,9 @@ export async function createGroupGift(formData: GroupGiftFormData) {
   // Use regular client for auth check
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -26,7 +24,7 @@ export async function createGroupGift(formData: GroupGiftFormData) {
     .from("group_members")
     .select("id")
     .eq("group_id", formData.group_id)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single();
 
   if (!membership) {
@@ -46,7 +44,7 @@ export async function createGroupGift(formData: GroupGiftFormData) {
       target_user_id: formData.target_user_id || null,
       target_amount: formData.target_amount || null,
       is_active: formData.is_active,
-      created_by: user.id,
+      created_by: userId,
     })
     .select()
     .single();
@@ -60,7 +58,7 @@ export async function createGroupGift(formData: GroupGiftFormData) {
     .from("group_gift_members")
     .insert({
       group_gift_id: groupGift.id,
-      user_id: user.id,
+      user_id: userId,
       contribution_amount: 0,
       has_paid: false,
     });
@@ -84,11 +82,9 @@ export async function getMyGroupGifts() {
   const supabase = await createClient();
   const adminClient = createAdminClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { data: [] };
   }
 
@@ -113,7 +109,7 @@ export async function getMyGroupGifts() {
         created_at
       )
     `)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .order("joined_at", { ascending: false });
 
   if (error) {
@@ -137,11 +133,9 @@ export async function getMyGroupGifts() {
 export async function getGroupGiftsByGroup(groupId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -150,7 +144,7 @@ export async function getGroupGiftsByGroup(groupId: string) {
     .from("group_members")
     .select("id")
     .eq("group_id", groupId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single();
 
   if (!membership) {
@@ -179,11 +173,9 @@ export async function getGroupGiftById(groupGiftId: string) {
   const supabase = await createClient();
   const adminClient = createAdminClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -203,7 +195,7 @@ export async function getGroupGiftById(groupGiftId: string) {
     .from("group_gift_members")
     .select("*")
     .eq("group_gift_id", groupGiftId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single();
 
   if (!membership) {
@@ -251,11 +243,9 @@ export async function updateMyContribution(
 ) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -267,7 +257,7 @@ export async function updateMyContribution(
       has_paid: data.has_paid,
     })
     .eq("group_gift_id", groupGiftId)
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (error) {
     return { error: error.message };
@@ -287,11 +277,9 @@ export async function addMembersToGroupGift(groupGiftId: string, userIds: string
   const supabase = await createClient();
   const adminClient = createAdminClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -307,12 +295,12 @@ export async function addMembersToGroupGift(groupGiftId: string, userIds: string
   }
 
   // Check if user is creator or member
-  const isCreator = groupGift.created_by === user.id;
+  const isCreator = groupGift.created_by === userId;
   const { data: membership } = await adminClient
     .from("group_gift_members")
     .select("id")
     .eq("group_gift_id", groupGiftId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (!isCreator && !membership) {
@@ -323,7 +311,7 @@ export async function addMembersToGroupGift(groupGiftId: string, userIds: string
   const { data: inviterGroups } = await supabase
     .from("group_members")
     .select("group_id")
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (!inviterGroups || inviterGroups.length === 0) {
     return { error: "You are not a member of any groups" };
@@ -377,11 +365,9 @@ export async function addMembersToGroupGift(groupGiftId: string, userIds: string
 export async function leaveGroupGift(groupGiftId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -392,7 +378,7 @@ export async function leaveGroupGift(groupGiftId: string) {
     .eq("id", groupGiftId)
     .single();
 
-  if (groupGift?.created_by === user.id) {
+  if (groupGift?.created_by === userId) {
     return { error: "Creators cannot leave the group gift. Delete it instead." };
   }
 
@@ -401,7 +387,7 @@ export async function leaveGroupGift(groupGiftId: string) {
     .from("group_gift_members")
     .delete()
     .eq("group_gift_id", groupGiftId)
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (error) {
     return { error: error.message };
@@ -418,11 +404,9 @@ export async function deleteGroupGift(groupGiftId: string) {
   const supabase = await createClient();
   const adminClient = createAdminClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -433,7 +417,7 @@ export async function deleteGroupGift(groupGiftId: string) {
     .eq("id", groupGiftId)
     .single();
 
-  if (!groupGift || groupGift.created_by !== user.id) {
+  if (!groupGift || groupGift.created_by !== userId) {
     return { error: "Only the creator can delete this group gift" };
   }
 
@@ -462,11 +446,9 @@ export async function updateGroupGift(
 ) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -477,7 +459,7 @@ export async function updateGroupGift(
     .eq("id", groupGiftId)
     .single();
 
-  if (!groupGift || groupGift.created_by !== user.id) {
+  if (!groupGift || groupGift.created_by !== userId) {
     return { error: "Only the creator can update this group gift" };
   }
 
@@ -505,11 +487,9 @@ export async function getAvailableGroupMembers(groupGiftId: string) {
   const supabase = await createClient();
   const adminClient = createAdminClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -525,12 +505,12 @@ export async function getAvailableGroupMembers(groupGiftId: string) {
   }
 
   // Verify user is a member or creator of the group gift
-  const isCreator = groupGift.created_by === user.id;
+  const isCreator = groupGift.created_by === userId;
   const { data: membership } = await adminClient
     .from("group_gift_members")
     .select("id")
     .eq("group_gift_id", groupGiftId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (!isCreator && !membership) {
@@ -541,7 +521,7 @@ export async function getAvailableGroupMembers(groupGiftId: string) {
   const { data: userGroups, error: userGroupsError } = await supabase
     .from("group_members")
     .select("group_id")
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (userGroupsError) {
     return { error: userGroupsError.message };
@@ -577,7 +557,7 @@ export async function getAvailableGroupMembers(groupGiftId: string) {
   const currentMemberIds = new Set(currentMembers?.map((m) => m.user_id) || []);
   const uniqueUserIds = new Set(groupMembers?.map((gm) => gm.user_id) || []);
   const availableUserIds = Array.from(uniqueUserIds)
-    .filter((userId) => !currentMemberIds.has(userId) && userId !== user.id);
+    .filter((memberId) => !currentMemberIds.has(memberId) && memberId !== userId);
 
   if (availableUserIds.length === 0) {
     return { data: [] };

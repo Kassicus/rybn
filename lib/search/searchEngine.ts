@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { calculateRelevance, sortAndLimitResults, groupResultsByType } from "./searchUtils";
 
+import { getUserId } from "@/lib/auth/require-auth";
 export type SearchResultType = "group" | "wishlist" | "gift" | "exchange" | "person" | "tracked_gift" | "recipient";
 
 export interface SearchResult {
@@ -21,9 +22,9 @@ export async function searchSite(query: string): Promise<SearchResult[]> {
   }
 
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return [];
   }
 
@@ -44,14 +45,14 @@ export async function searchSite(query: string): Promise<SearchResult[]> {
         display_name,
         avatar_url
       `)
-      .neq("id", user.id)
+      .neq("id", userId)
       .or(`username.ilike.${searchTerm},display_name.ilike.${searchTerm}`);
 
     if (people) {
       // Filter to only people in shared groups
       for (const person of people) {
         const { data: sharedGroups } = await supabase.rpc("get_shared_groups", {
-          user_a: user.id,
+          user_a: userId,
           user_b: person.id,
         });
 
@@ -88,7 +89,7 @@ export async function searchSite(query: string): Promise<SearchResult[]> {
           type
         )
       `)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .ilike("groups.name", searchTerm);
 
     if (groups) {
@@ -112,7 +113,7 @@ export async function searchSite(query: string): Promise<SearchResult[]> {
     const { data: wishlistItems } = await supabase
       .from("wishlist_items")
       .select("id, title, description, price, url")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .or(`title.ilike.${searchTerm},description.ilike.${searchTerm}`);
 
     if (wishlistItems) {
@@ -234,7 +235,7 @@ export async function searchSite(query: string): Promise<SearchResult[]> {
           name
         )
       `)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("is_archived", false)
       .or(`name.ilike.${searchTerm},description.ilike.${searchTerm}`);
 
@@ -273,7 +274,7 @@ export async function searchSite(query: string): Promise<SearchResult[]> {
           id
         )
       `)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("is_archived", false)
       .ilike("name", searchTerm);
 

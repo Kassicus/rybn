@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { getMyProfile } from "@/lib/actions/profile";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
 import { FormSection } from "@/components/profile/FormSection";
@@ -7,13 +6,11 @@ import { ProfileField } from "@/components/profile/ProfileField";
 import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { Separator } from "@/components/ui/separator";
 
+import { getUserId } from "@/lib/auth/require-auth";
 export default async function ProfilePage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     redirect("/login");
   }
 

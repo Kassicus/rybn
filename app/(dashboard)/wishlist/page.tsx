@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { getMyWishlist } from "@/lib/actions/wishlist";
 import { Button } from "@/components/ui/button";
 import { Heading, Text } from "@/components/ui/text";
@@ -8,13 +7,11 @@ import { WishlistItemCard } from "@/components/wishlist/WishlistItemCard";
 import { Plus, Gift } from "lucide-react";
 import Link from "next/link";
 
+import { getUserId } from "@/lib/auth/require-auth";
 export default async function WishlistPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     redirect("/login");
   }
 

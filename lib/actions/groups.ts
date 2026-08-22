@@ -6,6 +6,7 @@ import { generateInviteCode } from "@/lib/utils/groups";
 import { revalidatePath } from "next/cache";
 import type { Database } from "@/types/database";
 
+import { getUserId } from "@/lib/auth/require-auth";
 type GroupType = Database['public']['Enums']['group_type'];
 
 export async function createGroup(formData: {
@@ -17,17 +18,14 @@ export async function createGroup(formData: {
   const supabase = await createClient();
 
   // Get current user
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
   // Debug: Log user ID to help diagnose RLS issues
-  console.log("Creating group with user ID:", user.id);
+  console.log("Creating group with user ID:", userId);
 
   // Generate unique invite code
   let inviteCode = generateInviteCode();
@@ -65,7 +63,7 @@ export async function createGroup(formData: {
       description: formData.description || null,
       type: formData.type,
       invite_code: inviteCode,
-      created_by: user.id,
+      created_by: userId,
     })
     .select()
     .maybeSingle();
@@ -89,11 +87,9 @@ export async function createGroup(formData: {
 export async function getMyGroups() {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { data: [] };
   }
 
@@ -113,7 +109,7 @@ export async function getMyGroups() {
         created_by
       )
     `)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .order("joined_at", { ascending: false });
 
   if (error) {
@@ -133,11 +129,9 @@ export async function getMyGroups() {
 export async function getGroupById(groupId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -168,7 +162,7 @@ export async function getGroupById(groupId: string) {
   }
 
   // Check if user is a member
-  const isMember = members.some((member) => member.user_id === user.id);
+  const isMember = members.some((member) => member.user_id === userId);
 
   if (!isMember) {
     return { error: "You are not a member of this group" };
@@ -198,11 +192,9 @@ export async function getGroupById(groupId: string) {
 export async function leaveGroup(groupId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -211,7 +203,7 @@ export async function leaveGroup(groupId: string) {
     .from("group_members")
     .select("role")
     .eq("group_id", groupId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (membership?.role === "owner") {
@@ -223,7 +215,7 @@ export async function leaveGroup(groupId: string) {
     .from("group_members")
     .delete()
     .eq("group_id", groupId)
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (error) {
     return { error: error.message };
@@ -236,11 +228,9 @@ export async function leaveGroup(groupId: string) {
 export async function deleteGroup(groupId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -249,7 +239,7 @@ export async function deleteGroup(groupId: string) {
     .from("group_members")
     .select("role")
     .eq("group_id", groupId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (membership?.role !== "owner") {

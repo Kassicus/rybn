@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
+import { getUserId } from "@/lib/auth/require-auth";
 /**
  * TEMPORARY MIGRATION ENDPOINT
  * This adds the email_preferences column to user_profiles table
@@ -13,9 +14,9 @@ export async function GET() {
     const supabase = await createClient();
 
     // Check authentication
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const userId = await getUserId();
 
-    if (userError || !user) {
+    if (!userId) {
       return NextResponse.json(
         { error: 'Not authenticated. Please log in first.' },
         { status: 401 }

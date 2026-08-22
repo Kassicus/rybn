@@ -7,7 +7,7 @@ import { Logo } from "@/components/vibe/Logo";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
-import { createClient } from "@/lib/supabase/client";
+import { useClerk } from "@clerk/nextjs";
 
 interface MobileDrawerProps {
   isOpen: boolean;
@@ -33,7 +33,7 @@ const navItems = [
 export function MobileDrawer({ isOpen, onClose, user, profile }: MobileDrawerProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const supabase = createClient();
+  const { signOut } = useClerk();
 
   // Prevent body scroll when drawer is open
   useEffect(() => {
@@ -66,9 +66,7 @@ export function MobileDrawer({ isOpen, onClose, user, profile }: MobileDrawerPro
   };
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.push("/login");
-    router.refresh();
+    await signOut({ redirectUrl: "/" });
   };
 
   if (!isOpen) return null;

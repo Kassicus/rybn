@@ -10,18 +10,16 @@ import type { BasicProfileFormData, ProfileEditFormData } from "@/lib/schemas/pr
 import { formDataToProfileInfo } from "@/lib/schemas/profile";
 import type { ViewerContext, GroupType } from "@/types/privacy";
 
+import { getUserId } from "@/lib/auth/require-auth";
 /**
  * Get the current user's full profile (all fields visible)
  */
 export async function getMyProfile() {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -29,7 +27,7 @@ export async function getMyProfile() {
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
     .select("*")
-    .eq("id", user.id)
+    .eq("id", userId)
     .single();
 
   if (profileError) {
@@ -40,7 +38,7 @@ export async function getMyProfile() {
   const { data: profileInfo, error: profileInfoError } = await supabase
     .from("profile_info")
     .select("*")
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   if (profileInfoError) {
     return { error: profileInfoError.message };
@@ -60,12 +58,9 @@ export async function getMyProfile() {
 export async function getUserProfile(profileUserId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -104,12 +99,9 @@ export async function getUserProfile(profileUserId: string) {
 export async function updateBasicProfile(formData: BasicProfileFormData) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -123,7 +115,7 @@ export async function updateBasicProfile(formData: BasicProfileFormData) {
       avatar_url: formData.avatar_url || null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", user.id)
+    .eq("id", userId)
     .select()
     .single();
 
@@ -145,12 +137,9 @@ export async function updateBasicProfile(formData: BasicProfileFormData) {
 export async function updateProfile(formData: ProfileEditFormData) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -164,7 +153,7 @@ export async function updateProfile(formData: ProfileEditFormData) {
       avatar_url: formData.avatar_url || null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", user.id)
+    .eq("id", userId)
     .select()
     .single();
 
@@ -176,7 +165,7 @@ export async function updateProfile(formData: ProfileEditFormData) {
   }
 
   // Convert form data to profile_info records
-  const profileInfoRecords = formDataToProfileInfo(user.id, formData);
+  const profileInfoRecords = formDataToProfileInfo(userId, formData);
 
   // Upsert all profile_info records
   if (profileInfoRecords.length > 0) {
@@ -204,18 +193,15 @@ export async function updateProfile(formData: ProfileEditFormData) {
 export async function getViewerContext(profileUserId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
   // Call the get_shared_groups database function
   const { data: sharedGroups, error } = await supabase.rpc("get_shared_groups", {
-    user_a: user.id,
+    user_a: userId,
     user_b: profileUserId,
   });
 
@@ -225,7 +211,7 @@ export async function getViewerContext(profileUserId: string) {
 
   if (!sharedGroups || sharedGroups.length === 0) {
     const viewerContext: ViewerContext = {
-      viewerId: user.id,
+      viewerId: userId,
       sharedGroupIds: [],
       sharedGroupTypes: new Map(),
     };
@@ -240,7 +226,7 @@ export async function getViewerContext(profileUserId: string) {
   );
 
   const viewerContext: ViewerContext = {
-    viewerId: user.id,
+    viewerId: userId,
     sharedGroupIds: sharedGroups.map((g: { group_id: string }) => g.group_id),
     sharedGroupTypes: groupTypes,
   };
@@ -254,17 +240,14 @@ export async function getViewerContext(profileUserId: string) {
 export async function getSharedGroups(otherUserId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
   const { data: sharedGroups, error } = await supabase.rpc("get_shared_groups", {
-    user_a: user.id,
+    user_a: userId,
     user_b: otherUserId,
   });
 
@@ -297,12 +280,9 @@ export async function getSharedGroups(otherUserId: string) {
 export async function deleteProfileField(fieldId: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -310,7 +290,7 @@ export async function deleteProfileField(fieldId: string) {
     .from("profile_info")
     .delete()
     .eq("id", fieldId)
-    .eq("user_id", user.id); // Extra safety check
+    .eq("user_id", userId); // Extra safety check
 
   if (error) {
     return { error: error.message };
@@ -369,12 +349,9 @@ export async function isUsernameAvailable(username: string, excludeUserId?: stri
 export async function setUsername(username: string) {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -398,7 +375,7 @@ export async function setUsername(username: string) {
   const { data: existingProfile, error: checkError } = await supabase
     .from("user_profiles")
     .select("id, username")
-    .eq("id", user.id)
+    .eq("id", userId)
     .maybeSingle();
 
   if (checkError) {
@@ -407,12 +384,12 @@ export async function setUsername(username: string) {
   }
 
   if (!existingProfile) {
-    console.error("Profile not found for user:", user.id);
+    console.error("Profile not found for user:", userId);
     return { error: "Your profile hasn't been created yet. Please wait a moment and try again." };
   }
 
   // Check if username is available
-  const availabilityCheck = await isUsernameAvailable(username, user.id);
+  const availabilityCheck = await isUsernameAvailable(username, userId);
   if (availabilityCheck.error) {
     return { error: availabilityCheck.error };
   }
@@ -428,7 +405,7 @@ export async function setUsername(username: string) {
       username: username,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", user.id)
+    .eq("id", userId)
     .select()
     .maybeSingle();
 
@@ -441,7 +418,7 @@ export async function setUsername(username: string) {
   }
 
   if (!profile) {
-    console.error("Update returned no rows for user:", user.id);
+    console.error("Update returned no rows for user:", userId);
     return { error: "Failed to update username. Please try again or contact support." };
   }
 

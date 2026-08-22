@@ -1,19 +1,16 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { Logo } from "@/components/vibe/Logo";
 import { Button } from "@/components/ui/button";
 import { Heading, Text } from "@/components/ui/text";
 import Link from "next/link";
 
+import { getUserId } from "@/lib/auth/require-auth";
 export default async function Home() {
   // Check if user is authenticated
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
   // If logged in, redirect to dashboard
-  if (user) {
+  if (userId) {
     redirect("/dashboard");
   }
 

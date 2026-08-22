@@ -9,7 +9,7 @@ import { setUsername, isUsernameAvailable } from "@/lib/actions/profile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Heading, Text } from "@/components/ui/text";
-import { createClient } from "@/lib/supabase/client";
+import { useUser } from "@clerk/nextjs";
 
 const usernameSchema = z.object({
   username: z
@@ -30,7 +30,7 @@ export default function SetUsernamePage() {
   const [error, setError] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string>("");
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  const supabase = createClient();
+  const { isLoaded, user } = useUser();
 
   const {
     register,
@@ -44,29 +44,27 @@ export default function SetUsernamePage() {
   const usernameValue = watch("username");
 
   useEffect(() => {
+    // Wait for Clerk to hydrate before deciding
+    if (!isLoaded) {
+      return;
+    }
+
     // Check if user is authenticated and get their display name
-    const checkAuth = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+    if (!user) {
+      router.push("/login");
+      return;
+    }
 
-      if (!user) {
-        router.push("/login");
-        return;
-      }
-
-      // Get display name from metadata
-      const name =
-        user.user_metadata?.full_name ||
-        user.user_metadata?.name ||
-        user.email?.split("@")[0] ||
-        "there";
-      setDisplayName(name);
-      setIsCheckingAuth(false);
-    };
-
-    checkAuth();
-  }, [router, supabase]);
+    // Get display name from the Clerk user
+    const name =
+      user.fullName ||
+      user.firstName ||
+      user.username ||
+      user.primaryEmailAddress?.emailAddress?.split("@")[0] ||
+      "there";
+    setDisplayName(name);
+    setIsCheckingAuth(false);
+  }, [router, isLoaded, user]);
 
   const onSubmit = async (data: UsernameFormData) => {
     setIsLoading(true);

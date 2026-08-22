@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Heading, Text } from "@/components/ui/text";
 import { ImageInput } from "@/components/ui/image-input";
-import { useAuth } from "@/lib/hooks/useAuth";
+import { useUser } from "@clerk/nextjs";
 import { createGift, updateGift } from "@/lib/actions/gift-tracking";
 import {
   giftStatuses,
@@ -47,7 +47,7 @@ export function GiftForm({
   onSuccess,
 }: GiftFormProps) {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user } = useUser();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isEditing = !!gift;

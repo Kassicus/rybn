@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { sendDateReminderEmail } from "@/lib/resend/send";
 import { formatMonthDay } from "@/lib/utils/dates";
 
+import { getUserId } from "@/lib/auth/require-auth";
 /**
  * Check for upcoming dates and send reminders
  * This should be called by a cron job or scheduled task
@@ -121,18 +122,15 @@ export async function getActiveDateReminders() {
     const supabase = await createClient();
 
     // Get current user
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    const userId = await getUserId();
 
-    if (userError || !user) {
+    if (!userId) {
       return { error: "Not authenticated", data: [] };
     }
 
     // Get today's date reminders that haven't been dismissed
     const { data: reminders, error: remindersError } = await supabase
-      .rpc('get_dates_today_for_user', { p_user_id: user.id });
+      .rpc('get_dates_today_for_user', { p_user_id: userId });
 
     if (remindersError) {
       // Check if this is a "function does not exist" error (migration not run)
@@ -161,12 +159,9 @@ export async function dismissDateReminder(notificationId: string) {
   const supabase = await createClient();
 
   // Get current user
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (userError || !user) {
+  if (!userId) {
     return { error: "Not authenticated" };
   }
 
@@ -178,7 +173,7 @@ export async function dismissDateReminder(notificationId: string) {
       banner_dismissed_at: new Date().toISOString(),
     })
     .eq('id', notificationId)
-    .eq('notified_user_id', user.id); // Ensure user can only dismiss their own notifications
+    .eq('notified_user_id', userId); // Ensure user can only dismiss their own notifications
 
   if (updateError) {
     console.error('Error dismissing reminder:', updateError);

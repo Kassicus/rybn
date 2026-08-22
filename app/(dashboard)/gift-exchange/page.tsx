@@ -7,15 +7,14 @@ import { GiftExchangeCard } from "@/components/gift-exchange/GiftExchangeCard";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+import { getUserId } from "@/lib/auth/require-auth";
 export default async function GiftExchangePage() {
   const supabase = await createClient();
   const adminClient = createAdminClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getUserId();
 
-  if (!user) {
+  if (!userId) {
     return null;
   }
 
@@ -23,7 +22,7 @@ export default async function GiftExchangePage() {
   const { data: userGroups } = await supabase
     .from("group_members")
     .select("group_id")
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   const groupIds = userGroups?.map((g) => g.group_id) || [];
 
@@ -80,7 +79,7 @@ export default async function GiftExchangePage() {
         .from("gift_exchange_participants")
         .select("id")
         .eq("exchange_id", exchange.id)
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .eq("opted_in", true)
         .single();
 

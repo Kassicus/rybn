@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 import { sendTestEmail } from '@/lib/resend/send';
 import { EMAIL_FROM, EMAIL_FROM_NAME } from '@/lib/resend/client';
 
+import { getUserId } from "@/lib/auth/require-auth";
 /**
  * Test endpoint to send emails to mail-tester.com for deliverability testing
  *
@@ -17,13 +17,9 @@ import { EMAIL_FROM, EMAIL_FROM_NAME } from '@/lib/resend/client';
 export async function POST(request: NextRequest) {
   try {
     // Authenticate the user
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    const userId = await getUserId();
 
-    if (userError || !user) {
+    if (!userId) {
       return NextResponse.json(
         { error: "Not authenticated. Please log in to send test emails." },
         { status: 401 }

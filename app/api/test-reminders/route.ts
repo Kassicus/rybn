@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getUserId } from '@/lib/auth/require-auth';
 
 /**
  * Test endpoint to verify date reminders database setup
@@ -10,17 +11,20 @@ export async function GET() {
     const supabase = await createClient();
 
     // Get current user
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    const userId = await getUserId();
 
-    if (userError || !user) {
+    if (!userId) {
       return NextResponse.json({
-        error: "Not authenticated",
-        userError: userError?.message
+        error: "Not authenticated"
       }, { status: 401 });
     }
+
+    // Email lives on the profile row now; Clerk's auth() only returns ids.
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('email')
+      .eq('id', userId)
+      .maybeSingle();
 
     // Test 1: Check if date_notifications table exists
     const { data: tableCheck, error: tableError } = await supabase
@@ -30,13 +34,13 @@ export async function GET() {
 
     // Test 2: Try calling the function
     const { data: functionResult, error: functionError } = await supabase
-      .rpc('get_dates_today_for_user', { p_user_id: user.id });
+      .rpc('get_dates_today_for_user', { p_user_id: userId });
 
     return NextResponse.json({
       success: true,
       user: {
-        id: user.id,
-        email: user.email
+        id: userId,
+        email: profile?.email ?? null
       },
       tests: {
         tableExists: !tableError,
