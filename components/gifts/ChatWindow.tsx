@@ -8,6 +8,7 @@ import { Heading, Text } from "@/components/ui/text";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { sendMessage } from "@/lib/actions/messages";
 import { useSupabase } from "@/lib/supabase/use-supabase";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { formatDistanceToNow } from "date-fns";
 
 interface Message {
@@ -48,47 +49,71 @@ export function ChatWindow({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Set up real-time subscription
+  // Set up real-time subscription.
+  //
+  // The Clerk token has to be on the socket BEFORE the channel joins.
+  // RealtimeChannel.subscribe() reads `socket.accessTokenValue` SYNCHRONOUSLY to
+  // build the join payload, while socket.connect() only kicks setAuth() off as a
+  // fire-and-forget promise -- and here that promise is Clerk's async
+  // getToken(). On a fresh socket the join therefore goes out with no
+  // access_token, Realtime evaluates the postgres_changes filter with the role
+  // claim `anon`, and `anon` has no SELECT on messages, so the server replies
+  // "invalid column for filter group_gift_id" (its check is
+  // has_column_privilege, so a column the role cannot read reads as absent).
+  // Nothing surfaces in the UI: the join itself succeeds, the callback reports
+  // SUBSCRIBED, and the chat simply never updates. Awaiting setAuth() first
+  // resolves the token onto the socket, so the join carries it.
   useEffect(() => {
-    const channel = supabase
-      .channel(`group-gift-${groupGiftId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: `group_gift_id=eq.${groupGiftId}`,
-        },
-        async (payload) => {
-          console.log("New message received:", payload);
+    let channel: RealtimeChannel | null = null;
+    let cancelled = false;
 
-          // Fetch the user profile for the new message
-          const { data: profile } = await supabase
-            .from("user_profiles")
-            .select("id, username, display_name, avatar_url")
-            .eq("id", payload.new.user_id)
-            .single();
+    const subscribe = async () => {
+      await supabase.realtime.setAuth();
+      if (cancelled) return;
 
-          const newMsg: Message = {
-            ...payload.new,
-            user_profiles: profile,
-          } as Message;
+      channel = supabase
+        .channel(`group-gift-${groupGiftId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "messages",
+            filter: `group_gift_id=eq.${groupGiftId}`,
+          },
+          async (payload) => {
+            console.log("New message received:", payload);
 
-          // Avoid duplicate messages
-          setMessages((prev) => {
-            const exists = prev.some(m => m.id === newMsg.id);
-            if (exists) return prev;
-            return [...prev, newMsg];
-          });
-        }
-      )
-      .subscribe((status) => {
-        console.log("Subscription status:", status);
-      });
+            // Fetch the user profile for the new message
+            const { data: profile } = await supabase
+              .from("user_profiles")
+              .select("id, username, display_name, avatar_url")
+              .eq("id", payload.new.user_id)
+              .single();
+
+            const newMsg: Message = {
+              ...payload.new,
+              user_profiles: profile,
+            } as Message;
+
+            // Avoid duplicate messages
+            setMessages((prev) => {
+              const exists = prev.some(m => m.id === newMsg.id);
+              if (exists) return prev;
+              return [...prev, newMsg];
+            });
+          }
+        )
+        .subscribe((status) => {
+          console.log("Subscription status:", status);
+        });
+    };
+
+    subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      if (channel) supabase.removeChannel(channel);
     };
   }, [groupGiftId, supabase]);
 

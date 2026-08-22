@@ -66,8 +66,6 @@ function AcceptInviteContent() {
     setIsLoading(true);
     setError(null);
 
-    console.log("Calling acceptInvitation with token:", token);
-
     try {
       const result = await acceptInvitation(token);
       console.log("acceptInvitation result:", result);

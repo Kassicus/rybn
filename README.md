@@ -1,6 +1,6 @@
 # Rybn - Tied Together
 
-Gift giving, beautifully wrapped. A full-stack gift coordination app built with Next.js 15, Supabase, and Monday.com's Vibe design system.
+Gift giving, beautifully wrapped. A full-stack gift coordination app built with Next.js, Clerk, Supabase, and Monday.com's Vibe design system.
 
 **Domain**: rybn.app
 
@@ -10,7 +10,7 @@ Gift giving, beautifully wrapped. A full-stack gift coordination app built with 
 
 - Next.js 15 with TypeScript and App Router
 - Monday.com Vibe design system with theme support (light/dark mode)
-- Supabase authentication (login, register, email verification)
+- Clerk authentication (login, register, Google OAuth)
 - Protected routes with middleware
 - Resend email integration with templates
 - Basic dashboard layout with navigation
@@ -20,7 +20,8 @@ Gift giving, beautifully wrapped. A full-stack gift coordination app built with 
 ### Prerequisites
 
 - Node.js 18+ and npm
-- Supabase account (for database and auth)
+- Supabase account (for the database and realtime)
+- Clerk account (for authentication)
 - Resend account (for email)
 
 ### Installation
@@ -47,7 +48,8 @@ Gift giving, beautifully wrapped. A full-stack gift coordination app built with 
 
 - **Next.js 15** - React framework with App Router
 - **TypeScript** - Type safety
-- **Supabase** - Database, authentication, real-time
+- **Clerk** - Authentication
+- **Supabase** - Database and real-time
 - **Resend** - Email notifications
 - **Monday.com Vibe** - Design system and components
 - **React Hook Form** - Form management
@@ -62,18 +64,21 @@ Gift giving, beautifully wrapped. A full-stack gift coordination app built with 
 rybn/
 ├── app/                        # Next.js app router
 │   ├── (auth)/                # Authentication pages
-│   │   ├── login/
-│   │   ├── register/
-│   │   └── verify-email/
-│   ├── (dashboard)/           # Dashboard pages
-│   │   └── page.tsx           # Dashboard home
+│   │   ├── login/[[...rest]]/ # Clerk <SignIn/> (catch-all: Clerk routes its
+│   │   │                      #   own sub-steps under this path)
+│   │   ├── register/[[...rest]]/ # Clerk <SignUp/> (catch-all, same reason)
+│   │   └── accept-invite/     # Invitation acceptance (hash-routed <SignUp/>)
+│   ├── (dashboard)/           # Signed-in pages (the only gate on /admin/*)
 │   └── api/                   # API routes
 ├── components/                # React components
 │   └── vibe/                  # Vibe component wrappers
 ├── lib/                       # Utilities and clients
-│   ├── supabase/             # Supabase clients
+│   ├── auth/                 # requireAuth + profile provisioning
+│   ├── actions/              # Server actions
+│   ├── supabase/             # Supabase clients (Clerk-authenticated)
 │   ├── resend/               # Email templates
 │   └── hooks/                # Custom React hooks
+├── proxy.ts                  # clerkMiddleware + protected-route matcher
 ├── types/                    # TypeScript types
 └── _planning/                # Project documentation
 ```

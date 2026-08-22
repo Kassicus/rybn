@@ -123,7 +123,7 @@ export async function sendGroupInvitation(data: {
       console.error("Error updating invitation:", updateError);
       console.error("Update error details:", JSON.stringify(updateError, null, 2));
       console.error("Attempted to update invitation ID:", existingInvite.id);
-      return { error: `Failed to update invitation: ${updateError.message}` };
+      return { error: "Failed to update invitation. Please try again." };
     }
 
     if (!updatedInvite) {

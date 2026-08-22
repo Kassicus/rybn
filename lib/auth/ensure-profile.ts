@@ -13,7 +13,8 @@ import { fallbackUsername, sanitizeUsername } from "./username";
  * than one degraded render. Callers that cannot proceed without the row must
  * still handle its absence.
  *
- * Replaces the old on_auth_user_created trigger, which died with auth.users.
+ * Replaces the old on_auth_user_created trigger, which died with Supabase
+ * Auth's user table.
  * Runs lazily on the first authenticated request rather than via webhook,
  * which avoids the race where a user reaches the app before a webhook fires,
  * and self-heals if a row is ever missing.
