@@ -1,16 +1,54 @@
 import ipaddr from "ipaddr.js";
 
 /**
+ * IANA global unicast, the only IPv6 block that carries the public internet.
+ * Everything routable on the v6 internet today lives inside `2000::/3`.
+ */
+const IPV6_GLOBAL_UNICAST = ipaddr.parseCIDR("2000::/3");
+
+/**
  * True when this address must never be connected to.
  *
- * Allowlist, not denylist: only `unicast` — a genuine public address — passes.
- * Every other range ipaddr.js knows about is refused, so a range we failed to
- * think of fails CLOSED rather than open.
+ * Allowlist, not denylist. For an address to pass, BOTH must hold:
+ *
+ *   1. `range()` is `"unicast"` — it matched none of the special ranges
+ *      ipaddr.js models.
+ *   2. If it is IPv6, it is inside `2000::/3` (IANA global unicast).
+ *
+ * Neither condition replaces the other, and the second is the one that makes
+ * the whole thing fail closed.
+ *
+ * **Why (1) alone is not enough.** `ipaddr.subnetMatch` DEFAULTS its answer to
+ * `"unicast"` when nothing in its table matches (see the `defaultName` handling
+ * in `node_modules/ipaddr.js/lib/ipaddr.js`). So `range() === "unicast"` really
+ * means "unclassified", not "public". Every IPv6 range ipaddr.js does not model
+ * lands in that default and would be waved straight through — measured against
+ * 2.5.0, that includes ISATAP (`::5efe:a9fe:a9fe`, which carries
+ * 169.254.169.254), `::/96` IPv4-compatible (`::a9fe:a9fe`, the form
+ * `new URL("http://[::169.254.169.254]/").hostname` actually produces),
+ * `::1:a9fe:a9fe`, `::ffff:0:0:0:1`, `100:0:0:1::1`, `200::1`, `400::1`,
+ * `8000::1` and `fe00::1`. The `2000::/3` gate refuses all of them, and refuses
+ * the next such range nobody has thought of yet.
+ *
+ * **Why (2) alone is not enough.** `2001:db8::/32` (documentation) and
+ * `2002::/16` (6to4, which can wrap the metadata endpoint as
+ * `2002:a9fe:a9fe::`) are both *inside* `2000::/3`. Only `range()` refuses
+ * those. Dropping either condition reopens a hole.
+ *
+ * IPv4 needs no equivalent gate: there is no "global unicast prefix" for v4,
+ * and ipaddr.js models every special-purpose v4 range this design names.
  */
 export function isBlockedAddress(ip: string): boolean {
+  // Task 3 reads hostnames straight from `new URL()`, which brackets IPv6
+  // literals. `ipaddr.parse` throws on those — which fails closed, so this is
+  // an availability fix rather than a security one, but unstripped it would
+  // refuse every IPv6 host rather than only the bad ones.
+  const candidate =
+    ip.startsWith("[") && ip.endsWith("]") ? ip.slice(1, -1) : ip;
+
   let parsed;
   try {
-    parsed = ipaddr.parse(ip);
+    parsed = ipaddr.parse(candidate);
   } catch {
     return true; // unparseable is not connectable
   }
@@ -18,53 +56,33 @@ export function isBlockedAddress(ip: string): boolean {
   if (parsed.kind() === "ipv6") {
     const v6 = parsed as ipaddr.IPv6;
 
-    // ::ffff:169.254.169.254 is a real bypass: as IPv6 its range is
-    // "ipv4Mapped", which says nothing about the v4 address inside it.
+    // ::ffff:169.254.169.254 — IPv4-MAPPED. Unmap and judge the v4 address it
+    // actually carries.
     //
-    // Note what this branch does and does not do under an allowlist. It is NOT
-    // what blocks the metadata endpoint -- "ipv4Mapped" is already !== unicast,
-    // so deleting this leaves every mapped address refused. Its job is the
-    // other direction: getaddrinfo may hand back a genuinely public IPv4 host
-    // in mapped form, and without unmapping we would refuse to fetch real
-    // sites. Unmapping keeps that case working while ::ffff:169.254.169.254
-    // still fails on the v4 address it actually carries.
+    // Note what this branch does and does not do. It is NOT what blocks the
+    // metadata endpoint: "ipv4Mapped" is already !== "unicast", so deleting it
+    // leaves every mapped address refused. Its job is the other direction —
+    // getaddrinfo may hand back a genuinely public IPv4 host in mapped form
+    // (`::ffff:93.184.216.34`), and that form is NOT inside 2000::/3, so
+    // without unmapping the gate below would refuse real sites. Unmapping
+    // keeps that case working while ::ffff:169.254.169.254 still fails on the
+    // 169.254.169.254 inside it.
     if (v6.isIPv4MappedAddress()) {
       return isBlockedAddress(v6.toIPv4Address().toString());
     }
 
-    // ::/96 -- IPv4-COMPATIBLE IPv6 (RFC 4291 s2.5.5.1, deprecated). This is a
-    // different range from the mapped ::ffff:0:0/96 above, and ipaddr.js does
-    // not model it: ::a9fe:a9fe classifies as "unicast", so the allowlist would
-    // let the metadata endpoint straight through. ipaddr.js rescues only the
-    // dotted spelling "::169.254.169.254", which it silently rewrites into the
-    // mapped form -- and the dotted spelling is never what we see, because
-    // new URL("http://[::169.254.169.254]/").hostname is "[::a9fe:a9fe]".
-    // Unmap and re-check, for the same reason the mapped form is unmapped.
-    const compatible = ipv4CompatibleAddress(v6);
-    if (compatible !== null) {
-      return isBlockedAddress(compatible);
+    // The global-unicast gate. This subsumes what an explicit `::/96`
+    // IPv4-compatible check used to do here: `::a9fe:a9fe` is `range()`
+    // "unicast" but sits outside 2000::/3, so it is refused — as is the whole
+    // unmodelled class it belongs to, rather than that one prefix.
+    if (!v6.match(IPV6_GLOBAL_UNICAST)) {
+      return true;
     }
   }
 
   return parsed.range() !== "unicast";
 }
 
-/**
- * The IPv4 address embedded in an IPv4-compatible IPv6 address (`::/96`), or
- * null when the address is not in that range.
- *
- * `::` and `::1` land here too, and unmap to 0.0.0.0 and 0.0.0.1 — both inside
- * 0.0.0.0/8, so both stay blocked. Nothing routable lives in `::/96`.
- */
-function ipv4CompatibleAddress(v6: ipaddr.IPv6): string | null {
-  const parts = v6.parts;
-  for (let i = 0; i < 6; i++) {
-    if (parts[i] !== 0) return null;
-  }
-  const high = parts[6];
-  const low = parts[7];
-  return [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
-}
 
 export function parseSafeUrl(
   raw: string
