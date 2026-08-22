@@ -1,3 +1,14 @@
+import type { StoredImageValue } from "./stored-image";
+
+// The two image columns below are declared as StoredImageValue in their Insert
+// and Update shapes, not as plain strings. That is deliberate and load-bearing,
+// not a typo: it is what makes "a write path forgot the image guard" a compile
+// error rather than something a reviewer has to catch. See types/stored-image.ts
+// for why, and lib/storage/image-value.ts for the only cast that produces one.
+//
+// If you regenerate this file, re-apply the four annotations. The tripwire
+// assertions in lib/storage/image-value.ts fail to compile if you do not.
+
 export type Json =
   | string
   | number
@@ -72,7 +83,7 @@ export type Database = {
           recipient_id: string
           name: string
           description?: string | null
-          photo_url?: string | null
+          photo_url?: StoredImageValue | null
           product_link?: string | null
           price?: number | null
           status?: "planned" | "ordered" | "arrived" | "wrapped" | "given"
@@ -90,7 +101,7 @@ export type Database = {
           recipient_id?: string
           name?: string
           description?: string | null
-          photo_url?: string | null
+          photo_url?: StoredImageValue | null
           product_link?: string | null
           price?: number | null
           status?: "planned" | "ordered" | "arrived" | "wrapped" | "given"
@@ -726,7 +737,7 @@ export type Database = {
           description?: string | null
           url?: string | null
           price?: number | null
-          image_url?: string | null
+          image_url?: StoredImageValue | null
           priority?: "low" | "medium" | "high" | "must-have" | null
           category?: string | null
           privacy_settings?: Json
@@ -746,7 +757,7 @@ export type Database = {
           description?: string | null
           url?: string | null
           price?: number | null
-          image_url?: string | null
+          image_url?: StoredImageValue | null
           priority?: "low" | "medium" | "high" | "must-have" | null
           category?: string | null
           privacy_settings?: Json

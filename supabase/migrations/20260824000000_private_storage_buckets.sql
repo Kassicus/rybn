@@ -66,6 +66,44 @@
 
 
 -- -----------------------------------------------------------------------------
+-- 0. The premise, asserted rather than assumed.
+--
+-- Everything below is safe to run WITHOUT a backfill only because no row holds
+-- a legacy public URL. That is true of this project today -- 14 tables, 0 rows
+-- -- and it is exactly why this is the cheapest moment for the change. But the
+-- rest of this file asserts its own end state four different ways and would be
+-- checking the premise nowhere, and a migration that is correct only under an
+-- unstated precondition is a migration that silently does damage the first time
+-- someone applies it somewhere else.
+--
+-- What the damage looks like: a stored `https://<ref>.supabase.co/storage/v1/
+-- object/public/<bucket>/<path>` is classified by isExternalImageUrl() as a
+-- URL the user pasted. It is therefore passed through UNSIGNED, 400s forever
+-- against the now-private bucket, and is re-accepted by the write guard on
+-- every subsequent save. No error, no log -- the image simply never loads
+-- again. Refusing to apply is strictly better than that.
+--
+-- Matched on the path segment rather than the host, because the host is the
+-- project ref and a dump restored into a different project would carry the old
+-- one. `/object/public/` is the shape of the endpoint, whatever the host.
+-- -----------------------------------------------------------------------------
+do $$
+declare
+  v_legacy int;
+begin
+  select (select count(*) from public.wishlist_items where image_url like '%/object/public/%')
+       + (select count(*) from public.tracked_gifts  where photo_url like '%/object/public/%')
+    into v_legacy;
+
+  if v_legacy <> 0 then
+    raise exception
+      'MIGRATION FAIL: % row(s) still hold a legacy public storage URL. Making the buckets private would break every one of them silently -- they would be treated as pasted external URLs, never signed, and 404 forever. Convert them to object paths first; this migration deliberately carries no backfill.',
+      v_legacy;
+  end if;
+end $$;
+
+
+-- -----------------------------------------------------------------------------
 -- 1. The buckets themselves.
 --
 -- `update`, not `insert ... on conflict`: the baseline already created both and

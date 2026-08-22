@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Circle, Lock, ExternalLink } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
@@ -11,6 +11,7 @@ import { WishlistItemSettings } from "@/components/wishlist/WishlistItemSettings
 import { ClaimActions } from "@/components/wishlist/ClaimActions";
 import { getWishlistItem, getClaimerProfile } from "@/lib/actions/wishlist";
 import { PRIORITY_INFO } from "@/lib/schemas/wishlist";
+import { SIGNED_IMAGE_REFRESH_MS } from "@/lib/storage/image-value";
 import { GROUP_TYPES } from "@/types/privacy";
 import type { GroupType } from "@/types/privacy";
 
@@ -57,38 +58,65 @@ export default function WishlistItemDetailPage({
   const [claimerInfo, setClaimerInfo] = useState<ClaimerInfo | null>(null);
   const router = useRouter();
 
-  useEffect(() => {
-    async function loadData() {
-      const { data: itemData, error: itemError, currentUserId: userId } =
-        await getWishlistItem(itemId);
+  const loadData = useCallback(async () => {
+    const { data: itemData, error: itemError, currentUserId: userId } =
+      await getWishlistItem(itemId);
 
-      if (itemError || !itemData) {
-        router.push("/404");
-        return;
-      }
-
-      if (!userId) {
-        router.push("/404");
-        return;
-      }
-
-      setItem(itemData as any);
-      setCurrentUserId(userId);
-      setIsOwnWishlist(itemData.user_id === userId);
-
-      // Fetch claimer info if claimed and not own item
-      if (itemData.claimed_by && itemData.user_id !== userId) {
-        const { data: claimer } = await getClaimerProfile(itemData.claimed_by);
-        if (claimer) {
-          setClaimerInfo(claimer);
-        }
-      }
-
-      setLoading(false);
+    if (itemError || !itemData) {
+      router.push("/404");
+      return;
     }
 
-    loadData();
+    if (!userId) {
+      router.push("/404");
+      return;
+    }
+
+    setItem(itemData as any);
+    setCurrentUserId(userId);
+    setIsOwnWishlist(itemData.user_id === userId);
+
+    // Fetch claimer info if claimed and not own item
+    if (itemData.claimed_by && itemData.user_id !== userId) {
+      const { data: claimer } = await getClaimerProfile(itemData.claimed_by);
+      if (claimer) {
+        setClaimerInfo(claimer);
+      }
+    } else {
+      setClaimerInfo(null);
+    }
+
+    setLoading(false);
   }, [itemId, router]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Renew the signed image URL before it expires.
+  //
+  // This is the ONE page in the app that fetches its own data in an effect;
+  // everywhere else the images come from a Server Component, which re-signs on
+  // every render, so navigation and router.refresh() renew them for free.
+  // Neither of those re-runs a useEffect, so without this the URL minted at
+  // mount is the only one this page will ever have -- and it is also the page
+  // most likely to be left open, which is the worst combination.
+  //
+  // Two triggers, because a timer alone is not enough: a background tab has its
+  // timers throttled and a sleeping machine does not run them at all, so a tab
+  // returned to after two hours would still be showing dead URLs until the
+  // interval next fired. The visibility handler covers exactly that case.
+  useEffect(() => {
+    const interval = setInterval(loadData, SIGNED_IMAGE_REFRESH_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") loadData();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [loadData]);
 
   if (loading) {
     return (
@@ -169,6 +197,7 @@ export default function WishlistItemDetailPage({
               itemId={item.id}
               itemTitle={item.title}
               item={item}
+              onSaved={loadData}
             />
           )}
         </div>
@@ -226,6 +255,9 @@ export default function WishlistItemDetailPage({
               url: item.url,
               price: item.price,
               image_path: item.image_path,
+              // image_url survives signing, image_path does not survive the
+              // owner mask -- so this pair says "has an image we cannot hand on".
+              image_is_private_upload: !!item.image_url && !item.image_path,
             }}
           />
         )}

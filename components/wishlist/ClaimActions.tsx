@@ -47,6 +47,48 @@ interface WishlistItemData {
    * external URL or null, and only the external case is carried over.
    */
   image_path?: string | null;
+  /**
+   * True when the item HAS an image but it is an uploaded object rather than a
+   * pasted URL -- i.e. exactly the case where the photo cannot be carried over.
+   *
+   * image_path alone cannot express this: it is null both for "no image" and
+   * for "an image we are not allowed to hand you", and the user needs to be
+   * told about the second one.
+   */
+  image_is_private_upload?: boolean;
+}
+
+/**
+ * Success confirmation for "Add to Gift Tracker", including the one thing the
+ * user would otherwise be left to notice for themselves.
+ *
+ * An uploaded wishlist image lives in the OWNER's private storage folder, and
+ * there is no durable reference to it a different user's gift row could hold:
+ * the signed URL on screen expires within the hour, and the object path is
+ * refused on write because it is not the claimer's. So it is not copied. Saying
+ * nothing would let the photo vanish silently between two screens, which is the
+ * failure mode this whole change exists to stop doing elsewhere.
+ */
+function GiftTrackerSuccess({
+  photoDropped,
+  standalone = false,
+}: {
+  photoDropped?: boolean;
+  standalone?: boolean;
+}) {
+  return (
+    <div className={standalone ? "pt-3 border-t border-light-border" : undefined}>
+      <div className="flex items-center gap-1.5 text-sm text-success">
+        <Check className="w-4 h-4" />
+        <span>Added to Gift Tracker</span>
+      </div>
+      {photoDropped && (
+        <Text size="sm" variant="secondary" className="mt-1">
+          Photo not copied. Add your own in the Gift Tracker.
+        </Text>
+      )}
+    </div>
+  );
 }
 
 interface GiftRecipient {
@@ -259,10 +301,9 @@ export function ClaimActions({
                 </Button>
               )}
               {trackerSuccess && (
-                <div className="flex items-center gap-1.5 text-sm text-success">
-                  <Check className="w-4 h-4" />
-                  <span>Added to Gift Tracker</span>
-                </div>
+                <GiftTrackerSuccess
+                  photoDropped={itemData?.image_is_private_upload}
+                />
               )}
             </div>
 
@@ -342,10 +383,9 @@ export function ClaimActions({
                 </Button>
               )}
               {trackerSuccess && (
-                <div className="flex items-center gap-1.5 text-sm text-success">
-                  <Check className="w-4 h-4" />
-                  <span>Added to Gift Tracker</span>
-                </div>
+                <GiftTrackerSuccess
+                  photoDropped={itemData?.image_is_private_upload}
+                />
               )}
             </div>
 
@@ -501,10 +541,10 @@ export function ClaimActions({
           )}
 
           {trackerSuccess && (
-            <div className="flex items-center gap-2 pt-3 border-t border-light-border text-success">
-              <Check className="w-4 h-4" />
-              <Text size="sm">Added to Gift Tracker</Text>
-            </div>
+            <GiftTrackerSuccess
+              photoDropped={itemData?.image_is_private_upload}
+              standalone
+            />
           )}
 
           {/* Gift Tracker Recipient Selection */}

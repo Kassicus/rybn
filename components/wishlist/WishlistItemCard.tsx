@@ -183,6 +183,9 @@ export function WishlistItemCard({
               url: item.url,
               price: item.price,
               image_path: item.image_path,
+              // image_url survives signing, image_path does not survive the
+              // owner mask -- so this pair says "has an image we cannot hand on".
+              image_is_private_upload: !!item.image_url && !item.image_path,
             }}
           />
         </div>

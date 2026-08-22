@@ -39,12 +39,24 @@ interface WishlistItemSettingsProps {
       restrictToGroup?: string | null;
     };
   };
+  /**
+   * Called after a successful save, so the OWNER of this item can re-fetch it.
+   *
+   * router.refresh() is not enough on its own here: the only page that renders
+   * this component fetches in a useEffect, which refresh() does not re-run. Left
+   * unwired, `item` stays at its mount-time value while the form holds the newly
+   * saved one -- so reopening the modal shows previewUrl = signed(OLD path)
+   * against a form holding the NEW path, and a second save would write the old
+   * path back over the new one.
+   */
+  onSaved?: () => void;
 }
 
 export function WishlistItemSettings({
   itemId,
   itemTitle,
   item,
+  onSaved,
 }: WishlistItemSettingsProps) {
   const router = useRouter();
   const { user } = useUser();
@@ -109,6 +121,7 @@ export function WishlistItemSettings({
       setShowModal(false);
       setViewMode('menu');
       router.refresh();
+      onSaved?.();
     }
   };
 

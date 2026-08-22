@@ -8,6 +8,7 @@ import {
   withSignedGiftPhotos,
 } from "@/lib/supabase/signed-image";
 import { resolveStoredImageValue } from "@/lib/storage/image-value";
+import type { Database } from "@/types/database";
 
 import { getUserId } from "@/lib/auth/require-auth";
 
@@ -369,8 +370,13 @@ export async function updateGift(giftId: string, formData: Partial<TrackedGiftFo
     return { error: "Not authenticated" };
   }
 
-  // Build update object, handling empty strings as null
-  const updateData: Record<string, unknown> = {
+  // Build update object, handling empty strings as null.
+  //
+  // Typed as the table's Update shape rather than Record<string, unknown>. The
+  // Record was the one write path in the app where photo_url could be assigned
+  // a plain string without the compiler noticing -- an untyped bag defeats the
+  // StoredImageValue brand entirely. This also keeps every other column honest.
+  const updateData: Database["public"]["Tables"]["tracked_gifts"]["Update"] = {
     updated_at: new Date().toISOString(),
   };
 

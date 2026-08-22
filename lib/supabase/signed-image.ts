@@ -4,7 +4,16 @@
 import "server-only";
 
 import { createAdminClient } from "./admin";
-import { isExternalImageUrl } from "@/lib/storage/image-value";
+import {
+  isExternalImageUrl,
+  SIGNED_IMAGE_TTL_SECONDS,
+} from "@/lib/storage/image-value";
+
+// Re-exported so server code can reach the lifetime without importing the
+// shared module directly. It LIVES there, not here, because the one client
+// page that renews its own signed URLs needs the same number and cannot import
+// this server-only module to get it.
+export { SIGNED_IMAGE_TTL_SECONDS };
 
 /**
  * Turning a stored object path into something an <img> can load.
@@ -31,24 +40,6 @@ import { isExternalImageUrl } from "@/lib/storage/image-value";
  */
 
 export type ImageBucket = "wishlist-images" | "gift-photos";
-
-/**
- * How long a signed image URL stays valid.
- *
- * One hour. The trade is between the exposure window of a URL that leaks (via a
- * Referer header, a pasted link, browser history -- the exact channels that
- * made public buckets a disclosure risk in the first place) and how long a page
- * can sit open before its images 404.
- *
- * An hour is short enough that a leaked URL is close to worthless by the time
- * it is noticed, and long enough to cover any realistic single sitting with a
- * wishlist. A page left open LONGER than an hour will show broken images until
- * it is refreshed, and that is accepted rather than handled: by then the page's
- * claim and purchase state is stale too, so a reload is needed regardless, and
- * a re-signing mechanism would add a polling path and a cache-invalidation
- * question to buy back an edge case that a refresh already fixes.
- */
-export const SIGNED_IMAGE_TTL_SECONDS = 3600;
 
 /**
  * Sign a batch of values against one bucket, preserving input positions.

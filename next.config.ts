@@ -133,7 +133,14 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'", // Tailwind requires unsafe-inline
               // Clerk's user avatars (img.clerk.com) are already covered by the
               // blanket https: source below; keep that in mind before tightening it.
-              "img-src 'self' data: https:",
+              //
+              // blob: is required for the same reason worker-src needs it below:
+              // 'self' does not match a blob: URL. ImageInput previews a
+              // just-uploaded file from URL.createObjectURL(), and since both
+              // image buckets went private that blob IS the preview -- there is
+              // no public https URL to swap it for. Without blob: here, every
+              // upload shows a broken-image icon until the page is reloaded.
+              "img-src 'self' data: blob: https:",
               "font-src 'self' data:",
               `connect-src ${connectSrc}`,
               // clerk-js instantiates a Web Worker from a blob URL for session
