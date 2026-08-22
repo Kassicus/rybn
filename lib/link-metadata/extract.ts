@@ -187,6 +187,16 @@ const BLOCK_TEXT_ELEMENTS = {
 const RAW_TEXT_ELEMENTS = new Set(Object.keys(BLOCK_TEXT_ELEMENTS));
 
 /**
+ * Exported so the differential tests can parse a document both ways -- reduced
+ * and untouched -- through the exact options this module uses, rather than
+ * through a second copy of them that could drift.
+ */
+export const PARSE_OPTIONS = {
+  parseNoneClosedTags: true,
+  blockTextElements: BLOCK_TEXT_ELEMENTS,
+} as const;
+
+/**
  * Find the `>` that closes a tag, or -1.
  *
  * Quote-aware, because node-html-parser honours a `>` inside a quoted
@@ -215,7 +225,62 @@ function findTagEnd(html: string, start: number): number {
   return firstGt;
 }
 
-/** The lower-cased tag name at `start`, or "" if there is not one. */
+/**
+ * Characters after which node-html-parser considers a tag name finished.
+ *
+ * Measured, not read off the regex: for every code point in the BMP, parse
+ * `<script{c}>` followed by a `<meta>` and ask whether the parser walked that
+ * meta as markup. Exactly 24 code points end the name and keep the element's
+ * raw text -- these 22, plus `>` and `/` (the latter only when `>` follows,
+ * since `<pre/x>` is not a tag at all). Everything else, all 54,206 of them,
+ * extends the name.
+ *
+ * Note what is NOT here: U+00A0, U+1680 and U+FEFF are `\s` to JavaScript but
+ * name characters to this parser, whose class carries an `F-\u1FFF` range and
+ * a `\uFDF0-\uFFFD` range. Using `\s` would have been wrong in both
+ * directions. `extract.test.ts` re-derives this set from the parser across the
+ * whole BMP on every run, so it cannot go stale.
+ */
+const TAG_NAME_TERMINATORS = new Set([
+  0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20,
+  0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005,
+  0x2006, 0x2007, 0x2008, 0x2009, 0x200a,
+  0x2028, 0x2029, 0x202f, 0x205f, 0x3000,
+]);
+
+/**
+ * Does the parser agree that a tag name ends at `at`?
+ *
+ * This is what makes `readTagName`'s narrow character class safe. That class
+ * is a strict subset of the parser's, so the name it returns is always a
+ * PREFIX of the parser's -- for `<script_x>` it reads `script` where the
+ * parser reads `script_x`. Acting on a prefix is a live bypass: the reducer
+ * would copy the rest of the document verbatim hunting for `</script>` while
+ * the parser walked that same payload as ordinary markup, which is the
+ * quadratic path this pre-pass exists to close. Measured at 7,110 ms for
+ * 313 KB behind `<script_x>` -- the unmitigated curve, with byte-identical
+ * reducer output.
+ *
+ * Requiring a terminator makes the difference in character classes irrelevant
+ * rather than patched: none of these 24 characters is in the parser's name
+ * class, so if one follows our name then the parser's name ends in the same
+ * place and the two agree. Any other character means our name is a strict
+ * prefix, and we fail closed into reducing the content -- always safe, because
+ * reduced content cannot carry a text-node bomb.
+ */
+function endsTagName(html: string, at: number): boolean {
+  const c = html.charCodeAt(at);
+  if (c === 0x3e) return true; // ">"
+  if (c === 0x2f) return html.charCodeAt(at + 1) === 0x3e; // "/>" and nothing else
+  return TAG_NAME_TERMINATORS.has(c);
+}
+
+/**
+ * The lower-cased tag name at `start`, or "" if there is not one.
+ *
+ * Deliberately narrower than the parser's class; `endsTagName` above is what
+ * makes that safe. Do not widen it without reading that comment.
+ */
 function readTagName(html: string, start: number): string {
   let from = start + 1;
   if (html.charCodeAt(from) === 0x2f) from += 1;
@@ -307,7 +372,11 @@ export function reduceToMarkup(html: string): string {
     const name = startsName ? readTagName(html, i) : "";
     i = end + 1;
 
-    if (name !== "" && RAW_TEXT_ELEMENTS.has(name)) {
+    if (
+      name !== "" &&
+      RAW_TEXT_ELEMENTS.has(name) &&
+      endsTagName(html, lt + 1 + name.length)
+    ) {
       // Mirror the parser exactly: it looks for the literal `</name>` spelled
       // as the opening tag spelled it, and runs to the end of the document
       // when that is not there.
@@ -481,10 +550,7 @@ function read(html: string, pageUrl: string): LinkMetadata {
   // is super-linear: 8,000 unclosed `<div>`s -- 40 KB, a fiftieth of Task 6's
   // fetch cap -- takes ~36 seconds with it on and ~10 ms with it off. We read
   // meta tags and script bodies, so the repaired tree shape buys us nothing.
-  const root = parse(reduceToMarkup(html), {
-    parseNoneClosedTags: true,
-    blockTextElements: BLOCK_TEXT_ELEMENTS,
-  });
+  const root = parse(reduceToMarkup(html), PARSE_OPTIONS);
   const { documentTitle, metas, ldJson } = collect(root);
   const out: LinkMetadata = {};
 

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { extractMetadata, reduceToMarkup } from "@/lib/link-metadata/extract";
+import { parse } from "node-html-parser";
+import {
+  extractMetadata,
+  PARSE_OPTIONS,
+  reduceToMarkup,
+} from "@/lib/link-metadata/extract";
 import { DESCRIPTION_MAX_LENGTH, TITLE_MAX_LENGTH } from "@/lib/schemas/wishlist";
 
 const PAGE = "https://shop.example.com/p/1";
@@ -949,4 +954,214 @@ describe("work ceilings", () => {
   it("stops one node past its JSON budget", { timeout: 5000 }, () => {
     expect(inArray(99_999)).toBeUndefined();
   });
+});
+
+
+// ---------------------------------------------------------------------------
+// The reducer and the parser must agree about where a tag name ends.
+//
+// reduceToMarkup's own name reader accepts only [A-Za-z0-9:-], while the
+// parser's class also carries _ . @ and a wide Unicode range. So our name is
+// always a PREFIX of the parser's, and acting on a prefix is a live bypass:
+// for `<script_x>` the reducer would copy the document verbatim looking for
+// `</script>` while the parser walked that payload as ordinary markup, at
+// 7,110 ms per 313 KB. These tests establish the agreement rather than
+// patching the three characters that happened to be found.
+// ---------------------------------------------------------------------------
+
+describe("tag-name agreement with the parser", () => {
+  const RAW_TEXT_NAMES = ["script", "style", "title", "pre", "noscript"];
+  const PAYLOAD = `<b></b>KEEP<meta property="og:title" content="LEAK">`;
+
+  /** Did the reducer preserve the payload as raw text? */
+  const reducerKeptRawText = (html: string) => reduceToMarkup(html).includes("KEEP");
+
+  /** Did the parser? Observable as: the meta is invisible because it is text. */
+  const parserKeptRawText = (html: string) =>
+    parse(html, PARSE_OPTIONS).querySelector('meta[property="og:title"]') === null;
+
+  it("agrees on every code point in the BMP, for every raw-text element",
+    { timeout: 60_000 }, () => {
+      const disagreements: string[] = [];
+      for (const name of RAW_TEXT_NAMES) {
+        for (let c = 0; c <= 0xffff; c++) {
+          if (c >= 0xd800 && c <= 0xdfff) continue; // lone surrogates
+          const html = `<${name}${String.fromCharCode(c)}>${PAYLOAD}`;
+          if (reducerKeptRawText(html) !== parserKeptRawText(html)) {
+            disagreements.push(`<${name}> + U+${c.toString(16).toUpperCase().padStart(4, "0")}`);
+            if (disagreements.length > 12) break;
+          }
+        }
+      }
+      expect(disagreements).toEqual([]);
+    });
+
+  it("agrees on astral code points too", () => {
+    const disagreements: string[] = [];
+    for (const c of [0x10000, 0x1f381, 0x20000, 0xe0001, 0x10fffd]) {
+      const html = `<script${String.fromCodePoint(c)}>${PAYLOAD}`;
+      if (reducerKeptRawText(html) !== parserKeptRawText(html)) disagreements.push(`U+${c.toString(16)}`);
+    }
+    expect(disagreements).toEqual([]);
+  });
+
+  it("still enters raw-text mode for the spellings that really are raw text", () => {
+    // The fix must not fail closed so eagerly that ordinary pages lose their
+    // JSON-LD: these five all end the name for the parser.
+    for (const open of ["<script>", "<script >", "<script\t>", "<script/>", "<script\u2003>"]) {
+      const html = `${open}{"@type":"Product","name":"Kept"}</script>`;
+      expect(reduceToMarkup(html)).toContain(`{"@type":"Product","name":"Kept"}`);
+    }
+  });
+
+  it("reads a JSON-LD block whose script tag is spelled every legal way", () => {
+    const body = `{"@type":"Product","name":"Kept","offers":{"price":"42.50","priceCurrency":"USD"}}`;
+    for (const open of [
+      `<script type="application/ld+json">`,
+      `<script\ttype="application/ld+json">`,
+      `<script\u2003type="application/ld+json">`,
+      `<SCRIPT TYPE="application/ld+json">`,
+    ]) {
+      const close = open.startsWith("<SCRIPT") ? "</SCRIPT>" : "</script>";
+      const r = extractMetadata(`${open}${body}${close}`, PAGE);
+      expect(r.title).toBe("Kept");
+      expect(r.price).toBe(42.5);
+    }
+  });
+
+  it("mirrors the parser's case-sensitive search for a closing tag", () => {
+    // `<SCRIPT>` closed by `</script>` loses its JSON-LD -- node-html-parser
+    // looks for the literal `</SCRIPT>` and runs to the end of the document
+    // when it is absent, so the block's raw text swallows the closing tag and
+    // stops being JSON. That is the parser's behaviour with or without the
+    // reduction, and the reducer copies the rule rather than improving on it,
+    // because diverging is what creates a bypass.
+    const html = `<SCRIPT TYPE="application/ld+json">{"@type":"Product","name":"K"}</script>`;
+    const ld = (root: ReturnType<typeof parse>) =>
+      root
+        .querySelectorAll("script")
+        .filter((el) =>
+          el.getAttribute("type")?.trim().toLowerCase().startsWith("application/ld+json"))
+        .map((el) => el.rawText);
+    expect(ld(parse(reduceToMarkup(html), PARSE_OPTIONS)))
+      .toEqual(ld(parse(html, PARSE_OPTIONS)));
+    expect(extractMetadata(html, PAGE).title).toBeUndefined();
+  });
+
+  it("does not treat a prefix-named element as raw text", () => {
+    for (const frag of ["<script_x>", "<style.x>", "<title_a>", "<pre@z>", "<noscript_>", "<pre/x>"]) {
+      expect(reduceToMarkup(`${frag}<b></b>DROPPED`)).not.toContain("DROPPED");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The six prefix-name shapes, at the size Task 6 can actually hand us. Each
+// one is the unmitigated quadratic path if the reducer acts on a prefix.
+// ---------------------------------------------------------------------------
+
+describe("prefix-named elements do not reopen the quadratic path", () => {
+  for (const frag of ["<script_x>", "<style.x>", "<title_a>", "<pre@z>", "<noscript_>", "<pre/x>"]) {
+    it(`survives 2 MB behind ${frag}`, { timeout: 5000 }, () => {
+      const html =
+        `<meta property="og:title" content="Findable">` + frag + "<b></b>a".repeat(262_144);
+      expect(extractMetadata(html, PAGE).title).toBe("Findable");
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Differential fuzz: for a generated corpus, the reduced document and the
+// original must present the parser with the same metadata. Includes the
+// prefix-name fragments, which the first round's fuzz did not.
+// ---------------------------------------------------------------------------
+
+describe("reduction is behaviour-preserving (differential fuzz)", () => {
+  const FRAGMENTS = [
+    `<meta property="og:title" content="T1">`,
+    `<meta name="twitter:title" content="T2">`,
+    `<meta property="og:description" content="a > b">`,
+    `<meta property="og:description" content='a > b'>`,
+    `<meta property="og:image" content="/a.jpg">`,
+    `<META PROPERTY="OG:TITLE" CONTENT="T3">`,
+    `<title>Doc &amp; Title</title>`,
+    `<title>`,
+    `</title>`,
+    `<script type="application/ld+json">{"@type":"Product","name":"P","offers":{"price":"42.50","priceCurrency":"USD"}}</script>`,
+    `<script type="application/ld+json">{"@type":"Product","name":"<!-- x"}</script>`,
+    `<script>var a = "</scr" + "ipt>";</script>`,
+    `<script>var a = "<!--";`,
+    `<script_x>`,
+    `<script_x>text</script_x>`,
+    `<style.x>`,
+    `<title_a>`,
+    `<pre@z>`,
+    `<noscript_>`,
+    `<pre/x>`,
+    `<script/>`,
+    `<script >`,
+    `<SCRIPT>x</SCRIPT>`,
+    `<style>.a{content:"<b>"}</style>`,
+    `<pre>  spaced  </pre>`,
+    `<!-- a comment -->`,
+    `<!--`,
+    `<!-->`,
+    `<![CDATA[x]]>`,
+    `<![CDATA[`,
+    `<div class="p">`,
+    `</div>`,
+    `plain text`,
+    `1 < 2`,
+    `<b></b>a`,
+    `<a x="`,
+    `<svg><title>icon</title></svg>`,
+    `<template><meta property="og:title" content="tpl"></template>`,
+    `<html><head>`,
+    `</head><body>`,
+  ];
+
+  /** Everything `collect` can see, read straight off a parsed tree. */
+  const observable = (root: ReturnType<typeof parse>) => {
+    const metas: string[] = [];
+    for (const el of root.querySelectorAll("meta")) {
+      const key = (el.getAttribute("property") ?? el.getAttribute("name"))?.trim().toLowerCase();
+      const content = el.getAttribute("content");
+      if (key !== undefined && content !== undefined) metas.push(`${key}=${content}`);
+    }
+    const scripts = root
+      .querySelectorAll("script")
+      .filter((el) => el.getAttribute("type")?.trim().toLowerCase().startsWith("application/ld+json"))
+      .map((el) => el.rawText);
+    return JSON.stringify({
+      title: root.querySelector("title")?.text ?? null,
+      metas,
+      scripts,
+    });
+  };
+
+  it("presents the parser with the same metadata, reduced or not", () => {
+    // Deterministic PRNG so a failure is reproducible from the seed alone.
+    let seed = 0x5eed_1234;
+    const next = () => {
+      seed = (seed * 1_103_515_245 + 12_345) & 0x7fff_ffff;
+      return seed;
+    };
+    const divergences: string[] = [];
+
+    for (let doc = 0; doc < 40_000; doc++) {
+      const parts: string[] = [];
+      const count = 1 + (next() % 6);
+      for (let i = 0; i < count; i++) parts.push(FRAGMENTS[next() % FRAGMENTS.length]);
+      const html = parts.join("");
+
+      const a = observable(parse(html, PARSE_OPTIONS));
+      const b = observable(parse(reduceToMarkup(html), PARSE_OPTIONS));
+      if (a !== b) {
+        divergences.push(`${JSON.stringify(html)}\n  raw     ${a}\n  reduced ${b}`);
+        if (divergences.length >= 5) break;
+      }
+    }
+
+    expect(divergences).toEqual([]);
+  }, 120_000);
 });
