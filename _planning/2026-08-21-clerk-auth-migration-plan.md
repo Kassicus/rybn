@@ -1038,12 +1038,28 @@ npm run dev
 Then in another shell:
 
 ```bash
-curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" http://localhost:3000/dashboard
+curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" \
+  -H "Accept: text/html" http://localhost:3000/dashboard
 ```
 
 Expected: a 307/302 to a Clerk sign-in URL, not to `/login`. This proves
 `clerkMiddleware` is active. The page itself will not render correctly yet —
 that is the expected broken window.
+
+**The `Accept: text/html` header is required, not decoration.** Bare `curl`
+sends `Accept: */*`, which makes Clerk's `auth.protect()` take its API path and
+return **404** instead of a redirect. Without the header you will read a
+correct setup as a failure. Note also that the first hop may be Clerk's
+`dev-browser-missing` handshake, which fires on unprotected routes too — to
+isolate real route protection, hold the handshake cookie and re-request.
+
+Also confirm an unprotected route still works:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -H "Accept: text/html" http://localhost:3000/
+```
+
+Expected: 200. A matcher that protects everything is a real defect.
 
 - [ ] **Step 11: Commit**
 
