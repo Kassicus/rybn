@@ -1,3 +1,11 @@
+// This module is the identity choke point the whole auth model pivots on, and
+// it reaches ensureProfile() -> lib/supabase/admin.ts -> the service-role key.
+// Non-NEXT_PUBLIC_ env vars are never inlined into a client bundle, so this is
+// not plugging a leak; it makes the choke point structurally impossible to
+// pull into a client component, where `auth()` would resolve to something
+// other than the server's request identity.
+import "server-only";
+
 import { auth } from "@clerk/nextjs/server";
 
 import { ensureProfile } from "./ensure-profile";
