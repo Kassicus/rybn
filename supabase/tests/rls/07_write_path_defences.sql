@@ -35,6 +35,7 @@ declare
   v_exchange_ins  int;
   v_update_open   int;
   v_update_total  int;
+  v_gm_insert     int;
   v_checks        int := 0;
 begin
   ---------------------------------------------------------------------------
@@ -119,16 +120,44 @@ begin
    where schemaname = 'public'
      and cmd = 'UPDATE';
 
-  if v_update_total < 16 then
+  if v_update_total < 15 then
     raise exception
-      'CONTROL FAIL: only % UPDATE policy/policies found in schema public, expected at least 16. Policies have gone missing, so the WITH CHECK assertion above proves nothing.',
+      'CONTROL FAIL: only % UPDATE policy/policies found in schema public, expected at least 15. Policies have gone missing, so the WITH CHECK assertion above proves nothing.',
       v_update_total;
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 4 then
+  ---------------------------------------------------------------------------
+  -- 4. group_members must have NO INSERT policy at all.
+  --
+  --    Membership is the key to nearly everything in this schema --
+  --    is_group_member() is the predicate under most of the policy set -- and
+  --    the archived INSERT policy was `with check (requesting_user_id() =
+  --    user_id)`, i.e. anyone holding a group id could grant it to themselves.
+  --    A removed member could rejoin unaided, which made removal
+  --    unenforceable. RLS cannot express the real rule (a policy cannot be
+  --    handed an invite code to check), so membership is created only by
+  --    join_group_with_code(), accept_group_invitation() and the
+  --    add_group_creator_as_owner() trigger -- all SECURITY DEFINER, all
+  --    unaffected by the absence of a policy. Any INSERT policy reappearing
+  --    here reopens the whole thing.
+  ---------------------------------------------------------------------------
+  select count(*) into v_gm_insert
+    from pg_policies
+   where schemaname = 'public'
+     and tablename = 'group_members'
+     and cmd = 'INSERT';
+
+  if v_gm_insert <> 0 then
     raise exception
-      'HARNESS FAIL: only % assertion(s) ran, expected at least 4. Assertions were skipped or commented out; this file proves nothing.',
+      'WRITE PATH: group_members has % INSERT policy/policies, expected none. Membership must never be self-grantable: it may be created only by join_group_with_code(), accept_group_invitation() and the group-creation trigger.',
+      v_gm_insert;
+  end if;
+  v_checks := v_checks + 1;
+
+  if v_checks < 5 then
+    raise exception
+      'HARNESS FAIL: only % assertion(s) ran, expected at least 5. Assertions were skipped or commented out; this file proves nothing.',
       v_checks;
   end if;
 

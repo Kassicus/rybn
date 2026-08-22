@@ -173,9 +173,9 @@ begin
     from pg_policies
    where schemaname = 'public';
 
-  if v_policy_total < 62 then
+  if v_policy_total < 59 then
     raise exception
-      'CONTROL FAIL: only % policy/policies found in schema public, expected at least 62. Policies have gone missing, and the open-policy check above proves nothing.',
+      'CONTROL FAIL: only % policy/policies found in schema public, expected at least 59. Policies have gone missing, and the open-policy check above proves nothing.',
       v_policy_total;
   end if;
   v_checks := v_checks + 1;

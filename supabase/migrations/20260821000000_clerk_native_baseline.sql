@@ -834,6 +834,96 @@ as $$
   limit 1
 $$;
 
+-- -----------------------------------------------------------------------------
+-- The only two ways to join a group.
+--
+-- Both are SECURITY DEFINER because they must write group_members, which has no
+-- INSERT policy. Both pin the new member to requesting_user_id(): the caller can
+-- only ever add THEMSELVES, never a third party. Both take a secret (a code, a
+-- token) rather than an identity, which is the whole point -- an RLS policy
+-- cannot be handed a secret to check, a function can.
+-- -----------------------------------------------------------------------------
+
+create or replace function public.join_group_with_code(p_invite_code text)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user     text := (select public.requesting_user_id());
+  v_group_id uuid;
+begin
+  if v_user is null then
+    raise exception 'NOT AUTHENTICATED' using errcode = '28000';
+  end if;
+
+  -- Reuses the existing resolver, which normalises case and returns exactly one
+  -- group. It does not return the invite code, so nothing is echoed back that
+  -- the caller did not already hold.
+  select f.id into v_group_id
+    from public.find_group_by_invite_code(p_invite_code) f;
+
+  -- Deliberately the same error whether the code is unknown or malformed: a
+  -- caller must not be able to use this to discover which codes exist.
+  if v_group_id is null then
+    raise exception 'INVALID INVITE CODE' using errcode = '22023';
+  end if;
+
+  if exists (select 1 from public.group_members
+              where group_id = v_group_id and user_id = v_user) then
+    raise exception 'ALREADY A MEMBER' using errcode = '23505';
+  end if;
+
+  insert into public.group_members (group_id, user_id, role)
+  values (v_group_id, v_user, 'member')
+  on conflict (group_id, user_id) do nothing;
+
+  return v_group_id;
+end;
+$$;
+
+create or replace function public.accept_group_invitation(p_token text)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user text := (select public.requesting_user_id());
+  v_id   uuid;
+  v_gid  uuid;
+begin
+  if v_user is null then
+    raise exception 'NOT AUTHENTICATED' using errcode = '28000';
+  end if;
+
+  -- The token is the capability. `for update` closes the race where two calls
+  -- accept the same invitation concurrently.
+  select i.id, i.group_id into v_id, v_gid
+    from public.invitations i
+   where i.token = p_token
+     and i.accepted = false
+     and i.expires_at > now()
+   for update;
+
+  -- One error for unknown, already-accepted and expired alike.
+  if v_id is null then
+    raise exception 'INVALID OR EXPIRED INVITATION' using errcode = '22023';
+  end if;
+
+  insert into public.group_members (group_id, user_id, role)
+  values (v_gid, v_user, 'member')
+  on conflict (group_id, user_id) do nothing;
+
+  update public.invitations
+     set accepted = true, accepted_at = now()
+   where id = v_id;
+
+  return v_gid;
+end;
+$$;
+
 create or replace function public.get_dates_today_for_user(p_user_id text)
 returns table(
   celebrant_id text,
@@ -1273,9 +1363,38 @@ create policy "Users can view members of their groups"
     or public.is_group_member(group_id, (select public.requesting_user_id()))
   );
 
-create policy "Users can add themselves as members"
-  on public.group_members for insert to authenticated
-  with check ((select public.requesting_user_id()) = user_id);
+-- THERE IS DELIBERATELY NO INSERT POLICY ON group_members.
+--
+-- The archived policy was `with check (requesting_user_id() = user_id)`, i.e.
+-- "you may add yourself" -- and nothing else. No invitation, no code, no
+-- relationship to the group. The archive's own migration
+-- (20250203000000_fix_group_members_insert_rls.sql) admitted this in a comment:
+-- "The actual authorization ... is handled in the application layer before the
+-- insert." That is not a boundary. The anon key ships to every browser, so a
+-- caller reaches PostgREST directly and skips whatever the server action
+-- checked. The group id is not a secret either -- it is in the URL.
+--
+-- The consequences were not subtle: anyone holding a group id could join, and
+-- then read the roster, every member's profile, their private wishlist items
+-- and profile fields, and the group's exchanges. A REMOVED MEMBER COULD SIMPLY
+-- REJOIN, which made removal unenforceable. And because is_group_member() is
+-- the predicate under most of this schema, a self-grantable membership is a
+-- self-grantable key to nearly all of it.
+--
+-- RLS cannot fix this: a policy cannot take a parameter, so no `with check`
+-- can ever verify "the caller presented a valid invite code or token". So the
+-- decision moves server-side. Membership is created by exactly three things:
+--
+--   * add_group_creator_as_owner()  -- the trigger, on group creation
+--   * join_group_with_code(text)    -- proves possession of the invite code
+--   * accept_group_invitation(text) -- proves possession of the token
+--
+-- All three are SECURITY DEFINER and so are unaffected by the absence of an
+-- INSERT policy. Everything else is denied.
+--
+-- NOTE FOR THE APPLICATION TASKS: lib/actions/invitations.ts inserts into
+-- group_members directly in two places (acceptInvitation, joinGroupByCode).
+-- Both now fail and must call the functions above instead.
 
 create policy "Owners and admins can update member roles"
   on public.group_members for update to authenticated
@@ -1301,32 +1420,27 @@ create policy "Users can view invitations they sent"
   on public.invitations for select to authenticated
   using (invited_by = (select public.requesting_user_id()));
 
-create policy "Users can view invitations to their email"
-  on public.invitations for select to authenticated
-  using (email in (
-    select up.email from public.user_profiles up
-    where up.id = (select public.requesting_user_id())
-  ));
-
+-- user_profiles.email is plain text, not unique, and the user writes it. The
+-- two policies that used to live here treated it as an identity claim: set your
+-- profile email to a victim's address and you could read their invitation
+-- (group, token, sender) and accept it in their place. Acceptance now goes
+-- through accept_group_invitation(token), so the invitee never needs to SELECT
+-- the row, and the class is removed rather than patched.
+--
+-- invited_by is pinned, matching groups.created_by, gift_exchanges.created_by
+-- and group_gifts.created_by. Without it an ordinary member could forge an
+-- invitation attributed to the group owner.
 create policy "Group members can create invitations"
   on public.invitations for insert to authenticated
-  with check (public.is_group_member(group_id, (select public.requesting_user_id())));
+  with check (
+    public.is_group_member(group_id, (select public.requesting_user_id()))
+    and invited_by = (select public.requesting_user_id())
+  );
 
 create policy "Invitation senders can update their invitations"
   on public.invitations for update to authenticated
   using (invited_by = (select public.requesting_user_id()))
   with check (invited_by = (select public.requesting_user_id()));
-
-create policy "Users can accept their invitations"
-  on public.invitations for update to authenticated
-  using (exists (
-    select 1 from public.user_profiles up
-    where up.id = (select public.requesting_user_id()) and up.email = invitations.email
-  ))
-  with check (exists (
-    select 1 from public.user_profiles up
-    where up.id = (select public.requesting_user_id()) and up.email = invitations.email
-  ));
 
 create policy "Invitation senders can delete their invitations"
   on public.invitations for delete to authenticated
@@ -1694,6 +1808,11 @@ grant execute on function public.can_view_wishlist_item(text, text, jsonb) to au
 grant execute on function public.get_shared_groups(text, text) to authenticated, service_role;
 grant execute on function public.get_dates_today_for_user(text) to authenticated, service_role;
 grant execute on function public.find_group_by_invite_code(text) to authenticated, service_role;
+-- The only two writers of group_members besides the creation trigger. They add
+-- the CALLER and nobody else, and each requires a secret the caller must
+-- already hold.
+grant execute on function public.join_group_with_code(text) to authenticated, service_role;
+grant execute on function public.accept_group_invitation(text) to authenticated, service_role;
 
 -- (c) The reminder job, and nothing else. This function returns every user's
 --     email address, birthdate, username, group names and Clerk id in a single
