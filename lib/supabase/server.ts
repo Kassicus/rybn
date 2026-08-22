@@ -4,8 +4,13 @@ import type { Database } from "@/types/database";
 
 /**
  * Server-side Supabase client authenticated as the current Clerk user.
- * RLS applies. The accessToken callback is invoked per request, so a
- * refreshed Clerk token is always used.
+ * RLS applies.
+ *
+ * The accessToken callback defers to Clerk's `getToken()`. With no template
+ * argument that returns the `sessionToken` captured from the incoming
+ * request at `auth()` time -- the same string for the life of this request,
+ * not a freshly minted one per query. That is correct: the request is short
+ * and the token was valid when it arrived. Refresh is the browser's job.
  */
 export async function createClient() {
   const { getToken } = await auth();
