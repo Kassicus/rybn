@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import http from "node:http";
 import net from "node:net";
 import zlib from "node:zlib";
@@ -23,6 +23,41 @@ import { safeFetch, __testing, type SafeFetchOptions } from "./safe-fetch";
  *     addresses, hop count and the byte cap all still run, which is why the
  *     redirect-to-a-blocked-address cases below are meaningful.
  */
+
+/**
+ * A resolver override, used by exactly one group of tests below.
+ *
+ * `guardedLookup` calls `node:dns`'s `lookup` directly, and nothing in the
+ * production path can change that. But characterising its FILTERING -- as
+ * opposed to merely its refusal -- needs a name that resolves to a blocked and
+ * a safe address at the same time, and no such name exists offline. So the
+ * module boundary is mocked rather than a seam being cut into the guard: an
+ * override can only ever supply raw addresses, which `isBlockedAddress` still
+ * judges. It cannot make the guard permissive.
+ *
+ * While `override` is null -- which is every other test in this file -- the
+ * real resolver is used and nothing else here is affected.
+ */
+const dnsControl = vi.hoisted(() => ({
+  override: null as Array<{ address: string; family: number }> | null,
+}));
+
+vi.mock("node:dns", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:dns")>();
+  const lookup = (hostname: unknown, options: unknown, callback: unknown) => {
+    const cb = (typeof options === "function" ? options : callback) as (
+      err: NodeJS.ErrnoException | null,
+      addresses?: unknown
+    ) => void;
+    if (dnsControl.override) return cb(null, dnsControl.override);
+    return (actual.lookup as unknown as (...a: unknown[]) => void)(
+      hostname,
+      options,
+      callback
+    );
+  };
+  return { ...actual, default: { ...actual, lookup }, lookup };
+});
 
 const REFUSED = "That link points somewhere we will not fetch from.";
 const UNREACHABLE = "We could not reach that page.";
@@ -166,6 +201,78 @@ describe("the DNS hook refuses a name that resolves to a blocked address", () =>
 
 describe("guardedLookup hands back the address it validated", () => {
   const lookup = __testing.guardedLookup;
+
+  afterEach(() => {
+    dnsControl.override = null;
+  });
+
+  const BLOCKED_V4 = { address: "169.254.169.254", family: 4 };
+  const SAFE_V4 = { address: "93.184.216.34", family: 4 };
+  const BLOCKED_V6 = { address: "::1", family: 6 };
+  const SAFE_V6 = { address: "2606:4700:10::6814:179a", family: 6 };
+
+  /**
+   * The mixed case is where the whole design can silently break.
+   *
+   * An attacker who controls a domain can publish two A records: one genuinely
+   * public, one 169.254.169.254. Every other test here drives the ALL-blocked
+   * case, where the guard refuses outright -- so a guard that filtered
+   * correctly when everything was blocked but handed back the UNFILTERED list
+   * whenever at least one address was safe would pass all of them. Undici would
+   * then be free to connect to whichever of the pair it picked, and the address
+   * validated would no longer be the address connected to.
+   *
+   * These assert on the returned list itself. "The call succeeded" is not an
+   * assertion here -- it is true under exactly the mutation being guarded
+   * against.
+   */
+  const mixes: Array<
+    [string, Array<{ address: string; family: number }>, Array<{ address: string; family: number }>]
+  > = [
+    ["blocked address listed first", [BLOCKED_V4, SAFE_V4], [SAFE_V4]],
+    ["blocked address listed second", [SAFE_V4, BLOCKED_V4], [SAFE_V4]],
+    [
+      "one safe address buried among blocked ones",
+      [
+        BLOCKED_V4,
+        { address: "127.0.0.1", family: 4 },
+        SAFE_V4,
+        { address: "10.0.0.1", family: 4 },
+      ],
+      [SAFE_V4],
+    ],
+    ["IPv6 mix", [BLOCKED_V6, SAFE_V6], [SAFE_V6]],
+    ["mixed families", [BLOCKED_V6, SAFE_V4, BLOCKED_V4, SAFE_V6], [SAFE_V4, SAFE_V6]],
+  ];
+
+  for (const [label, resolved, expected] of mixes) {
+    it(`returns only the safe addresses when a name resolves to a mix: ${label}`, async () => {
+      dnsControl.override = resolved;
+      const out = await new Promise<{ err: unknown; addresses: unknown }>((resolve) => {
+        lookup("mixed.example", { all: true }, (err, addresses) =>
+          resolve({ err, addresses })
+        );
+      });
+      expect(out.err).toBeNull();
+      expect(out.addresses).toEqual(expected);
+    });
+  }
+
+  it("picks a SAFE address, not merely the first one, when not asked for all", async () => {
+    // The blocked address is first. A guard that filtered but then indexed back
+    // into the original list would hand out the metadata endpoint here.
+    dnsControl.override = [BLOCKED_V4, SAFE_V4];
+    const out = await new Promise<{ err: unknown; address: unknown; family: unknown }>(
+      (resolve) => {
+        lookup("mixed.example", {}, (err, address, family) =>
+          resolve({ err, address, family })
+        );
+      }
+    );
+    expect(out.err).toBeNull();
+    expect(out.address).toBe(SAFE_V4.address);
+    expect(out.family).toBe(4);
+  });
 
   it("refuses a name whose every address is blocked", async () => {
     const err = await new Promise<NodeJS.ErrnoException | null>((resolve) => {
