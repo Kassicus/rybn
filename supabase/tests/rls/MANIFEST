@@ -24,3 +24,4 @@
 04_privacy_overrides.sql
 05_definer_pins.sql
 06_anon_has_no_reach.sql
+07_write_path_defences.sql

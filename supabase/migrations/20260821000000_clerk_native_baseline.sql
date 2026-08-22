@@ -1063,6 +1063,14 @@ begin
 end;
 $$;
 
+-- COVERAGE NOTE: the RLS harness cannot assert that a write is DENIED -- a
+-- denied write raises, which aborts the test block, and catching it would need
+-- an exception handler, which the runner rejects outright. So the defences in
+-- this section are covered by supabase/tests/rls/07_write_path_defences.sql
+-- asserting that the OBJECTS still exist, not by executing the denied write.
+-- Each attack was executed against the live database and refused; that is
+-- recorded in the task report rather than in the suite.
+--
 -- Pins columns that a policy cannot. RLS has no access to the OLD row, so
 -- "this column may not change" is inexpressible in a WITH CHECK. For most
 -- tables the parent can still be constrained indirectly -- messages, for
