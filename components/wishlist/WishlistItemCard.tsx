@@ -21,7 +21,11 @@ interface WishlistItem {
   description?: string | null;
   url?: string | null;
   price?: number | null;
+  /** Signed and renderable; expires. This is the one to put in an <img>. */
   image_url?: string | null;
+  /** Raw stored value, masked to null when it is another user's object path.
+   *  Never rendered -- it is what a WRITER needs (edit form, gift-tracker copy). */
+  image_path?: string | null;
   priority: 'low' | 'medium' | 'high' | 'must-have';
   category?: string | null;
   privacy_settings: {
@@ -178,7 +182,7 @@ export function WishlistItemCard({
               description: item.description,
               url: item.url,
               price: item.price,
-              image_url: item.image_url,
+              image_path: item.image_path,
             }}
           />
         </div>

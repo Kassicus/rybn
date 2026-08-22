@@ -27,3 +27,4 @@
 07_write_path_defences.sql
 08_profile_provisioning.sql
 09_privacy_pins.sql
+10_private_storage.sql

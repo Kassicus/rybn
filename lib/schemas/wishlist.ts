@@ -3,6 +3,7 @@
  */
 
 import { z } from 'zod';
+import { isValidImageValue } from '@/lib/storage/image-value';
 
 /**
  * Priority levels for wishlist items
@@ -35,8 +36,11 @@ export const wishlistItemSchema = z.object({
     .nullable()
     .or(z.literal('').transform(() => null)),
 
+  // Holds EITHER an external image URL the user pasted OR an object path in the
+  // private `wishlist-images` bucket, which is what our upload now returns. A
+  // bare .url() would reject every uploaded image; see lib/storage/image-value.ts.
   image_url: z.string()
-    .url('Please enter a valid image URL')
+    .refine(isValidImageValue, 'Please enter a valid image URL')
     .optional()
     .nullable()
     .or(z.literal('')),

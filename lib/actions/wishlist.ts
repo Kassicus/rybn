@@ -3,8 +3,30 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { WishlistItemFormData } from "@/lib/schemas/wishlist";
+import {
+  withSignedWishlistImage,
+  withSignedWishlistImages,
+} from "@/lib/supabase/signed-image";
+import { resolveStoredImageValue } from "@/lib/storage/image-value";
 
 import { getUserId } from "@/lib/auth/require-auth";
+
+/**
+ * INVARIANT for this file: every wishlist_items row that leaves a server action
+ * has passed through withSignedWishlistImage(s).
+ *
+ * `image_url` is stored as an object path in the PRIVATE `wishlist-images`
+ * bucket (or an external URL the user pasted). A path is not renderable, so
+ * every return signs it; the client keeps using `image_url` and needs no change.
+ * `image_path` carries the raw stored value back to the owner's edit form so a
+ * save round-trips the path instead of overwriting it with an expiring URL.
+ *
+ * Signing is safe here precisely because RLS has already run: the row is in
+ * hand only if the caller was permitted to read it. Holding the invariant for
+ * EVERY return -- including the ones nothing renders today -- is what stops the
+ * next caller from picking the one function that forgot.
+ */
+
 /**
  * Get the current user's wishlist
  * Note: Claim data is stripped since owners should not see who claimed their items
@@ -39,7 +61,7 @@ export async function getMyWishlist() {
     out_of_stock_marked_at: null,
   }));
 
-  return { data: sanitizedItems || [] };
+  return { data: await withSignedWishlistImages(sanitizedItems || [], userId) };
 }
 
 /**
@@ -81,7 +103,10 @@ export async function getUserWishlist(userId: string) {
       }))
     : items;
 
-  return { data: sanitizedItems || [], currentUserId };
+  return {
+    data: await withSignedWishlistImages(sanitizedItems || [], currentUserId),
+    currentUserId,
+  };
 }
 
 /**
@@ -96,6 +121,13 @@ export async function createWishlistItem(formData: WishlistItemFormData) {
     return { error: "Not authenticated" };
   }
 
+  // An object path may only ever name a folder the caller owns -- signing later
+  // uses the admin client, which does not re-check.
+  const image = resolveStoredImageValue(formData.image_url, userId);
+  if (!image.ok) {
+    return { error: image.error };
+  }
+
   const { data: item, error } = await supabase
     .from("wishlist_items")
     .insert({
@@ -104,7 +136,7 @@ export async function createWishlistItem(formData: WishlistItemFormData) {
       description: formData.description || null,
       url: formData.url || null,
       price: formData.price || null,
-      image_url: formData.image_url || null,
+      image_url: image.value,
       priority: formData.priority,
       category: formData.category || null,
       privacy_settings: {
@@ -120,7 +152,7 @@ export async function createWishlistItem(formData: WishlistItemFormData) {
   }
 
   revalidatePath("/wishlist");
-  return { data: item };
+  return { data: await withSignedWishlistImage(item, userId) };
 }
 
 /**
@@ -135,6 +167,11 @@ export async function updateWishlistItem(itemId: string, formData: WishlistItemF
     return { error: "Not authenticated" };
   }
 
+  const image = resolveStoredImageValue(formData.image_url, userId);
+  if (!image.ok) {
+    return { error: image.error };
+  }
+
   const { data: item, error } = await supabase
     .from("wishlist_items")
     .update({
@@ -142,7 +179,7 @@ export async function updateWishlistItem(itemId: string, formData: WishlistItemF
       description: formData.description || null,
       url: formData.url || null,
       price: formData.price || null,
-      image_url: formData.image_url || null,
+      image_url: image.value,
       priority: formData.priority,
       category: formData.category || null,
       privacy_settings: {
@@ -162,7 +199,7 @@ export async function updateWishlistItem(itemId: string, formData: WishlistItemF
 
   revalidatePath("/wishlist");
   revalidatePath(`/wishlist/${itemId}`);
-  return { data: item };
+  return { data: await withSignedWishlistImage(item, userId) };
 }
 
 /**
@@ -229,7 +266,10 @@ export async function getWishlistItem(itemId: string) {
       }
     : item;
 
-  return { data: sanitizedItem, currentUserId: userId };
+  return {
+    data: await withSignedWishlistImage(sanitizedItem, userId),
+    currentUserId: userId,
+  };
 }
 
 /**
@@ -261,7 +301,7 @@ export async function claimWishlistItem(itemId: string) {
   }
 
   revalidatePath("/wishlist");
-  return { data: item };
+  return { data: await withSignedWishlistImage(item, userId) };
 }
 
 /**
@@ -292,7 +332,7 @@ export async function unclaimWishlistItem(itemId: string) {
   }
 
   revalidatePath("/wishlist");
-  return { data: item };
+  return { data: await withSignedWishlistImage(item, userId) };
 }
 
 /**
@@ -323,7 +363,7 @@ export async function markAsPurchased(itemId: string, purchased: boolean) {
   }
 
   revalidatePath("/wishlist");
-  return { data: item };
+  return { data: await withSignedWishlistImage(item, userId) };
 }
 
 /**
@@ -416,7 +456,7 @@ export async function markOutOfStock(itemId: string) {
   }
 
   revalidatePath("/wishlist");
-  return { data: item };
+  return { data: await withSignedWishlistImage(item, userId) };
 }
 
 /**
@@ -448,5 +488,5 @@ export async function unmarkOutOfStock(itemId: string) {
   }
 
   revalidatePath("/wishlist");
-  return { data: item };
+  return { data: await withSignedWishlistImage(item, userId) };
 }

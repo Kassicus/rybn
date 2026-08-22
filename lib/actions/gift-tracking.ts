@@ -3,8 +3,27 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { RecipientFormData, TrackedGiftFormData, GiftStatus, GiftTrackingStats } from "@/lib/schemas/gift-tracking";
+import {
+  withSignedGiftPhoto,
+  withSignedGiftPhotos,
+} from "@/lib/supabase/signed-image";
+import { resolveStoredImageValue } from "@/lib/storage/image-value";
 
 import { getUserId } from "@/lib/auth/require-auth";
+
+/**
+ * INVARIANT for this file: every tracked_gifts row that leaves a server action
+ * has passed through withSignedGiftPhoto(s).
+ *
+ * `photo_url` is stored as an object path in the PRIVATE `gift-photos` bucket
+ * (or an external URL the user pasted), and a path is not renderable. Signing
+ * on the way out keeps `photo_url` a loadable URL for every render site;
+ * `photo_path` carries the raw stored value to the edit form so a save
+ * round-trips the path rather than persisting an expiring URL.
+ *
+ * See lib/supabase/signed-image.ts for why the admin client is used to mint
+ * these and never to decide who gets one.
+ */
 // =================================================================
 // RECIPIENTS
 // =================================================================
@@ -219,7 +238,7 @@ export async function getGiftsForRecipient(recipientId: string) {
     return { error: error.message };
   }
 
-  return { data: gifts || [] };
+  return { data: await withSignedGiftPhotos(gifts || []) };
 }
 
 /**
@@ -263,7 +282,7 @@ export async function getAllMyGifts(filters?: {
     return { error: error.message };
   }
 
-  return { data: gifts || [] };
+  return { data: await withSignedGiftPhotos(gifts || []) };
 }
 
 /**
@@ -289,7 +308,7 @@ export async function getGiftById(giftId: string) {
     return { error: error.message };
   }
 
-  return { data: gift };
+  return { data: await withSignedGiftPhoto(gift) };
 }
 
 /**
@@ -304,6 +323,13 @@ export async function createGift(formData: TrackedGiftFormData) {
     return { error: "Not authenticated" };
   }
 
+  // An object path may only ever name a folder the caller owns -- signing later
+  // uses the admin client, which does not re-check.
+  const photo = resolveStoredImageValue(formData.photo_url, userId);
+  if (!photo.ok) {
+    return { error: photo.error };
+  }
+
   const { data: gift, error } = await supabase
     .from("tracked_gifts")
     .insert({
@@ -311,7 +337,7 @@ export async function createGift(formData: TrackedGiftFormData) {
       recipient_id: formData.recipient_id,
       name: formData.name,
       description: formData.description || null,
-      photo_url: formData.photo_url || null,
+      photo_url: photo.value,
       product_link: formData.product_link || null,
       price: formData.price || null,
       status: formData.status || "planned",
@@ -328,7 +354,7 @@ export async function createGift(formData: TrackedGiftFormData) {
 
   revalidatePath("/gift-tracker");
   revalidatePath(`/gift-tracker/${formData.recipient_id}`);
-  return { data: gift };
+  return { data: await withSignedGiftPhoto(gift) };
 }
 
 /**
@@ -350,7 +376,13 @@ export async function updateGift(giftId: string, formData: Partial<TrackedGiftFo
 
   if (formData.name !== undefined) updateData.name = formData.name;
   if (formData.description !== undefined) updateData.description = formData.description || null;
-  if (formData.photo_url !== undefined) updateData.photo_url = formData.photo_url || null;
+  if (formData.photo_url !== undefined) {
+    const photo = resolveStoredImageValue(formData.photo_url, userId);
+    if (!photo.ok) {
+      return { error: photo.error };
+    }
+    updateData.photo_url = photo.value;
+  }
   if (formData.product_link !== undefined) updateData.product_link = formData.product_link || null;
   if (formData.price !== undefined) updateData.price = formData.price || null;
   if (formData.status !== undefined) updateData.status = formData.status;
@@ -372,7 +404,7 @@ export async function updateGift(giftId: string, formData: Partial<TrackedGiftFo
   }
 
   revalidatePath("/gift-tracker");
-  return { data: gift };
+  return { data: await withSignedGiftPhoto(gift) };
 }
 
 /**
@@ -410,7 +442,7 @@ export async function archiveGift(giftId: string, archived: boolean = true) {
   }
 
   revalidatePath("/gift-tracker");
-  return { data: gift };
+  return { data: await withSignedGiftPhoto(gift) };
 }
 
 /**
@@ -441,7 +473,10 @@ export async function archiveSeasonGifts(seasonYear: number) {
   }
 
   revalidatePath("/gift-tracker");
-  return { data: gifts, count: gifts?.length || 0 };
+  return {
+    data: await withSignedGiftPhotos(gifts || []),
+    count: gifts?.length || 0,
+  };
 }
 
 /**

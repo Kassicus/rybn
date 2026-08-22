@@ -21,6 +21,7 @@ import {
 } from "@/lib/actions/wishlist";
 import { getMyRecipients } from "@/lib/actions/gift-tracking";
 import { createGift } from "@/lib/actions/gift-tracking";
+import { isExternalImageUrl } from "@/lib/storage/image-value";
 import { Gift, Check, X, ShoppingBag, ClipboardList, Plus, AlertTriangle } from "lucide-react";
 
 interface ClaimerInfo {
@@ -35,7 +36,17 @@ interface WishlistItemData {
   description?: string | null;
   url?: string | null;
   price?: number | null;
-  image_url?: string | null;
+  /**
+   * The item's RAW image value, not the signed URL that is rendered.
+   *
+   * "Add to Gift Tracker" copies this onto a gift the VIEWER owns, so it has to
+   * be something durable. A signed URL is not: it would be stored and then die
+   * within the hour. The item owner's object path is not either -- it lives in
+   * their private folder, and the write path (correctly) refuses a path the
+   * caller does not own. Server-side masking means this arrives as either an
+   * external URL or null, and only the external case is carried over.
+   */
+  image_path?: string | null;
 }
 
 interface GiftRecipient {
@@ -119,7 +130,9 @@ export function ClaimActions({
       description: itemData.description || undefined,
       product_link: itemData.url || undefined,
       price: itemData.price || undefined,
-      photo_url: itemData.image_url || undefined,
+      photo_url: isExternalImageUrl(itemData.image_path)
+        ? itemData.image_path
+        : undefined,
       status: "planned", // Start as planned, user can update when ordered
       season_year: new Date().getFullYear(),
     });

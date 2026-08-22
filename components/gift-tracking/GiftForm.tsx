@@ -29,7 +29,12 @@ interface GiftFormProps {
     recipient_id: string;
     name: string;
     description: string | null;
+    /** Signed, renderable, expires -- for preview only. */
     photo_url: string | null;
+    /** Raw stored value (object path or external URL). This is what a save
+     *  writes back; seeding the form from photo_url would persist a URL that
+     *  dies in an hour. */
+    photo_path?: string | null;
     product_link: string | null;
     price: number | null;
     status: GiftStatus;
@@ -56,7 +61,7 @@ export function GiftForm({
     recipient_id: gift?.recipient_id || defaultRecipientId || "",
     name: gift?.name || "",
     description: gift?.description || "",
-    photo_url: gift?.photo_url || "",
+    photo_url: gift?.photo_path || "",
     product_link: gift?.product_link || "",
     price: gift?.price || undefined,
     status: gift?.status || "planned",
@@ -238,6 +243,7 @@ export function GiftForm({
           {user && (
             <ImageInput
               value={formData.photo_url}
+              previewUrl={gift?.photo_url}
               onChange={(url) =>
                 setFormData({ ...formData, photo_url: url || "" })
               }

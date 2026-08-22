@@ -27,7 +27,10 @@ interface WishlistItem {
   description?: string | null;
   url?: string | null;
   price?: number | null;
+  /** Signed and renderable; expires. */
   image_url?: string | null;
+  /** Raw stored value, masked to null when it is another user's object path. */
+  image_path?: string | null;
   priority: "low" | "medium" | "high" | "must-have";
   category?: string | null;
   privacy_settings: {

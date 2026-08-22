@@ -26,7 +26,12 @@ interface WishlistItemSettingsProps {
     description?: string | null;
     url?: string | null;
     price?: number | null;
+    /** Signed, renderable. Expires -- never store it back. */
     image_url?: string | null;
+    /** The raw stored value (object path or external URL). This is what a save
+     *  must write back; seeding the form from image_url would persist a URL
+     *  that dies in an hour. */
+    image_path?: string | null;
     priority: 'low' | 'medium' | 'high' | 'must-have';
     category?: string | null;
     privacy_settings: {
@@ -64,7 +69,7 @@ export function WishlistItemSettings({
       description: item.description || undefined,
       url: item.url || undefined,
       price: item.price || undefined,
-      image_url: item.image_url || undefined,
+      image_url: item.image_path || undefined,
       priority: item.priority,
       category: item.category || undefined,
       visible_to_group_types: item.privacy_settings?.visibleToGroupTypes || ['family', 'friends', 'work', 'custom'],
@@ -290,6 +295,7 @@ export function WishlistItemSettings({
                       {user && (
                         <ImageInput
                           value={watch("image_url")}
+                          previewUrl={item.image_url}
                           onChange={(url) => setValue("image_url", url || "")}
                           bucket="wishlist-images"
                           userId={user.id}

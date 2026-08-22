@@ -21,7 +21,25 @@
 --     alter table public.<new_table> enable row level security;
 --     create policy ... to authenticated ...   -- never a bare `create policy`
 --
--- The last three assertions are population controls. Five "count is zero"
+-- SCHEMA `storage` IS IN SCOPE TOO, for the one thing that can be stated
+-- generally. The file used to scan only `public`, which made its name an
+-- overstatement: `storage.objects` shipped with two `to public` SELECT policies
+-- and this file said nothing about them, so "anon has no reach" was green while
+-- anon could read every gift photo row in the project.
+--
+-- Only the POLICY check is extended, not the grant checks. Supabase issues anon
+-- a plain SELECT grant on storage.objects in every project; that grant is not
+-- ours to revoke and asserting it away would fail against a stock project while
+-- proving nothing. It also does not matter, because with no policy admitting
+-- anon the grant reaches zero rows -- which is precisely why the policy check
+-- is the one that belongs here.
+--
+-- The deep storage assertions -- buckets private, the owner-scoped policies
+-- correct, and anon actually reading zero object rows -- live in
+-- 10_private_storage.sql. This file only holds the line that anon is never
+-- named, in any schema it touches.
+--
+-- The last four assertions are population controls. Six "count is zero"
 -- checks would all pass just as happily against catalog queries that had
 -- stopped matching anything, so the file also asserts the schema it is
 -- inspecting is really there.
@@ -38,6 +56,8 @@ declare
   v_fn_total     int;
   v_table_total  int;
   v_policy_total int;
+  v_stor_public  int;
+  v_stor_total   int;
   v_checks       int := 0;
 begin
   ---------------------------------------------------------------------------
@@ -139,9 +159,37 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Population controls: the five checks above are only meaningful if there is
+  -- The same rule, in schema `storage`. A `to public` policy there is how an
+  -- unauthenticated caller reads the object rows behind every wishlist image
+  -- and gift photo, and it is exactly the shape this project shipped with.
+  ---------------------------------------------------------------------------
+  select count(*) into v_stor_public
+    from pg_policies
+   where schemaname = 'storage'
+     and 'public' = any(roles);
+
+  if v_stor_public <> 0 then
+    raise exception
+      'OPEN POLICY: % policy/policies in schema storage apply to PUBLIC rather than a named role. anon holds a SELECT grant on storage.objects, so such a policy is an unauthenticated read of every uploaded image.',
+      v_stor_public;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Population controls: the six checks above are only meaningful if there is
   -- in fact a schema here to inspect.
   ---------------------------------------------------------------------------
+  select count(*) into v_stor_total
+    from pg_policies
+   where schemaname = 'storage';
+
+  if v_stor_total < 8 then
+    raise exception
+      'CONTROL FAIL: only % policy/policies found in schema storage, expected at least 8. The storage check above is inspecting nothing.',
+      v_stor_total;
+  end if;
+  v_checks := v_checks + 1;
+
   select count(*) into v_fn_total
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
@@ -180,9 +228,9 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 8 then
+  if v_checks < 10 then
     raise exception
-      'HARNESS FAIL: only % assertion(s) ran, expected at least 8. Assertions were skipped or commented out; this file proves nothing.',
+      'HARNESS FAIL: only % assertion(s) ran, expected at least 10. Assertions were skipped or commented out; this file proves nothing.',
       v_checks;
   end if;
 

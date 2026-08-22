@@ -36,7 +36,10 @@ export default async function GiftDetailPage({ params }: PageProps) {
     recipient_id: string;
     name: string;
     description: string | null;
+    /** Signed, renderable, expires. */
     photo_url: string | null;
+    /** Raw stored value -- what the edit form must write back. */
+    photo_path: string | null;
     product_link: string | null;
     price: number | null;
     status: GiftStatus;

@@ -6,10 +6,30 @@ import { cn } from "@/lib/utils";
 import { Input } from "./input";
 import { Text } from "./text";
 import { useSupabase } from "@/lib/supabase/use-supabase";
+import { isExternalImageUrl } from "@/lib/storage/image-value";
 
+/**
+ * Two fields, two jobs.
+ *
+ * `value` is what gets STORED: either an external image URL the user pasted, or
+ * an object path inside a private bucket (`<clerk id>/<file>`). It is what
+ * onChange emits and what the server writes to the row.
+ *
+ * `previewUrl` is what gets RENDERED when `value` is a path: a short-lived
+ * signed URL minted by the server action that returned this row. A private
+ * object has no stable URL, so the component cannot derive one -- and must not
+ * try, because signing needs the service-role key.
+ *
+ * Immediately after an upload neither applies: the file is in the browser
+ * already, so the preview is a local object URL and stays that way until the
+ * component unmounts or the value is replaced. That is why the upload no longer
+ * revokes it on success -- it is now the thing on screen, not a placeholder for
+ * one.
+ */
 interface ImageInputProps {
   value?: string | null;
-  onChange: (url: string | null) => void;
+  previewUrl?: string | null;
+  onChange: (value: string | null) => void;
   bucket: "wishlist-images" | "gift-photos";
   userId: string;
   error?: string;
@@ -22,6 +42,7 @@ const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
 export function ImageInput({
   value,
+  previewUrl,
   onChange,
   bucket,
   userId,
@@ -31,35 +52,38 @@ export function ImageInput({
 }: ImageInputProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [uploadedPreview, setUploadedPreview] = useState<string | null>(null);
-  const [urlValue, setUrlValue] = useState<string>("");
+  const [localPreview, setLocalPreview] = useState<string | null>(null);
+  const [urlValue, setUrlValue] = useState<string>(() =>
+    isExternalImageUrl(value) ? value : ""
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const objectUrlRef = useRef<string | null>(null);
   const supabase = useSupabase();
 
-  // Determine if the current value is from an upload (supabase URL) or external URL
-  const isSupabaseUrl = value?.includes("supabase.co/storage");
-
-  // Initialize state based on current value
-  useEffect(() => {
-    if (value) {
-      if (isSupabaseUrl) {
-        setUploadedPreview(value);
-        setUrlValue("");
-      } else {
-        setUrlValue(value);
-        setUploadedPreview(null);
-      }
+  // The object URL is a document-lifetime resource; nothing else frees it.
+  const releaseLocalPreview = () => {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
     }
-  }, []);
+  };
+
+  useEffect(() => releaseLocalPreview, []);
+
+  // An object path in one of our buckets, as opposed to a pasted URL.
+  const storedPath = value && !isExternalImageUrl(value) ? value : null;
+  const uploadPreviewSrc = localPreview ?? (storedPath ? previewUrl ?? null : null);
+  const hasUpload = localPreview !== null || storedPath !== null;
 
   const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const url = e.target.value;
     setUrlValue(url);
     setUploadError(null);
 
-    // Clear uploaded preview when user types a URL
+    // Typing a URL replaces any upload.
     if (url) {
-      setUploadedPreview(null);
+      releaseLocalPreview();
+      setLocalPreview(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -86,9 +110,13 @@ export function ImageInput({
       return;
     }
 
-    // Show local preview immediately
-    const localPreview = URL.createObjectURL(file);
-    setUploadedPreview(localPreview);
+    // Show local preview immediately. It stays for the life of this form: the
+    // uploaded object is private, so there is nothing to swap it for until the
+    // server hands back a signed URL on the next load.
+    releaseLocalPreview();
+    const objectUrl = URL.createObjectURL(file);
+    objectUrlRef.current = objectUrl;
+    setLocalPreview(objectUrl);
 
     // Clear URL field when uploading
     setUrlValue("");
@@ -96,7 +124,8 @@ export function ImageInput({
     setIsUploading(true);
 
     try {
-      // Generate unique filename
+      // Folder-scoped to the uploader, which is what the storage INSERT policy
+      // requires -- (storage.foldername(name))[1] = requesting_user_id().
       const fileExt = file.name.split(".").pop();
       const fileName = `${userId}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
 
@@ -112,21 +141,14 @@ export function ImageInput({
         throw uploadErr;
       }
 
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(data.path);
-
-      onChange(publicUrl);
-      setUploadedPreview(publicUrl);
-
-      // Clean up local preview
-      URL.revokeObjectURL(localPreview);
+      // Store the PATH, not a URL. The bucket is private: there is no public
+      // URL to store, and a signed one would expire inside the row.
+      onChange(data.path);
     } catch (err) {
       console.error("Upload error:", err);
       setUploadError(err instanceof Error ? err.message : "Failed to upload image");
-      setUploadedPreview(null);
-      URL.revokeObjectURL(localPreview);
+      releaseLocalPreview();
+      setLocalPreview(null);
     } finally {
       setIsUploading(false);
     }
@@ -134,7 +156,8 @@ export function ImageInput({
 
   const handleRemoveUpload = () => {
     onChange(null);
-    setUploadedPreview(null);
+    releaseLocalPreview();
+    setLocalPreview(null);
     setUploadError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -154,7 +177,7 @@ export function ImageInput({
           onChange={handleUrlChange}
           disabled={disabled || isUploading}
         />
-        {urlValue && !uploadedPreview && (
+        {urlValue && !hasUpload && (
           <div className="mt-3">
             <img
               src={urlValue}
@@ -182,13 +205,24 @@ export function ImageInput({
 
       {/* Upload Area */}
       <div>
-        {uploadedPreview ? (
+        {hasUpload ? (
           <div className="relative inline-block">
-            <img
-              src={uploadedPreview}
-              alt="Uploaded preview"
-              className="w-32 h-32 object-cover rounded-lg border border-light-border"
-            />
+            {uploadPreviewSrc ? (
+              <img
+                src={uploadPreviewSrc}
+                alt="Uploaded preview"
+                className="w-32 h-32 object-cover rounded-lg border border-light-border"
+              />
+            ) : (
+              // A stored image whose signed URL could not be minted -- expired
+              // link, or the object is gone. Say so rather than rendering a
+              // broken <img>, and keep the remove button reachable.
+              <div className="w-32 h-32 rounded-lg border border-light-border bg-light-ui flex items-center justify-center p-2 text-center">
+                <Text size="sm" variant="secondary">
+                  Image attached (preview unavailable)
+                </Text>
+              </div>
+            )}
             <button
               type="button"
               onClick={handleRemoveUpload}
