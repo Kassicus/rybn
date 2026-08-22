@@ -82,3 +82,52 @@ describe("parseSafeUrl", () => {
     expect(isBlockedAddress(host)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Cases beyond the corpus above. Each one is here because running that corpus
+// proved it could not tell a real difference -- see url-safety.ts for why.
+// ---------------------------------------------------------------------------
+
+describe("isBlockedAddress: cases the corpus above cannot distinguish", () => {
+  // Deleting the isIPv4MappedAddress branch leaves the corpus above entirely
+  // green, because under an allowlist `ipv4Mapped !== "unicast"` already
+  // refuses every mapped address. The branch's real job is the other
+  // direction: getaddrinfo can hand back a public IPv4 host in v4-mapped form,
+  // and without unmapping we would refuse to fetch legitimate sites. These two
+  // assertions together are what make that branch load-bearing.
+  it("allows a public IPv4 host presented in v4-mapped form", () => {
+    expect(isBlockedAddress("::ffff:93.184.216.34")).toBe(false);
+  });
+
+  it("still blocks the metadata endpoint in v4-mapped form", () => {
+    expect(isBlockedAddress("::ffff:169.254.169.254")).toBe(true);
+  });
+
+  // ::/96 is IPv4-COMPATIBLE IPv6 (RFC 4291 s2.5.5.1) -- a different range from
+  // the ::ffff:0:0/96 mapped one, and one ipaddr.js does not model at all, so
+  // it comes back "unicast" and the allowlist would let it through. ipaddr.js
+  // rescues only the DOTTED spelling, which it silently rewrites into the
+  // mapped form; the hex spelling is the one our code actually sees, because
+  // that is what new URL() emits.
+  const ipv4Compatible = [
+    "::a9fe:a9fe",       // == ::169.254.169.254 -- the metadata endpoint
+    "::169.254.169.254", // the dotted spelling of that same address
+    "::7f00:1",          // == ::127.0.0.1
+    "::127.0.0.1",
+  ];
+  for (const ip of ipv4Compatible) {
+    it(`blocks IPv4-compatible ${ip}`, () =>
+      expect(isBlockedAddress(ip)).toBe(true));
+  }
+});
+
+describe("parseSafeUrl: IPv4-compatible IPv6 round-trip", () => {
+  it("normalises bracketed IPv4-compatible IPv6 to a blocked address", () => {
+    const r = parseSafeUrl("http://[::169.254.169.254]/");
+    expect(r.ok).toBe(true);
+    const host = (r as { url: URL }).url.hostname.replace(/^\[|\]$/g, "");
+    // No ffff in the result: this is ::/96, not ::ffff:0:0/96.
+    expect(host).toBe("::a9fe:a9fe");
+    expect(isBlockedAddress(host)).toBe(true);
+  });
+});
