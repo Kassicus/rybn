@@ -60,15 +60,34 @@
 --
 -- Requires the table to have a `user_id` owner column, which is checked by
 -- PostgreSQL the first time the trigger fires on a given table.
+--
+-- NOTE FOR WHOEVER WRITES THE NEXT DATA MIGRATION. A backfill that touches
+-- wishlist_items as `postgres` -- or any write from the admin client -- carries
+-- no Clerk claim, so requesting_user_id() is null, the row is treated as
+-- somebody else's, and every column outside the claim list is refused. That is
+-- the safe direction and it fails loudly rather than quietly, but it will stop
+-- an ordinary-looking backfill dead. Wrap such a migration in
+-- `alter table public.wishlist_items disable trigger pin_wishlist_item_owner_fields`
+-- / `enable trigger`, deliberately and in the same transaction, rather than
+-- weakening the pin.
 -- -----------------------------------------------------------------------------
 create or replace function public.reject_non_owner_column_change()
 returns trigger
 language plpgsql
 as $$
 declare
-  v_actor   text := (select public.requesting_user_id());
-  v_changed text;
+  v_actor     text  := (select public.requesting_user_id());
+  v_old       jsonb := to_jsonb(old);
+  v_new       jsonb := to_jsonb(new);
+  v_permitted text[];
+  v_changed   text;
 begin
+  v_permitted := tg_argv;
+
+  if v_actor is not distinct from (v_old ->> 'user_id') then
+    return new;
+  end if;
+
   -- A cascade from another trigger in this schema is not an actor's write, and
   -- there is no actor to compare it against -- it is the schema maintaining
   -- its own invariant.
@@ -78,31 +97,48 @@ begin
   -- deleting a group you own rewrites privacy_settings on rows belonging to
   -- other people. Without this clause deleteGroup() raises the moment any
   -- other member has an item restricted to that group -- verified against the
-  -- live database before the clause was added, and the fix is covered by the
-  -- last assertion in 09_privacy_pins.sql.
+  -- live database before the clause was added, and covered by the last two
+  -- assertions in 09_privacy_pins.sql.
   --
   -- A client's own UPDATE reaches this trigger at pg_trigger_depth() = 1 and
   -- the cascade at 2 (both measured, not assumed), and no client statement can
-  -- nest itself: the only trigger in this schema that writes wishlist_items is
-  -- that cleanup, and the only way to reach it is deleting a group the caller
-  -- OWNS, which the groups DELETE policy already gates. A future trigger that
-  -- writes this table would inherit the exemption, which is the thing to
-  -- notice if one is ever added.
+  -- nest itself: the only trigger function in this schema that touches
+  -- wishlist_items is that cleanup, and the only way to reach it is deleting a
+  -- group the caller OWNS, which the groups DELETE policy already gates. That
+  -- inventory is asserted, not merely asserted-in-a-comment: 09_privacy_pins.sql
+  -- fails by name if another trigger appears.
+  --
+  -- The exemption is the SHAPE of that cleanup, not a blanket pass. The cascade
+  -- writes exactly one column, one key, one literal, from a fixed SET list with
+  -- no attacker-chosen input -- so privacy_settings joins the permitted set
+  -- here, and only when the sole difference is restrictToGroup becoming JSON
+  -- null. A depth-2 write that touched anything else, or that rewrote
+  -- privacy_settings any other way, is still refused.
   if pg_trigger_depth() > 1 then
-    return new;
-  end if;
+    if v_old -> 'privacy_settings' is distinct from v_new -> 'privacy_settings'
+       and jsonb_set(v_old -> 'privacy_settings', '{restrictToGroup}', 'null'::jsonb)
+           is distinct from v_new -> 'privacy_settings'
+    then
+      raise exception
+        'CASCADE SHAPE: %.privacy_settings was rewritten by a trigger cascade in a way the schema''s own cleanup never performs (% -> %). The only permitted cascade edit is restrictToGroup becoming null.',
+        tg_table_name,
+        coalesce((v_old -> 'privacy_settings')::text, '<none>'),
+        coalesce((v_new -> 'privacy_settings')::text, '<none>')
+        using errcode = 'check_violation';
+    end if;
 
-  if v_actor is not distinct from old.user_id then
-    return new;
+    -- Cast is load-bearing: an untyped literal on the right of || against a
+    -- text[] is resolved as an array literal, not an element.
+    v_permitted := v_permitted || 'privacy_settings'::text;
   end if;
 
   -- Compared as text through jsonb, exactly as reject_parent_reassignment()
   -- does, so `is distinct from` gives NULL transitions the right answer in
   -- both directions and no per-type comparison operator is needed.
   select string_agg(k.key, ', ' order by k.key) into v_changed
-    from jsonb_each_text(to_jsonb(old)) as k
-   where not (k.key = any (tg_argv))
-     and k.value is distinct from (to_jsonb(new) ->> k.key);
+    from jsonb_each_text(v_old) as k
+   where not (k.key = any (v_permitted))
+     and k.value is distinct from (v_new ->> k.key);
 
   if v_changed is not null then
     raise exception

@@ -19,6 +19,12 @@
 -- definition that no longer names 'type', or one whose wishlist allow-list has
 -- grown to include privacy_settings or title, fails here by name.
 --
+-- One more catalog assertion guards the wishlist pin's only exemption. Writes
+-- arriving at pg_trigger_depth() > 1 are the schema's own cascade rather than
+-- an actor's, and are admitted in the exact shape that cascade uses. That is
+-- sound only while the inventory of trigger functions reaching wishlist_items
+-- stays known, so the inventory is asserted rather than described.
+--
 -- The allow path is asserted for real, by executing it. That half matters as
 -- much as the denials: an over-tight pin does not leak anything, it just
 -- silently stops people claiming gifts, and stops the member-removal flow
@@ -100,7 +106,42 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- 2. groups: type is pinned, and NOTHING ELSE IS.
+  -- 2. NOTHING ELSE MAY REACH wishlist_items FROM A TRIGGER.
+  --
+  --    reject_non_owner_column_change() exempts writes arriving at
+  --    pg_trigger_depth() > 1 (bounded to the cleanup's exact shape), because
+  --    the schema's own cascade has no actor to compare against. That
+  --    exemption is sound only while the inventory of trigger functions
+  --    touching this table is known: today it is exactly
+  --    cleanup_privacy_overrides_on_group_delete(), reachable only by deleting
+  --    a group you own. A trigger added later would inherit the exemption
+  --    silently, and a comment cannot stop that -- this can.
+  --
+  --    Matched on prosrc, so a function that merely NAMES the table is caught.
+  --    Being over-broad is the right direction here: a false positive costs a
+  --    one-line edit to the expected string, a false negative is a bypass
+  --    nobody sees.
+  ---------------------------------------------------------------------------
+  select coalesce(string_agg(t.tgname || '/' || p.proname, ', '
+                             order by t.tgname, p.proname), '<none>')
+    into v_text
+    from pg_trigger t
+    join pg_proc p on p.oid = t.tgfoid
+   where not t.tgisinternal
+     and p.prosrc ilike '%wishlist_items%'
+     and p.proname <> 'reject_non_owner_column_change';
+
+  if v_text is distinct from
+     'cleanup_privacy_on_group_delete/cleanup_privacy_overrides_on_group_delete'
+  then
+    raise exception
+      'PRIVACY PIN: the set of triggers whose function touches wishlist_items has changed. Expected exactly cleanup_privacy_on_group_delete/cleanup_privacy_overrides_on_group_delete, found: %. Every entry writes at pg_trigger_depth() > 1 and is therefore exempt from the owner check -- read the new one before widening this expectation.',
+      v_text;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- 3. groups: type is pinned, and NOTHING ELSE IS.
   --
   --    Both halves are load-bearing. `type` is the axis the entire privacy
   --    model keys on -- can_view_field() and can_view_wishlist_item() both
@@ -182,7 +223,7 @@ begin
             '{"visibleToGroupTypes": [], "restrictToGroup": "11111111-1111-1111-1111-111111111111"}');
 
   ---------------------------------------------------------------------------
-  -- 3. POSITIVE CONTROL: a non-owner can still claim.
+  -- 4. POSITIVE CONTROL: a non-owner can still claim.
   --
   -- The role switch is what makes policies apply at all: the CLI connects as
   -- a role with rolbypassrls, so claims alone would leave every assertion
@@ -207,7 +248,7 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- 4. POSITIVE CONTROL: the rest of the claim columns, in one write.
+  -- 5. POSITIVE CONTROL: the rest of the claim columns, in one write.
   --    markAsPurchased() and markOutOfStock() are separate actions in
   --    lib/actions/wishlist.ts; a permitted list that covered claiming but
   --    not these would break them without breaking assertion 3.
@@ -229,7 +270,7 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- 5. POSITIVE CONTROL: the OWNER may still edit the very columns the pin
+  -- 6. POSITIVE CONTROL: the OWNER may still edit the very columns the pin
   --    holds shut for everybody else, widening privacy included. The trigger
   --    short-circuits on ownership; if that short-circuit were lost, every
   --    ordinary wishlist edit in the app would start raising.
@@ -256,7 +297,7 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- 6. POSITIVE CONTROL: a group admin may still rename the group.
+  -- 7. POSITIVE CONTROL: a group admin may still rename the group.
   --    pin_group_type is deliberately narrow; name, description and settings
   --    are not its business.
   ---------------------------------------------------------------------------
@@ -277,7 +318,7 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- 7. POSITIVE CONTROL, and the one that would break quietly: invite_code
+  -- 8. POSITIVE CONTROL, and the one that would break quietly: invite_code
   --    must still rotate, and rotating it must not disturb type.
   --
   --    rotateInviteCode() runs on the member-removal path, before the
@@ -298,7 +339,7 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- 8. POSITIVE CONTROL: the schema's own cascade is not an actor, and must
+  -- 9. POSITIVE CONTROL: the schema's own cascade is not an actor, and must
   --    not be treated as one.
   --
   --    cleanup_privacy_overrides_on_group_delete() clears restrictToGroup on
@@ -333,9 +374,9 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 10 then
+  if v_checks < 11 then
     raise exception
-      'HARNESS FAIL: only % assertion(s) ran, expected at least 10. Assertions were skipped or commented out; this file proves nothing.',
+      'HARNESS FAIL: only % assertion(s) ran, expected at least 11. Assertions were skipped or commented out; this file proves nothing.',
       v_checks;
   end if;
 
