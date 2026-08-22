@@ -1,11 +1,21 @@
 import { lookup as dnsLookup } from "node:dns";
 import { isIP } from "node:net";
 // `fetch` comes from undici rather than from `globalThis`. That is not a style
-// preference, it is load-bearing: see the note on `agent` below.
-import { Agent, fetch as undiciFetch, type Response } from "undici";
+// preference, it is load-bearing: see the note on `guardedAgent` below.
+import {
+  Agent,
+  fetch as undiciFetch,
+  type Dispatcher,
+  type Response,
+} from "undici";
 import { isBlockedAddress, parseSafeUrl } from "./url-safety";
 
-const TIMEOUT_MS = 5_000;
+/**
+ * One budget for the WHOLE redirect chain, not per hop. Per-hop timeouts
+ * multiply: four hops at five seconds each is a twenty-second worst case, and
+ * this runs behind a debounced keystroke.
+ */
+const TOTAL_TIMEOUT_MS = 5_000;
 const MAX_REDIRECTS = 3;
 
 /** Marker carried on the error the DNS guard raises, so the reason survives. */
@@ -17,9 +27,38 @@ const REASON_UNREADABLE = "We could not read that page.";
 const REASON_TOO_LARGE = "That page is too large to read.";
 const REASON_TOO_MANY_HOPS = "That link redirects too many times.";
 
+/**
+ * `contentType` is `null` when the response carried no `content-type` header.
+ *
+ * It is deliberately not `""`. An empty string compares happily against
+ * anything (`"".startsWith("text/html")` is merely `false`) and so lets a
+ * caller treat "the server told us nothing" as if it were "the server told us
+ * something that is not HTML". Those are different facts. `null` makes the
+ * type system refuse to let a caller conflate them: `contentType.startsWith`
+ * does not compile until absence has been handled explicitly.
+ *
+ * This module does NOT enforce `acceptHeader` against the response — see the
+ * doc on `safeFetch`.
+ */
 type SafeFetchResult =
-  | { ok: true; body: Buffer; contentType: string }
+  | { ok: true; body: Buffer; contentType: string | null }
   | { ok: false; reason: string };
+
+/** What `safeFetch` needs from its caller. */
+export type SafeFetchOptions = {
+  /**
+   * Hard ceiling on bytes buffered, counted as they arrive and AFTER any
+   * content-encoding is undone, so a compressed bomb is measured at its real
+   * inflated size.
+   */
+  maxBytes: number;
+  /**
+   * The literal value of the outgoing `Accept` request header. A hint to the
+   * server, nothing more: the response is NOT checked against it. Named for
+   * what it is so no caller assumes an enforcement that is not here.
+   */
+  acceptHeader: string;
+};
 
 function blockedError(): NodeJS.ErrnoException {
   return Object.assign(new Error(BLOCKED_ADDRESS), { code: BLOCKED_ADDRESS });
@@ -43,7 +82,8 @@ function unwrapHost(hostname: string): string {
  * half), and it works because the address that gets checked is the address that
  * gets connected to. Validating the hostname instead would be bypassed by DNS;
  * validating a resolved address and then letting the stack resolve again would
- * be bypassed by DNS rebinding.
+ * be bypassed by DNS rebinding. Handing back the approved addresses themselves
+ * is what closes that second window: there is no second resolution to poison.
  *
  * Every path out of here that is not "here is a list of addresses I checked and
  * approved" is an error. An empty answer, a non-array answer, an entry without
@@ -90,6 +130,10 @@ const guardedLookup: typeof dnsLookup = ((
 /**
  * The connection is pinned to the addresses `guardedLookup` approved.
  *
+ * This agent is a module-level constant on purpose. It is never a parameter of
+ * `safeFetch` and never reachable from outside this file, so there is no call
+ * site anywhere in the app that can supply a permissive one.
+ *
  * **Why this dispatcher is used with undici's own `fetch` and not the global
  * one.** Node's `globalThis.fetch` is a *copy* of undici baked into the runtime
  * (`process.versions.undici`, 7.12.0 on the machine this was written), which is
@@ -111,10 +155,16 @@ const guardedLookup: typeof dnsLookup = ((
  * first, and re-running the verification — an undici major bump has already
  * been observed to change whether the dispatcher is honoured at all.
  */
-const agent = new Agent({
-  connect: { lookup: guardedLookup, timeout: TIMEOUT_MS },
-  headersTimeout: TIMEOUT_MS,
-  bodyTimeout: TIMEOUT_MS,
+const guardedAgent = new Agent({
+  connect: { lookup: guardedLookup, timeout: TOTAL_TIMEOUT_MS },
+  headersTimeout: TOTAL_TIMEOUT_MS,
+  bodyTimeout: TOTAL_TIMEOUT_MS,
+  // Stated rather than inherited. Redirects are followed by hand in
+  // `fetchChain` so that every hop is re-validated; a redirect followed down
+  // inside the dispatcher would skip that loop entirely. Undici's default is 0
+  // today, but "the default happens to be what we need" is exactly how the
+  // ipaddr.js `unicast` default got past Task 2.
+  maxRedirections: 0,
 });
 
 /**
@@ -125,6 +175,10 @@ const agent = new Agent({
  * the hook alone would let `http://169.254.169.254/` connect straight through
  * without a single validation call. So literals are checked here instead, and
  * the address checked is again exactly the address the socket will use.
+ *
+ * The split is exhaustive because it turns on the same `isIP()` that
+ * `net.connect` itself uses to decide whether to resolve: every host either
+ * reaches DNS (and so the hook) or is a literal (and so this).
  *
  * Returns `null` when the host is not a literal, meaning "not my job" rather
  * than "fine" — the caller must still let DNS and the hook have their say.
@@ -155,25 +209,38 @@ function discard(res: Response): void {
 }
 
 /**
- * Fetch a user-supplied URL with the guarantees this module exists to provide:
- * validation at the resolved address, re-validation on every redirect, no
- * credentials or cookies, and a body cap applied while streaming.
+ * The redirect-following, size-capping loop.
  *
- * Every failure is a refusal with a reason. There is no path that returns
- * `ok: true` without a body this function read and counted itself.
+ * Split out from `safeFetch` so tests can drive it against a loopback server
+ * through a dispatcher of their own. Note what is and is not on the seam: the
+ * `dispatcher` carries the TRANSPORT, and every check that does not need a
+ * socket — scheme, credentials, literal-address validation, hop count, byte
+ * cap — lives in here where no caller can displace it. A test dispatcher can
+ * make a request go somewhere else; it cannot make this function accept a
+ * blocked address.
  */
-export async function safeFetch(
+async function fetchChain(
   raw: string,
-  opts: { maxBytes: number; accept: string }
+  opts: SafeFetchOptions,
+  dispatcher: Dispatcher
 ): Promise<SafeFetchResult> {
   // A missing or nonsensical cap is not permission to read without one.
-  if (typeof opts?.maxBytes !== "number" || !Number.isFinite(opts.maxBytes) || opts.maxBytes <= 0) {
+  if (
+    typeof opts?.maxBytes !== "number" ||
+    !Number.isFinite(opts.maxBytes) ||
+    opts.maxBytes <= 0
+  ) {
     return { ok: false, reason: REASON_UNREADABLE };
   }
   const accept =
-    typeof opts.accept === "string" && opts.accept.length > 0
-      ? opts.accept
+    typeof opts.acceptHeader === "string" && opts.acceptHeader.length > 0
+      ? opts.acceptHeader
       : "*/*";
+
+  // One clock for the whole chain. Each hop gets whatever is left of it, and
+  // the same signal bounds that hop's body read, so a slow trickle cannot buy
+  // extra time by spreading itself over redirects.
+  const deadline = Date.now() + TOTAL_TIMEOUT_MS;
 
   let current = raw;
 
@@ -196,19 +263,22 @@ export async function safeFetch(
       return { ok: false, reason: REASON_REFUSED };
     }
 
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return { ok: false, reason: REASON_UNREACHABLE };
+
     let res: Response;
     try {
       res = await undiciFetch(parsed.url, {
         method: "GET",
         redirect: "manual",
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: AbortSignal.timeout(remaining),
         // No ambient credentials, no cookie jar, no referrer leak.
         credentials: "omit",
         referrerPolicy: "no-referrer",
         // Built fresh from `opts` on every hop, so nothing a caller set on the
         // first request can ride along to a redirect target.
         headers: { accept, "user-agent": "rybn-link-preview" },
-        dispatcher: agent,
+        dispatcher,
       });
     } catch (e) {
       if (isBlockedError(e)) return { ok: false, reason: REASON_REFUSED };
@@ -222,6 +292,9 @@ export async function safeFetch(
       if (!location) return { ok: false, reason: REASON_UNREACHABLE };
       let next: URL;
       try {
+        // Resolved against the hop we are on, so a relative or
+        // protocol-relative `Location` ("//127.0.0.1/") becomes a whole URL
+        // and goes back through every check above rather than round the side.
         next = new URL(location, parsed.url);
       } catch {
         return { ok: false, reason: REASON_UNREACHABLE };
@@ -235,15 +308,18 @@ export async function safeFetch(
       return { ok: false, reason: REASON_UNREADABLE };
     }
 
-    // Reported as found. An absent `content-type` yields "", which the caller
-    // must treat as "unknown" — this function does not invent one.
-    const contentType = (res.headers.get("content-type") ?? "")
-      .split(";")[0]
-      .trim()
-      .toLowerCase();
+    // Reported as found, `null` when absent. Not invented, not flattened to "".
+    const rawContentType = res.headers.get("content-type");
+    const contentType =
+      rawContentType === null
+        ? null
+        : rawContentType.split(";")[0].trim().toLowerCase();
 
     // Cap while streaming. A declared content-length is not trusted and a
-    // missing one is not a licence to read forever.
+    // missing one is not a licence to read forever. `res.body` is the DECODED
+    // stream, so gzip/deflate/br are already undone here and `total` counts
+    // inflated bytes — a 100MB bomb behind 100KB on the wire trips this after
+    // reading only as much as the cap allows, not after 100MB of memory.
     const reader = res.body?.getReader();
     if (!reader) return { ok: false, reason: REASON_UNREADABLE };
 
@@ -272,3 +348,46 @@ export async function safeFetch(
 
   return { ok: false, reason: REASON_TOO_MANY_HOPS };
 }
+
+/**
+ * Fetch a user-supplied URL with the guarantees this module exists to provide:
+ * validation at the resolved address, re-validation on every redirect, no
+ * credentials or cookies, one timeout budget for the whole chain, and a body
+ * cap applied while streaming against decompressed bytes.
+ *
+ * Every failure is a refusal with a reason. There is no path that returns
+ * `ok: true` without a body this function read and counted itself.
+ *
+ * **The contract on `contentType`, for downstream callers.** It is
+ * `string | null`, and `null` means the response declared nothing. This module
+ * does not enforce `acceptHeader` against it, because whether an
+ * undeclared-type body is usable is a decision only the caller can make: an
+ * image reader that sniffs magic bytes is right to ignore the header, and an
+ * HTML parser is right to insist on one. What this module refuses to do is
+ * report absence as if it were a value. Callers must handle `null`
+ * explicitly — the type makes that mandatory rather than merely advisable.
+ */
+export async function safeFetch(
+  raw: string,
+  opts: SafeFetchOptions
+): Promise<SafeFetchResult> {
+  return fetchChain(raw, opts, guardedAgent);
+}
+
+/**
+ * Test-only seam. NOT for production code.
+ *
+ * `fetchChain` here takes a caller-supplied dispatcher, which is the transport
+ * and therefore carries the DNS `lookup` guard. Passing a plain `Agent` gives
+ * up the resolved-address check for hostnames — that is the whole point, since
+ * every address a test can bind locally is one the guard blocks, and there is
+ * no other way to drive the hop-and-cap loop against a real server.
+ *
+ * The guard itself is not on this seam and cannot be swapped: `guardedLookup`
+ * and `guardedAgent` are module-private, `safeFetch` is hard-wired to the
+ * latter, and the literal-address, scheme, credential, hop-count and byte-cap
+ * checks all live inside `fetchChain` where no dispatcher can reach them.
+ * `guardedLookup` is exposed so it can be exercised directly rather than only
+ * through a socket.
+ */
+export const __testing = { fetchChain, guardedLookup };
