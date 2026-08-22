@@ -2003,6 +2003,26 @@ this form of the check exists to catch.
 `atzrokpgttmzgbawbzst` is the decommissioned Supabase project; a surviving
 reference to it means something still points at a dead database.
 
+- [ ] **Step 3b: Documentation and layout cleanup carried from Task 8**
+
+Small, but they contradict the shipped code:
+- `README.md:67` still lists `verify-email/` in its project-structure tree.
+  That route was deleted. Remove it, and check the tree for other stale
+  entries while you are there.
+- `.env.example` still documents Supabase Google OAuth as live setup ("Enable
+  Google provider in Supabase Dashboard", the `supabase.co/auth/v1/callback`
+  redirect URI) directly above the new Clerk section. Clerk owns OAuth now;
+  the two sections contradict each other in the same file. Remove the Supabase
+  OAuth block.
+- **Visual check, only possible once the CSP allows clerk-js (Step 1 above).**
+  `app/(auth)/layout.tsx` wraps children in `min-h-screen flex items-center
+  justify-center` with a `max-w-md` clamp, and the Task 5 login/register pages
+  each add their own `min-h-screen flex items-center justify-center`. That is
+  nested full-height centring plus a 28rem clamp on Clerk's card. Nobody has
+  been able to see it rendered, because CSP has blocked clerk-js for the whole
+  migration. Load `/login` and `/register` in a real browser and fix the
+  nesting if the card is squeezed or vertically off-centre.
+
 - [ ] **Step 4: Walk the flows manually**
 
 ```bash
