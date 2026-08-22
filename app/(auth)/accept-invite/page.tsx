@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Users } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
@@ -19,6 +19,18 @@ function AcceptInviteContent() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const autoAccept = searchParams.get("autoAccept") === "true";
 
+  // An invitation token is single-use, and accept_group_invitation() now
+  // reports a spent token as "invalid or expired" -- the same error as an
+  // unknown one, deliberately, so the caller cannot probe which tokens exist.
+  // That makes a second call visibly WRONG rather than harmlessly redundant:
+  // before, a repeat acceptance found the user already a member and forwarded
+  // them to the group. So the auto-accept must fire at most once per mount.
+  // Two things would otherwise fire it twice -- React StrictMode double-invokes
+  // effects in development, and this effect re-runs whenever isSignedIn
+  // settles -- and the user would see "this invitation is invalid or has
+  // expired" for an invitation that had just been accepted successfully.
+  const acceptStarted = useRef(false);
+
   useEffect(() => {
     if (!token) {
       setError("Invalid invitation link");
@@ -36,7 +48,8 @@ function AcceptInviteContent() {
       setIsAuthenticated(isAuth);
 
       // If just signed up (autoAccept=true in URL), auto-accept the invitation
-      if (isAuth && autoAccept) {
+      if (isAuth && autoAccept && !acceptStarted.current) {
+        acceptStarted.current = true;
         console.log("Just signed up, auto-accepting invitation...");
         // Small delay to ensure the session is fully synced
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -138,6 +151,19 @@ function AcceptInviteContent() {
 
         <div className="flex justify-center">
           <SignUp
+            // routing="hash", explicitly. @clerk/nextjs defaults <SignUp/> to
+            // routing="path" rooted at the CURRENT pathname
+            // (useEnforceRoutingProps -> usePathnameWithoutCatchAll), so with
+            // no prop this component would drive its later steps by navigating
+            // to /accept-invite/verify-email-address, /accept-invite/continue
+            // and /accept-invite/sso-callback. This route is a plain page, not
+            // a [[...rest]] catch-all, so every one of those is a 404 -- and
+            // the ?token= that the whole flow depends on would be gone with it.
+            // Hash routing keeps the URL, query string included, for the whole
+            // sign-up. (Clerk's own catch-all guard suggests exactly this, but
+            // it only runs in development and only once a session exists, so
+            // it would not have caught this before production.)
+            routing="hash"
             forceRedirectUrl={`/accept-invite?token=${encodeURIComponent(
               token
             )}&autoAccept=true`}

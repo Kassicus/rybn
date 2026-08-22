@@ -842,6 +842,48 @@ export type Database = {
           banner_dismissed: boolean
         }[]
       }
+      // The invite-code resolver. SECURITY DEFINER, because a group has to be
+      // readable by exactly one non-member -- the person holding its code --
+      // and the groups SELECT policy is membership-only. Returns at most one
+      // row, and deliberately does NOT echo the invite code back.
+      find_group_by_invite_code: {
+        Args: {
+          p_invite_code: string
+        }
+        Returns: {
+          id: string
+          name: string
+          description: string | null
+          type: "family" | "friends" | "work" | "custom"
+        }[]
+      }
+      // The only two ways to become a member of a group. group_members has no
+      // INSERT policy (a self-grantable membership was a self-grantable key to
+      // nearly everything the schema protects), so joining goes through these.
+      // Both pin the new member to requesting_user_id() -- neither takes a
+      // user parameter -- and both take a secret rather than an identity.
+      //
+      // Error codes, verified against the live database:
+      //   28000 NOT AUTHENTICATED               -- called with no Clerk JWT
+      //   22023 INVALID INVITE CODE             -- join_group_with_code
+      //   23505 ALREADY A MEMBER                -- join_group_with_code
+      //   22023 INVALID OR EXPIRED INVITATION   -- accept_group_invitation,
+      //         raised identically for unknown, expired and already-accepted
+      //         tokens; the caller must not be able to tell them apart
+      //   23503 group_members_user_id_fkey      -- caller has no user_profiles
+      //         row yet (see requireAuthWithProfile in the callers)
+      join_group_with_code: {
+        Args: {
+          p_invite_code: string
+        }
+        Returns: string
+      }
+      accept_group_invitation: {
+        Args: {
+          p_token: string
+        }
+        Returns: string
+      }
     }
     Enums: {
       group_type: "family" | "friends" | "work" | "custom"

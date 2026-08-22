@@ -1,8 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { getUserId } from "@/lib/auth/require-auth";
+import { getUserId, requireAuthWithProfile } from "@/lib/auth/require-auth";
 import { generateInviteToken, getInviteExpiration } from "@/lib/utils/groups";
 import { sendGroupInviteEmail } from "@/lib/resend/send";
 import { revalidatePath } from "next/cache";
@@ -193,216 +192,155 @@ export async function sendGroupInvitation(data: {
   };
 }
 
+/**
+ * Consumes an invitation token for the signed-in user.
+ *
+ * This does NOT read the invitations table and does NOT insert into
+ * group_members. It cannot: group_members has no INSERT policy at all (a
+ * self-grantable membership was a self-grantable key to nearly everything the
+ * schema protects -- roster, invite code, private wishlist items, profile
+ * fields, Secret Santa assignments -- to anyone holding the group UUID, which
+ * is in the URL), and the email-based SELECT policy that once let an invitee
+ * read their own invitation row is gone too. The invitee presents the token to
+ * accept_group_invitation(); they never see the row behind it.
+ *
+ * The function is SECURITY DEFINER, pins the new member to
+ * requesting_user_id(), and takes no user parameter -- so it must be called on
+ * the USER-SCOPED client. The admin client would carry no Clerk subject and
+ * the call would raise 28000.
+ */
 export async function acceptInvitation(token: string): Promise<
   | { error: string; data?: never }
-  | { data: any; error?: never }
+  | { data: { id: string }; error?: never }
 > {
-  console.log("acceptInvitation called with token:", token);
-
-  const supabase = await createClient();
-
-  // Get current user
-  const userId = await getUserId();
-
-  console.log("User check:", { user: userId });
-
-  if (!userId) {
-    console.error("Not authenticated");
+  // requireAuthWithProfile, not requireAuth/getUserId, and this is load-bearing.
+  //
+  // app/(auth)/ does not render the dashboard layout, so nothing has
+  // provisioned a user_profiles row on this route. /accept-invite embeds
+  // Clerk's <SignUp/> with forceRedirectUrl back to itself, which makes
+  // accepting the invitation a brand-new user's FIRST authenticated action.
+  // group_members.user_id references user_profiles(id), so without the row the
+  // insert inside the function fails with 23503 -- confirmed against the live
+  // database, not assumed.
+  //
+  // It throws when signed out; the flow's contract is an error string, so the
+  // throw is converted rather than propagated. ensureProfile() behind it is
+  // fail-soft, hence the 23503 arm below still exists.
+  let userId: string;
+  try {
+    userId = await requireAuthWithProfile();
+  } catch {
     return { error: "Not authenticated" };
   }
 
-  // Find the invitation (don't fetch groups data yet due to RLS)
-  console.log("Searching for invitation with token:", token);
-  const { data: invitation, error: inviteError } = await supabase
-    .from("invitations")
-    .select("*")
-    .eq("token", token)
-    .maybeSingle();
+  const supabase = await createClient();
 
-  console.log("Invitation query result:", { invitation, error: inviteError });
+  const { data: groupId, error } = await supabase.rpc(
+    "accept_group_invitation",
+    { p_token: token }
+  );
 
-  if (inviteError) {
-    console.error("Error fetching invitation:", inviteError);
-    return { error: "Failed to fetch invitation. Please try again." };
+  if (error) {
+    switch (error.code) {
+      // Unknown, expired and already-accepted tokens all raise this, and the
+      // function raises it identically ON PURPOSE. Do not try to tell them
+      // apart here: distinguishing them would turn this action into an oracle
+      // for which tokens exist. One message covers all three.
+      case "22023":
+        return { error: "This invitation is invalid or has expired" };
+      case "28000":
+        return { error: "Not authenticated" };
+      case "23503":
+        // ensureProfile() is fail-soft, so a Supabase blip during provisioning
+        // lands here rather than throwing. Retrying re-runs ensureProfile().
+        console.error(
+          "acceptInvitation: no user_profiles row for",
+          userId,
+          error
+        );
+        return {
+          error: "Your account is still being set up. Please try again.",
+        };
+      default:
+        console.error("acceptInvitation: RPC failed", error);
+        return { error: "Failed to accept invitation. Please try again." };
+    }
   }
 
-  if (!invitation) {
-    console.error("No invitation found for token:", token);
-    return { error: "Invalid invitation token" };
+  if (!groupId) {
+    console.error("acceptInvitation: RPC returned no group id");
+    return { error: "Failed to accept invitation. Please try again." };
   }
 
-  console.log("Found invitation:", invitation.id, "for group:", invitation.group_id);
-
-  // Check if invitation has expired
-  if (new Date(invitation.expires_at) < new Date()) {
-    return { error: "This invitation has expired" };
-  }
-
-  // Check if already accepted
-  if (invitation.accepted) {
-    return { error: "This invitation has already been accepted" };
-  }
-
-  // Check if user is already a member
-  console.log("Checking membership for user:", userId, "in group:", invitation.group_id);
-
-  // Check all memberships to see if there are duplicates
-  const { data: allMemberships } = await supabase
-    .from("group_members")
-    .select("id, role, joined_at")
-    .eq("group_id", invitation.group_id)
-    .eq("user_id", userId);
-
-  console.log("All memberships found:", allMemberships);
-
-  if (allMemberships && allMemberships.length > 0) {
-    console.log("User is already a member, redirecting to group");
-    console.log("Membership details:", JSON.stringify(allMemberships, null, 2));
-
-    // Mark the invitation as accepted since they're already in the group
-    // Use admin client to bypass RLS
-    const adminClient = createAdminClient();
-    await adminClient
-      .from("invitations")
-      .update({
-        accepted: true,
-        accepted_at: new Date().toISOString(),
-      })
-      .eq("id", invitation.id);
-
-    // Fetch the group data now that they're a member
-    const { data: group } = await supabase
-      .from("groups")
-      .select("*")
-      .eq("id", invitation.group_id)
-      .maybeSingle();
-
-    // Revalidate the groups page
-    revalidatePath("/groups");
-    revalidatePath(`/groups/${invitation.group_id}`);
-
-    const result = { data: group || { id: invitation.group_id } };
-    console.log("Returning from acceptInvitation (already member):", result);
-    // Redirect them to the group instead of showing an error
-    return result;
-  }
-
-  console.log("User is not a member, proceeding with acceptance");
-
-  // Security: Mark invitation as accepted BEFORE adding user to prevent race condition
-  // Use admin client to bypass RLS for this update (user accepting isn't the sender)
-  console.log("Attempting to mark invitation as accepted...");
-  const adminClient = createAdminClient();
-  const { error: acceptError, data: acceptData } = await adminClient
-    .from("invitations")
-    .update({
-      accepted: true,
-      accepted_at: new Date().toISOString(),
-    })
-    .eq("id", invitation.id)
-    .eq("accepted", false) // Only update if not already accepted
-    .select();
-
-  console.log("Accept update result:", { error: acceptError, data: acceptData });
-
-  if (acceptError) {
-    console.error("Failed to mark invitation as accepted:", acceptError);
-    console.error("Error details:", JSON.stringify(acceptError, null, 2));
-    return { error: `Failed to accept invitation: ${acceptError.message}` };
-  }
-
-  if (!acceptData || acceptData.length === 0) {
-    console.error("No rows updated when marking invitation as accepted");
-    return { error: "Failed to accept invitation. It may have already been used." };
-  }
-
-  console.log("Successfully marked invitation as accepted");
-
-  // Add user to group
-  const { error: memberError } = await supabase.from("group_members").insert({
-    group_id: invitation.group_id,
-    user_id: userId,
-    role: "member",
-  });
-
-  if (memberError) {
-    console.error("Error adding user to group:", memberError);
-    // If adding member fails, rollback the acceptance using admin client
-    await adminClient
-      .from("invitations")
-      .update({ accepted: false, accepted_at: null })
-      .eq("id", invitation.id);
-    return { error: memberError.message };
-  }
-
-  console.log("Successfully added user to group");
-
-  // Now fetch the group data (user is a member now, so RLS allows it)
-  const { data: group } = await supabase
-    .from("groups")
-    .select("*")
-    .eq("id", invitation.group_id)
-    .maybeSingle();
-
-  console.log("Fetched group data:", group?.id);
-
-  // Revalidate the groups page to ensure fresh data
   revalidatePath("/groups");
-  revalidatePath(`/groups/${invitation.group_id}`);
+  revalidatePath(`/groups/${groupId}`);
 
-  const result = { data: group || { id: invitation.group_id } };
-  console.log("Returning from acceptInvitation:", result);
-  return result;
+  return { data: { id: groupId } };
 }
 
-export async function joinGroupByCode(inviteCode: string) {
-  const supabase = await createClient();
-
-  // Get current user
-  const userId = await getUserId();
-
-  if (!userId) {
+/**
+ * Joins the group whose invite code is presented.
+ *
+ * Same shape as acceptInvitation: the group lookup and the membership insert
+ * both happen inside join_group_with_code(), which is SECURITY DEFINER and
+ * pins the new member to requesting_user_id(). Reading `groups` by
+ * invite_code from here would return nothing anyway -- the groups SELECT
+ * policy is membership-only, and a joiner is by definition not a member yet.
+ *
+ * The code is normalised to upper case inside the function, so the caller does
+ * not have to; JoinGroupButton still formats it for display.
+ */
+export async function joinGroupByCode(inviteCode: string): Promise<
+  | { error: string; data?: never }
+  | { data: { id: string }; error?: never }
+> {
+  // Reached from the dashboard, where the layout has already provisioned the
+  // profile -- but the same 23503 applies if it ever is not, and the check
+  // costs one indexed primary-key lookup. See acceptInvitation.
+  let userId: string;
+  try {
+    userId = await requireAuthWithProfile();
+  } catch {
     return { error: "Not authenticated" };
   }
 
-  // Find the group
-  const { data: group, error: groupError } = await supabase
-    .from("groups")
-    .select("*")
-    .eq("invite_code", inviteCode.toUpperCase())
-    .maybeSingle();
+  const supabase = await createClient();
 
-  if (groupError) {
-    console.error("Error fetching group:", groupError);
-    return { error: "Failed to fetch group. Please try again." };
-  }
-
-  if (!group) {
-    return { error: "Invalid invite code" };
-  }
-
-  // Check if user is already a member
-  const { data: existingMember } = await supabase
-    .from("group_members")
-    .select("id")
-    .eq("group_id", group.id)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (existingMember) {
-    return { error: "You are already a member of this group" };
-  }
-
-  // Add user to group
-  const { error: memberError } = await supabase.from("group_members").insert({
-    group_id: group.id,
-    user_id: userId,
-    role: "member",
+  const { data: groupId, error } = await supabase.rpc("join_group_with_code", {
+    p_invite_code: inviteCode,
   });
 
-  if (memberError) {
-    return { error: memberError.message };
+  if (error) {
+    switch (error.code) {
+      // Unknown and malformed codes are the same error by design, so a caller
+      // cannot use this to discover which codes exist.
+      case "22023":
+        return { error: "Invalid invite code" };
+      case "23505":
+        return { error: "You are already a member of this group" };
+      case "28000":
+        return { error: "Not authenticated" };
+      case "23503":
+        console.error(
+          "joinGroupByCode: no user_profiles row for",
+          userId,
+          error
+        );
+        return {
+          error: "Your account is still being set up. Please try again.",
+        };
+      default:
+        console.error("joinGroupByCode: RPC failed", error);
+        return { error: "Failed to join group. Please try again." };
+    }
   }
 
-  return { data: group };
+  if (!groupId) {
+    console.error("joinGroupByCode: RPC returned no group id");
+    return { error: "Failed to join group. Please try again." };
+  }
+
+  revalidatePath("/groups");
+
+  return { data: { id: groupId } };
 }

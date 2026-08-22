@@ -32,15 +32,34 @@ export async function createGroup(formData: {
   let codeExists = true;
   let attempts = 0;
 
-  // Ensure invite code is unique (max 5 attempts)
+  // Ensure invite code is unique (max 5 attempts).
+  //
+  // Via find_group_by_invite_code(), not a direct select on `groups`. The
+  // groups SELECT policy is membership-only, so reading by invite_code from
+  // here returned nothing for every code -- including one already in use --
+  // and the probe silently reported "unique" every time, pushing a genuine
+  // collision out to the insert. The resolver is SECURITY DEFINER and returns
+  // at most one row without echoing the code back.
+  //
+  // Verified against the live database: as a non-member, the direct select
+  // returns 0 rows for a code that exists; the resolver returns 1.
   while (codeExists && attempts < 5) {
-    const { data: existing } = await supabase
-      .from("groups")
-      .select("id")
-      .eq("invite_code", inviteCode)
-      .maybeSingle();
+    const { data: existing, error: probeError } = await supabase.rpc(
+      "find_group_by_invite_code",
+      { p_invite_code: inviteCode }
+    );
 
-    if (!existing) {
+    if (probeError) {
+      // Do not spin five times against a broken probe, and do not fail the
+      // creation on its account either: `groups.invite_code` is UNIQUE, so a
+      // collision the probe missed still cannot be written -- it surfaces as
+      // the insert error below, and the next attempt generates a new code.
+      console.error("createGroup: invite code collision probe failed", probeError);
+      codeExists = false;
+      break;
+    }
+
+    if (!existing || existing.length === 0) {
       codeExists = false;
     } else {
       inviteCode = generateInviteCode();
