@@ -26,3 +26,4 @@
 06_anon_has_no_reach.sql
 07_write_path_defences.sql
 08_profile_provisioning.sql
+09_privacy_pins.sql
