@@ -6,14 +6,33 @@ export function generateInviteCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Removed ambiguous chars (0, O, I, 1)
   const segments = 3;
   const segmentLength = 3;
+  const total = segments * segmentLength;
 
-  const code = Array.from({ length: segments }, () => {
-    return Array.from({ length: segmentLength }, () => {
-      return chars.charAt(Math.floor(Math.random() * chars.length));
-    }).join('');
-  }).join('-');
+  // crypto.getRandomValues, not Math.random. The invite code is now a
+  // MEMBERSHIP CAPABILITY -- join_group_with_code() grants group membership to
+  // whoever presents it -- where it used to grant nothing the group UUID did
+  // not already give away. Math.random() is V8's xorshift128+, whose internal
+  // state is recoverable from a handful of outputs, so a predictable code is a
+  // predictable way into someone's group. Matches generateInviteToken() below.
+  //
+  // Rejection sampling keeps the 32-symbol alphabet uniform: 256 is a multiple
+  // of 32, so a plain modulo would be unbiased here, but the guard keeps that
+  // true if the alphabet ever changes.
+  const picks: string[] = [];
+  const buf = new Uint8Array(total * 2);
+  while (picks.length < total) {
+    crypto.getRandomValues(buf);
+    for (const byte of buf) {
+      if (picks.length >= total) break;
+      const limit = 256 - (256 % chars.length);
+      if (byte >= limit) continue;
+      picks.push(chars.charAt(byte % chars.length));
+    }
+  }
 
-  return code;
+  return Array.from({ length: segments }, (_, i) =>
+    picks.slice(i * segmentLength, (i + 1) * segmentLength).join('')
+  ).join('-');
 }
 
 /**

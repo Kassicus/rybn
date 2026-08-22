@@ -1207,6 +1207,27 @@ create trigger pin_exchange_participant_parent
 -- name, plus a private group's name and type, straight past both tables'
 -- SELECT policies. The only legitimate update is banner dismissal
 -- (lib/actions/date-reminders.ts), which touches none of these columns.
+-- group_members.user_id was pinned nowhere. Its UPDATE policy checks
+-- is_group_admin(group_id, me) on both sides, which stops the ROW being moved
+-- to another group but not the row being pointed at another PERSON: an
+-- owner/admin could rewrite user_id to an arbitrary Clerk id and conscript that
+-- user into a group of the attacker's chosen type, then read everything the
+-- victim shares with that type. No consent, no notification.
+create trigger pin_group_member_subject
+  before update on public.group_members
+  for each row execute function public.reject_parent_reassignment('group_id', 'user_id');
+
+-- invitations.group_id was rewritable after insert: the UPDATE policy is
+-- `invited_by = me` on both sides and never re-checks is_group_member. On its
+-- own that was latent. accept_group_invitation() made it a front door --
+-- create a throwaway group, invite yourself into it, repoint group_id at a
+-- victim group, redeem your own token. Precondition: know a group UUID, which
+-- is in the URL. That path was opened by the very commit that closed the
+-- self-grant, which is exactly why the pin belongs next to it.
+create trigger pin_invitation_parent
+  before update on public.invitations
+  for each row execute function public.reject_parent_reassignment('group_id', 'invited_by');
+
 create trigger pin_date_notification_subject
   before update on public.date_notifications
   for each row execute function public.reject_parent_reassignment(
@@ -1374,6 +1395,13 @@ create policy "Users can view members of their groups"
 -- caller reaches PostgREST directly and skips whatever the server action
 -- checked. The group id is not a secret either -- it is in the URL.
 --
+-- COUNT CAREFULLY. Membership is created by three things, but only because two
+-- further MUTATION paths are pinned shut by triggers further down. Without
+-- those, the list is five: rewriting group_members.user_id to conscript a
+-- stranger, and repointing an invitation's group_id before redeeming your own
+-- token. Both are closed by pin_group_member_subject and pin_invitation_parent,
+-- and 07_write_path_defences.sql fails if either trigger goes away.
+--
 -- The consequences were not subtle: anyone holding a group id could join, and
 -- then read the roster, every member's profile, their private wishlist items
 -- and profile fields, and the group's exchanges. A REMOVED MEMBER COULD SIMPLY
@@ -1435,16 +1463,33 @@ create policy "Group members can create invitations"
   with check (
     public.is_group_member(group_id, (select public.requesting_user_id()))
     and invited_by = (select public.requesting_user_id())
+    and expires_at > now()
+    and expires_at <= now() + interval '30 days'
   );
 
+-- The cap is repeated on UPDATE deliberately. An insert-only cap is not a cap:
+-- the sender can simply extend the row afterwards, indefinitely, which is the
+-- planted-invitation scenario again. The application uses 7 days
+-- (getInviteExpiration), so 30 is generous headroom.
 create policy "Invitation senders can update their invitations"
   on public.invitations for update to authenticated
   using (invited_by = (select public.requesting_user_id()))
-  with check (invited_by = (select public.requesting_user_id()));
+  with check (
+    invited_by = (select public.requesting_user_id())
+    and expires_at <= now() + interval '30 days'
+  );
 
-create policy "Invitation senders can delete their invitations"
+-- Group admins can revoke, not just the sender. Otherwise a member plants an
+-- invitation, is removed, and the owner can SEE the planted row but neither
+-- delete nor expire it -- both policies keyed on invited_by -- so the removed
+-- member replays their own token and is back in. Rotating the invite code does
+-- not help; the token path is separate.
+create policy "Invitation senders and group admins can delete invitations"
   on public.invitations for delete to authenticated
-  using (invited_by = (select public.requesting_user_id()));
+  using (
+    invited_by = (select public.requesting_user_id())
+    or public.is_group_admin(group_id, (select public.requesting_user_id()))
+  );
 
 
 -- -----------------------------------------------------------------------------

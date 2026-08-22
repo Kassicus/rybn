@@ -36,6 +36,7 @@ declare
   v_update_open   int;
   v_update_total  int;
   v_gm_insert     int;
+  v_pin           int;
   v_checks        int := 0;
 begin
   ---------------------------------------------------------------------------
@@ -50,6 +51,15 @@ begin
   --                                    get_dates_today_for_user() return an
   --                                    arbitrary user's name and a private
   --                                    group's name and type
+  --      group_members              -> rewriting user_id let an owner/admin
+  --                                    conscript an arbitrary Clerk id into
+  --                                    their group and read everything that
+  --                                    user shares with that group type
+  --      invitations               -> repointing group_id after insert let an
+  --                                    attacker invite themselves to a
+  --                                    throwaway group, aim the row at a
+  --                                    victim group, and redeem their own
+  --                                    token through accept_group_invitation()
   ---------------------------------------------------------------------------
   select string_agg(t.tbl, ', ' order by t.tbl) into v_missing
     from (values ('group_gift_members'),
@@ -128,6 +138,44 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
+  -- 3b. and 3c. The two pins added after accept_group_invitation() existed.
+  --     They get their own assertions rather than two more rows in the list
+  --     above, because a loop over a VALUES list is ONE increment: the counter
+  --     cannot tell five names from three, so entries could be dropped from it
+  --     silently. One increment per guarantee is what makes the floor mean
+  --     something.
+  ---------------------------------------------------------------------------
+  select count(*) into v_pin
+    from pg_trigger tg
+    join pg_class c on c.oid = tg.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    join pg_proc p on p.oid = tg.tgfoid
+   where n.nspname = 'public' and c.relname = 'group_members'
+     and not tg.tgisinternal and tg.tgenabled = 'O'
+     and p.proname = 'reject_parent_reassignment';
+
+  if v_pin <> 1 then
+    raise exception
+      'WRITE PATH: group_members has no enabled reject_parent_reassignment trigger. Without it an owner or admin can rewrite a membership row''s user_id and conscript an arbitrary Clerk user into their group.';
+  end if;
+  v_checks := v_checks + 1;
+
+  select count(*) into v_pin
+    from pg_trigger tg
+    join pg_class c on c.oid = tg.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    join pg_proc p on p.oid = tg.tgfoid
+   where n.nspname = 'public' and c.relname = 'invitations'
+     and not tg.tgisinternal and tg.tgenabled = 'O'
+     and p.proname = 'reject_parent_reassignment';
+
+  if v_pin <> 1 then
+    raise exception
+      'WRITE PATH: invitations has no enabled reject_parent_reassignment trigger. Without it group_id is rewritable after insert, so an attacker invites themselves to a throwaway group, repoints the row at a victim group, and redeems their own token through accept_group_invitation().';
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
   -- 4. group_members must have NO INSERT policy at all.
   --
   --    Membership is the key to nearly everything in this schema --
@@ -155,9 +203,9 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 5 then
+  if v_checks < 7 then
     raise exception
-      'HARNESS FAIL: only % assertion(s) ran, expected at least 5. Assertions were skipped or commented out; this file proves nothing.',
+      'HARNESS FAIL: only % assertion(s) ran, expected at least 7. Assertions were skipped or commented out; this file proves nothing.',
       v_checks;
   end if;
 
