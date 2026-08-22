@@ -596,5 +596,13 @@ export async function getAvailableGroupMembers(groupGiftId: string) {
   return { data: profiles || [] };
 }
 
-// Export alias for backward compatibility
-export { createGroupGift as createGiftGroup };
+// Export alias for backward compatibility.
+//
+// This must be a real async function, not `export { createGroupGift as
+// createGiftGroup }`. Every export of a "use server" module has to be an async
+// function declaration; an aliased re-export is not one, and Turbopack's server
+// action transform collapses the two names into the alias, so importing
+// `createGroupGift` fails to resolve at build time.
+export async function createGiftGroup(formData: GroupGiftFormData) {
+  return createGroupGift(formData);
+}

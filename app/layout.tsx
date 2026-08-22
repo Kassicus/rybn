@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Quicksand } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
+import { ClerkProvider } from "@clerk/nextjs";
 import "@fontsource/playwrite-de-sas/400.css";
 import "./globals.css";
 import { QueryProvider } from "@/components/providers/QueryProvider";
@@ -26,10 +27,12 @@ export default function RootLayout({
   return (
     <html lang="en" className={quicksand.variable}>
       <body className={`${quicksand.className} overflow-x-hidden`}>
-        <QueryProvider>
-          {children}
-          <Analytics />
-        </QueryProvider>
+        <ClerkProvider>
+          <QueryProvider>
+            {children}
+            <Analytics />
+          </QueryProvider>
+        </ClerkProvider>
       </body>
     </html>
   );
