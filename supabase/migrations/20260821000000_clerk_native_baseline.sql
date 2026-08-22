@@ -518,9 +518,16 @@ comment on function public.requesting_user_id() is
 -- that oracle permanent.
 --
 -- So every one of them is pinned to the caller: p_user_id must be the
--- requesting user, or the caller must already bypass RLS. All 62 policies pass
+-- requesting user, or the caller must already bypass RLS. Every policy that
+-- calls one -- 21 of the 59 in this schema, covering groups, group_members,
+-- invitations, messages, gift_exchanges, gift_exchange_participants,
+-- group_gifts and group_gift_members -- passes
 -- (select public.requesting_user_id()) as p_user_id, so the pin is a no-op on
 -- every real call path, and no application code calls them directly.
+--
+-- Counted against the live database, not against this file: policies are
+-- dropped and replaced further down, so counting `create policy` here
+-- overstates it (67 statements, 8 of them on storage.objects).
 -- =============================================================================
 
 create or replace function public.is_group_member(p_group_id uuid, p_user_id text)

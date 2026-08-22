@@ -11,8 +11,11 @@
 --
 -- Every negative assertion here is paired with a positive control. "Everything
 -- returns false" would otherwise pass against helpers that had simply been
--- broken -- and these five are what all 62 policies are built on, so breaking
--- them would take the whole policy layer down while this file stayed green.
+-- broken -- and these five are what 21 of the schema's 59 policies are built
+-- on: every policy on groups, group_members, invitations, messages,
+-- gift_exchanges, gift_exchange_participants, group_gifts and
+-- group_gift_members that needs to know about membership. Breaking them would
+-- take that whole surface down while this file stayed green.
 --
 -- The probe user is `authenticated`, not the connect role, so this also
 -- confirms pinning did not cost `authenticated` the EXECUTE it genuinely needs
