@@ -789,7 +789,12 @@ than no price, so page text is never scraped for one."
 - Create: `lib/link-metadata/ingest-image.ts`
 
 **Interfaces:**
-- Consumes: `safeFetch` from Task 3.
+- Consumes: `safeFetch(raw, { maxBytes: number; acceptHeader: string })` from
+  Task 3, returning
+  `{ ok: true; body: Buffer; contentType: string | null } | { ok: false; reason: string }`.
+  Note `acceptHeader`, not `accept`: it is a request hint and is NOT enforced
+  against the response, so the name says so. This module is right to ignore
+  `contentType` entirely and trust magic bytes instead.
 - Produces: `ingestImage(imageUrl: string, userId: string, supabase: SupabaseClient<Database>): Promise<string | null>` — returns the stored object path, or `null` on any failure. **Never throws**; a missing image must not lose the text metadata.
 
 - [ ] **Step 1: Implement**
@@ -825,7 +830,7 @@ export async function ingestImage(
 ): Promise<string | null> {
   const fetched = await safeFetch(imageUrl, {
     maxBytes: MAX_IMAGE_BYTES,
-    accept: "image/*",
+    acceptHeader: "image/*",
   });
   if (!fetched.ok) return null;
 
@@ -876,7 +881,10 @@ the text."
 - Modify: `supabase/tests/rls/MANIFEST`, and one test file (see Step 3)
 
 **Interfaces:**
-- Consumes: `safeFetch`, `extractMetadata`, `ingestImage`.
+- Consumes: `safeFetch(raw, { maxBytes: number; acceptHeader: string })` from
+  Task 3, returning
+  `{ ok: true; body: Buffer; contentType: string | null } | { ok: false; reason: string }`;
+  `extractMetadata`; `ingestImage`.
 - Produces: `fetchLinkMetadata(url: string): Promise<{ title?: string; description?: string; price?: number; imagePath?: string; error?: string }>` — a Server Action. Task 7 calls this.
 
 - [ ] **Step 1: Write the migration**
@@ -1004,10 +1012,18 @@ export async function fetchLinkMetadata(url: string): Promise<LinkMetadataResult
   }
   await admin.from("link_fetch_log").insert({ user_id: userId });
 
-  const page = await safeFetch(url, { maxBytes: MAX_HTML_BYTES, accept: "text/html" });
+  const page = await safeFetch(url, {
+    maxBytes: MAX_HTML_BYTES,
+    acceptHeader: "text/html",
+  });
   if (!page.ok) return { error: page.reason };
 
-  if (!page.contentType.startsWith("text/html")) {
+  // contentType is `string | null` -- null means the response carried no
+  // content-type header at all. Task 3 deliberately made that a separate value
+  // rather than "", so a missing header cannot be mistaken for a present one.
+  // Both are refused here: we will not parse a body that never claimed to be
+  // HTML.
+  if (!page.contentType?.startsWith("text/html")) {
     return { error: "That link is not a web page we can read." };
   }
 
