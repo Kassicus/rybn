@@ -140,7 +140,7 @@ export const API_ENDPOINTS: ApiEndpoint[] = [
         name: 'Authorization',
         type: 'string',
         required: true,
-        description: 'Bearer token for cron job authentication (production only)',
+        description: 'Bearer token for cron job authentication (checked in every environment)',
         example: 'Bearer your-cron-secret'
       }
     ],
@@ -152,7 +152,7 @@ export const API_ENDPOINTS: ApiEndpoint[] = [
       timestamp: '2025-01-19T12:00:00Z'
     },
     notes: [
-      'Protected by CRON_SECRET in production',
+      'Protected by CRON_SECRET, unconditionally -- not just in production',
       'Typically called by Vercel Cron or external scheduler',
       'Checks for birthdays/anniversaries happening today'
     ]

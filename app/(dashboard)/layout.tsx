@@ -14,8 +14,13 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // This layout is the only gate on /admin/* — those routes match neither the
-  // middleware matcher nor any other check — so this redirect must stay.
+  // /admin/* now matches proxy.ts's matcher too (see its comment, which
+  // refers back to this one) -- so this is a second layer behind the
+  // middleware, not the only gate. It still has to stay: gating on
+  // getUserId() and redirecting here, rather than reaching for a throwing
+  // helper like requireAuthWithProfile(), is what keeps an unauthenticated
+  // request a 307 to /login instead of a 500 (see that helper's own comment
+  // in lib/auth/require-auth.ts).
   const userId = await getUserId();
 
   if (!userId) {

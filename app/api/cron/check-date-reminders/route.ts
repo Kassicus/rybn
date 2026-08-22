@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkAndSendDateReminders } from '@/lib/actions/date-reminders';
 
@@ -35,7 +36,20 @@ function authorize(request: NextRequest): NextResponse | null {
 
   const authHeader = request.headers.get('authorization');
 
-  if (!authHeader || authHeader !== `Bearer ${expectedToken}`) {
+  // Digest-then-compare, not `===` -- same reasoning and same shape as
+  // presentsCronSecret() in lib/actions/date-reminders.ts, which this route
+  // calls into. Hashing both sides first makes the timingSafeEqual inputs
+  // fixed-length, so a missing/short header can go through the same
+  // comparison instead of a separate `!authHeader` short-circuit that would
+  // itself leak timing.
+  const presented = authHeader
+    ? timingSafeEqual(
+        createHash('sha256').update(authHeader).digest(),
+        createHash('sha256').update(`Bearer ${expectedToken}`).digest()
+      )
+    : false;
+
+  if (!presented) {
     console.error('Unauthorized cron job attempt');
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
