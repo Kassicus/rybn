@@ -11,9 +11,10 @@
 --      helper branches on to send the welcome email, so this is what makes the
 --      email fire exactly once per user rather than once per request;
 --   3. a repeat provision does not overwrite columns the user has since edited
---      in this app (username via setUsername, display_name via updateProfile).
---      Clerk does not know about those edits, so a `do update` here would
---      quietly reset a chosen username to a generated one on the next request.
+--      in this app (username and display_name, both via updateProfile and
+--      updateBasicProfile in lib/actions/profile.ts). Clerk does not know
+--      about those edits, so a `do update` here would quietly reset a chosen
+--      username to a generated one on the next request.
 --
 -- Assertions 7-9 cover the OTHER way a user ends up with no row: Clerk allows
 -- usernames this column rejects (65 characters, an `@` or a `.`), which raises

@@ -78,10 +78,10 @@ export async function ensureProfile(): Promise<string | null> {
   // ignoreDuplicates:true is `on conflict (id) do nothing`, not `do update`.
   // Two reasons, both load-bearing:
   //
-  //   1. username and display_name are edited IN THIS APP (see setUsername /
-  //      updateProfile in lib/actions/profile.ts). Clerk does not know about
-  //      those edits, so a `do update` running on every request would
-  //      overwrite a chosen username with a generated one.
+  //   1. username and display_name are edited IN THIS APP (see updateProfile
+  //      and updateBasicProfile in lib/actions/profile.ts). Clerk does not
+  //      know about those edits, so a `do update` running on every request
+  //      would overwrite a chosen username with a generated one.
   //   2. `.select()` on a do-nothing insert returns ONLY the rows actually
   //      inserted -- an empty array when the row was already there. That is
   //      the signal the welcome email branches on, and it is decided by the
