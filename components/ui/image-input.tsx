@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Input } from "./input";
 import { Text } from "./text";
-import { createClient } from "@/lib/supabase/client";
+import { useSupabase } from "@/lib/supabase/use-supabase";
 
 interface ImageInputProps {
   value?: string | null;
@@ -34,6 +34,7 @@ export function ImageInput({
   const [uploadedPreview, setUploadedPreview] = useState<string | null>(null);
   const [urlValue, setUrlValue] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const supabase = useSupabase();
 
   // Determine if the current value is from an upload (supabase URL) or external URL
   const isSupabaseUrl = value?.includes("supabase.co/storage");
@@ -95,8 +96,6 @@ export function ImageInput({
     setIsUploading(true);
 
     try {
-      const supabase = createClient();
-
       // Generate unique filename
       const fileExt = file.name.split(".").pop();
       const fileName = `${userId}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;

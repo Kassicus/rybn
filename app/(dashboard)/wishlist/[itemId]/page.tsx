@@ -10,7 +10,6 @@ import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { WishlistItemSettings } from "@/components/wishlist/WishlistItemSettings";
 import { ClaimActions } from "@/components/wishlist/ClaimActions";
 import { getWishlistItem, getClaimerProfile } from "@/lib/actions/wishlist";
-import { createClient } from "@/lib/supabase/client";
 import { PRIORITY_INFO } from "@/lib/schemas/wishlist";
 import { GROUP_TYPES } from "@/types/privacy";
 import type { GroupType } from "@/types/privacy";

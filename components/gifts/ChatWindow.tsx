@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Heading, Text } from "@/components/ui/text";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { sendMessage } from "@/lib/actions/messages";
-import { createClient } from "@/lib/supabase/client";
+import { useSupabase } from "@/lib/supabase/use-supabase";
 import { formatDistanceToNow } from "date-fns";
 
 interface Message {
@@ -41,6 +41,7 @@ export function ChatWindow({
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const supabase = useSupabase();
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -49,8 +50,6 @@ export function ChatWindow({
 
   // Set up real-time subscription
   useEffect(() => {
-    const supabase = createClient();
-
     const channel = supabase
       .channel(`group-gift-${groupGiftId}`)
       .on(
@@ -91,7 +90,7 @@ export function ChatWindow({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [groupGiftId]);
+  }, [groupGiftId, supabase]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -120,7 +119,6 @@ export function ChatWindow({
     // Optimistically add the message to the UI immediately
     if (result.data) {
       // Fetch current user profile
-      const supabase = createClient();
       const { data: profile } = await supabase
         .from("user_profiles")
         .select("id, username, display_name, avatar_url")
