@@ -1038,28 +1038,33 @@ npm run dev
 Then in another shell:
 
 ```bash
-curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" \
-  -H "Accept: text/html" http://localhost:3000/dashboard
+# Warm the instance first -- see the warning below.
+curl -s -o /dev/null http://localhost:3000/
+
+curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" http://localhost:3000/dashboard
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/
 ```
 
-Expected: a 307/302 to a Clerk sign-in URL, not to `/login`. This proves
-`clerkMiddleware` is active. The page itself will not render correctly yet —
-that is the expected broken window.
+Expected: `/dashboard` gives a 307/302 to a Clerk sign-in URL, and `/` gives
+200. That proves `clerkMiddleware` is active AND that the matcher is not
+protecting everything. The page itself will not render correctly yet — that is
+the expected broken window.
 
-**The `Accept: text/html` header is required, not decoration.** Bare `curl`
-sends `Accept: */*`, which makes Clerk's `auth.protect()` take its API path and
-return **404** instead of a redirect. Without the header you will read a
-correct setup as a failure. Note also that the first hop may be Clerk's
-`dev-browser-missing` handshake, which fires on unprotected routes too — to
-isolate real route protection, hold the handshake cookie and re-request.
+**The warm-up request is required, and do NOT add an `Accept` header.** Two
+traps, both verified against a live dev server:
 
-Also confirm an unprotected route still works:
+1. On a **cold** dev server the first non-document request returns **404**, not
+   a redirect — Clerk's dev-instance handshake is still resolving server-side,
+   so `auth.protect()` calls `notFound()`. This has nothing to do with the
+   `Accept` header; a warm bare `curl` returns 307 correctly even with an
+   explicit `Accept: */*`. One throwaway request fixes it.
+2. Adding `-H "Accept: text/html"` looks like it helps and is strictly worse:
+   on a dev instance it returns a `__clerk_hs_reason=dev-browser-missing`
+   handshake 307 for **every** route, public ones included. `/`, `/login` and
+   `/register` all 307 identically, so the check can no longer tell a protected
+   route from a public one and silently always "passes".
 
-```bash
-curl -s -o /dev/null -w "%{http_code}\n" -H "Accept: text/html" http://localhost:3000/
-```
-
-Expected: 200. A matcher that protects everything is a real defect.
+Bare `curl` against a warmed instance is the gate that actually discriminates.
 
 - [ ] **Step 11: Commit**
 
@@ -1115,6 +1120,15 @@ The mechanical bulk of the migration: 104 `auth.getUser()` call sites across
 
 **Interfaces:**
 - Consumes: `auth()` from Task 4.
+- **WARNING carried from Task 4's review:** `app/(dashboard)/layout.tsx` is
+  currently the ONLY gate on `/admin/*`. Those routes match neither the old
+  `protectedRoutes` array nor the new `createRouteMatcher` list, so they are
+  protected solely by that layout's own `getUser()` + `redirect("/login")`.
+  If you rewire that layout and drop or weaken the redirect, `/admin/*` loses
+  its only protection with no middleware backstop. The same applies to every
+  `app/api/*` handler, each gated only by its own `auth.getUser()` call —
+  when you migrate those call sites, the check must remain, not just change
+  shape.
 - Produces: `requireAuth(): Promise<string>` — returns the Clerk user ID or
   throws. `getUserId(): Promise<string | null>` — returns the ID or null for
   optional-auth paths. Tasks 7-9 use both.
