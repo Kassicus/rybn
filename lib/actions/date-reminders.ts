@@ -1,19 +1,77 @@
 "use server";
 
+import { createHash, timingSafeEqual } from "node:crypto";
+
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { sendDateReminderEmail } from "@/lib/resend/send";
 import { formatMonthDay } from "@/lib/utils/dates";
 
 import { getUserId } from "@/lib/auth/require-auth";
+
 /**
- * Check for upcoming dates and send reminders
- * This should be called by a cron job or scheduled task
+ * Whether the caller presented CRON_SECRET.
  *
+ * Digest-then-compare, not `===`. This decides access on an endpoint anyone
+ * can POST to, so a byte-by-byte comparison is a timing oracle for the secret.
+ * Hashing both sides first makes them 32 bytes each, which also stops
+ * timingSafeEqual from leaking the secret's length through the early return.
+ *
+ * Fails CLOSED when CRON_SECRET is unset. An unconfigured deployment must send
+ * no mail rather than let anyone trigger it.
+ */
+function presentsCronSecret(provided: string | undefined | null): boolean {
+  const expected = process.env.CRON_SECRET;
+
+  if (!expected) {
+    console.error(
+      "checkAndSendDateReminders: CRON_SECRET is not configured -- refusing to run"
+    );
+    return false;
+  }
+
+  if (!provided) {
+    return false;
+  }
+
+  return timingSafeEqual(
+    createHash("sha256").update(provided).digest(),
+    createHash("sha256").update(expected).digest()
+  );
+}
+
+/**
+ * Check for upcoming dates and send reminders.
+ *
+ * THE SECRET IS CHECKED HERE, not only in the route that calls this.
+ *
+ * This file is "use server", so every export is a publicly reachable HTTP
+ * endpoint whether or not any component references it. This particular one
+ * runs on the SERVICE-ROLE client and reads every user's email address,
+ * display name, birthdate, group names and Clerk id, then mails them -- so
+ * with no identity check it was a full unauthenticated read of the user table
+ * plus an open mail relay. The CRON_SECRET check lived on
+ * /api/cron/check-date-reminders, i.e. on ONE CALLER, and a guard on a caller
+ * guards only that caller.
+ *
+ * Which is why the secret is a parameter rather than something read from the
+ * request: a server action has no request to inspect. Passing it makes the
+ * authorisation explicit at every call site and impossible to forget by adding
+ * a second one.
+ *
+ * @param cronSecret - CRON_SECRET, proving this is a scheduled invocation
  * @param daysAhead - How many days ahead to check (default: 1 for tomorrow)
  * @returns Object with counts of notifications sent and any errors
  */
-export async function checkAndSendDateReminders(daysAhead: number = 1) {
+export async function checkAndSendDateReminders(
+  cronSecret: string | undefined,
+  daysAhead: number = 1
+) {
+  if (!presentsCronSecret(cronSecret)) {
+    console.error("checkAndSendDateReminders: rejected unauthorised invocation");
+    return { error: "Not authorized", sent: 0 };
+  }
+
   // Use admin client for service-level operations
   const supabase = createAdminClient();
 
@@ -184,13 +242,21 @@ export async function dismissDateReminder(notificationId: string) {
 }
 
 /**
- * Manually trigger reminder check (for testing)
- * Only available in development
+ * Manually trigger reminder check (for testing).
+ *
+ * Has no callers; /api/cron/check-date-reminders does the same job with a
+ * URL you can open. Kept as the programmatic form, but it is a second door
+ * onto the same service-role read, so it carries the same lock: NODE_ENV was
+ * never a check, it was a hope that NODE_ENV is what you think it is on the
+ * host you are deployed to. The secret is what decides.
  */
-export async function manualTriggerReminders(daysAhead: number = 1) {
+export async function manualTriggerReminders(
+  cronSecret: string | undefined,
+  daysAhead: number = 1
+) {
   if (process.env.NODE_ENV === 'production') {
     return { error: 'Manual trigger only available in development' };
   }
 
-  return await checkAndSendDateReminders(daysAhead);
+  return await checkAndSendDateReminders(cronSecret, daysAhead);
 }
