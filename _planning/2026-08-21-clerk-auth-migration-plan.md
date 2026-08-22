@@ -1793,6 +1793,14 @@ signs them in — neither is possible under Clerk.
 
 **Interfaces:**
 - Consumes: `requireAuthWithProfile()` from Task 7.
+- **Provisioning gap carried from Task 7:** `app/(auth)/` does NOT render the
+  dashboard layout, so nothing provisions a `user_profiles` row on those
+  routes. `accept-invite` lives there, and a brand-new user accepting an
+  invitation reaches it before ever loading a dashboard page. If
+  `acceptInvitation` inserts a `group_members` row for a user with no profile,
+  it violates the FK to `user_profiles(id)`. Call `requireAuthWithProfile()`
+  (not `requireAuth()`) in that action, and verify a first-ever user can accept
+  an invitation as their very first authenticated request.
 - Produces: `acceptInvitation(token: string): Promise<{ error?: string; groupId?: string }>`
   in `lib/actions/invitations.ts`, called after sign-up completes.
 
