@@ -1960,6 +1960,53 @@ Then add `clerkOrigins` to both `script-src` and `connect-src`, and add
 `https://img.clerk.com` to `img-src`. Keep the existing Supabase derivation
 from commit `2db8396` intact.
 
+- [ ] **Step 1b: Convert /login and /register to catch-all routes (BLOCKS DEPLOY)**
+
+Confirmed from the installed SDK, and it would ship broken:
+`@clerk/react`'s `useRoutingProps` defaults `routing` to `"path"`
+(`internal.mjs:11`), and `@clerk/nextjs` injects the current pathname as
+`path` (`useEnforceRoutingProps.js`). `<SignIn/>` and `<SignUp/>` then drive
+their later steps by NAVIGATING to sub-paths — `completeSignUpFlow.mjs`
+navigates to a verify-email path, a continue path, and an SSO-callback path
+via Next's `router.push`. Those routes do not exist, because both pages are
+plain `page.tsx`.
+
+Broken today: email-code verification (Clerk's default for new sign-ups, so
+`/register` fails for essentially every new user), OAuth sign-in,
+forgot-password, and MFA. Password-only sign-in is single-step and appears to
+work, which is exactly how this reaches production unnoticed. Clerk's own
+guard for this returns early when `NODE_ENV === "production"`
+(`useEnforceCatchAllRoute.js`), so it warns in development and stays silent
+where it matters — and CSP has blocked clerk-js for the whole migration, so
+the dev warning never fired either.
+
+Move both to catch-all routes, keeping the component code unchanged:
+- `app/(auth)/login/page.tsx` -> `app/(auth)/login/[[...rest]]/page.tsx`
+- `app/(auth)/register/page.tsx` -> `app/(auth)/register/[[...rest]]/page.tsx`
+
+`proxy.ts`'s `isProtectedRoute` matches neither path, so the catch-all's
+children are not blocked.
+
+**Do NOT convert `/accept-invite`, and do not "make it consistent".** It
+deliberately uses `routing="hash"`, and that is correct: Clerk forwards only
+an allowlist of query params across internal navigation
+(`queryParams.mjs` — `__clerk_*` plus `redirectUrl`), so an app param like
+`?token=` is dropped. Under path routing the flow would land on
+`/accept-invite/verify-email-address` with no token, and the page would render
+its "Invalid Invitation" branch instead of the verification form —
+strictly worse than the 404. Leave the inline comment explaining why.
+
+- [ ] **Step 1c: Close the last raw-error leak and a token log**
+
+- `lib/actions/invitations.ts:121` — `sendGroupInvitation` still returns
+  `` `Failed to update invitation: ${updateError.message}` ``, surfacing a raw
+  Postgres message to the user. It is the only one left in a file whose other
+  actions were cleaned up in Task 9. Map it to a generic string.
+- `app/(auth)/accept-invite/page.tsx:69` — `console.log`s the invitation
+  token. It is already in the user's own URL bar so the marginal exposure is
+  small, but the token is now a membership capability and browser logs reach
+  aggregation. Remove it.
+
 - [ ] **Step 2: Full local verification**
 
 ```bash
