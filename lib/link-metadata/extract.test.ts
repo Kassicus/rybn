@@ -1077,7 +1077,14 @@ describe("prefix-named elements do not reopen the quadratic path", () => {
 // ---------------------------------------------------------------------------
 
 describe("reduction is behaviour-preserving (differential fuzz)", () => {
-  const FRAGMENTS = [
+  /**
+   * Fragments whose reduced and unreduced parses must present the parser with
+   * exactly the same metadata. Everything the reducer touches is represented:
+   * the six prefix-name shapes, the raw-text spellings, quoted `>` in both
+   * quote styles, a bare `<`, terminated comments and CDATA, and the
+   * containers `collect` skips.
+   */
+  const TRANSPARENT = [
     `<meta property="og:title" content="T1">`,
     `<meta name="twitter:title" content="T2">`,
     `<meta property="og:description" content="a > b">`,
@@ -1104,20 +1111,35 @@ describe("reduction is behaviour-preserving (differential fuzz)", () => {
     `<style>.a{content:"<b>"}</style>`,
     `<pre>  spaced  </pre>`,
     `<!-- a comment -->`,
-    `<!--`,
-    `<!-->`,
     `<![CDATA[x]]>`,
-    `<![CDATA[`,
     `<div class="p">`,
     `</div>`,
     `plain text`,
     `1 < 2`,
     `<b></b>a`,
-    `<a x="`,
     `<svg><title>icon</title></svg>`,
     `<template><meta property="og:title" content="tpl"></template>`,
     `<html><head>`,
     `</head><body>`,
+  ];
+
+  /**
+   * Fragments the reducer is KNOWN to diverge on. They are held out of the
+   * differential and asserted individually below, so that excluding them is a
+   * documented behaviour rather than a way of making the fuzz pass. Each one
+   * is pinned to what it does today, so fixing any of them turns its test red
+   * and forces it back into TRANSPARENT above.
+   *
+   * They were not chosen by hand: removing fragments one at a time until the
+   * differential came back clean produced exactly these four, and 36
+   * fragments with zero divergences across 27,610 distinct documents.
+   */
+  const KNOWN_DIVERGENT: Array<[string, string]> = [
+    ["bare <!--", `<!--<meta property="og:title" content="After">`],
+    ["<!-->", `<!--><meta property="og:title" content="After">`],
+    ["bare <![CDATA[", `<![CDATA[<meta property="og:title" content="After">`],
+    ["<a x=\" before a prefix-named element",
+      `<a x="<style.x><meta property="og:description" content="a > b">`],
   ];
 
   /** Everything `collect` can see, read straight off a parsed tree. */
@@ -1139,29 +1161,92 @@ describe("reduction is behaviour-preserving (differential fuzz)", () => {
     });
   };
 
-  it("presents the parser with the same metadata, reduced or not", () => {
-    // Deterministic PRNG so a failure is reproducible from the seed alone.
-    let seed = 0x5eed_1234;
+  const diverges = (html: string) =>
+    observable(parse(html, PARSE_OPTIONS)) !== observable(parse(reduceToMarkup(html), PARSE_OPTIONS));
+
+  it("explores the whole corpus and finds no divergence", { timeout: 120_000 }, () => {
+    // xorshift32, not an LCG. The first version of this test used
+    // `seed * 1103515245 + 12345 & 0x7fffffff`, whose low bits are unusable --
+    // `% 36` reached ten indices, so it generated 1,429 distinct documents
+    // rather than 40,000 and never produced a single one of the prefix-name
+    // shapes it was written to cover. It passed on that alone. The two
+    // coverage assertions below exist so that cannot happen again quietly: a
+    // fuzz that silently narrows is worse than no fuzz.
+    let state = 0x9e37_79b9;
     const next = () => {
-      seed = (seed * 1_103_515_245 + 12_345) & 0x7fff_ffff;
-      return seed;
+      state ^= state << 13;
+      state >>>= 0;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      state >>>= 0;
+      return state;
     };
+
+    const ATTEMPTS = 40_000;
+    const seen = new Set<number>();
+    const distinct = new Set<string>();
     const divergences: string[] = [];
 
-    for (let doc = 0; doc < 40_000; doc++) {
+    for (let doc = 0; doc < ATTEMPTS; doc++) {
       const parts: string[] = [];
       const count = 1 + (next() % 6);
-      for (let i = 0; i < count; i++) parts.push(FRAGMENTS[next() % FRAGMENTS.length]);
+      for (let i = 0; i < count; i++) {
+        const index = next() % TRANSPARENT.length;
+        seen.add(index);
+        parts.push(TRANSPARENT[index]);
+      }
       const html = parts.join("");
-
-      const a = observable(parse(html, PARSE_OPTIONS));
-      const b = observable(parse(reduceToMarkup(html), PARSE_OPTIONS));
-      if (a !== b) {
+      distinct.add(html);
+      if (diverges(html)) {
+        const a = observable(parse(html, PARSE_OPTIONS));
+        const b = observable(parse(reduceToMarkup(html), PARSE_OPTIONS));
         divergences.push(`${JSON.stringify(html)}\n  raw     ${a}\n  reduced ${b}`);
         if (divergences.length >= 5) break;
       }
     }
 
+    // Coverage first: an assertion about divergence is worthless if the
+    // generator never reached the fragments that would produce one.
+    expect(seen.size).toBe(TRANSPARENT.length);
+    expect(distinct.size).toBeGreaterThan(20_000);
     expect(divergences).toEqual([]);
-  }, 120_000);
+  });
+
+  it("still diverges on exactly the fragments held out of the corpus", () => {
+    // Positive assertions, not omissions. If one of these stops diverging --
+    // because the deferred comment-terminator handling was fixed, say -- this
+    // fails, and the fragment belongs back in TRANSPARENT.
+    for (const [label, html] of KNOWN_DIVERGENT) {
+      expect(diverges(html), `${label} was expected to diverge`).toBe(true);
+    }
+  });
+
+  it("characterises what each held-out fragment actually does", () => {
+    // Deliberate and load-bearing: the eof-in-comment cut is what closes the
+    // 2 MB comment bomb. node-html-parser does not implement the rule, so this
+    // divergence is the mitigation, not a defect.
+    expect(extractMetadata(`<!--<meta property="og:title" content="After">`, PAGE))
+      .toStrictEqual({});
+
+    // Deferred collateral: the spec ends a comment at `<!-->` and `<!--->`,
+    // and both the parser and browsers keep the page. Cheap to fix -- treat
+    // those two as terminated and cut only for a genuinely unterminated
+    // `<!--` -- but out of scope for this round.
+    expect(extractMetadata(`<!--><meta property="og:title" content="After">`, PAGE))
+      .toStrictEqual({});
+    expect(extractMetadata(`<![CDATA[<meta property="og:title" content="After">`, PAGE))
+      .toStrictEqual({});
+
+    // Deferred: findTagEnd's quote tracking desynchronises from the parser's
+    // after an unterminated attribute quote, so a later attribute value can be
+    // truncated. Needs a prefix-named element after it; `<a x="` alone is
+    // transparent.
+    expect(
+      extractMetadata(
+        `<a x="<style.x><meta property="og:description" content="a > b">`,
+        PAGE,
+      ).description,
+    ).toBeUndefined();
+    expect(diverges(`<a x="<meta property="og:description" content="a > b">`)).toBe(false);
+  });
 });
