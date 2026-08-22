@@ -4,6 +4,7 @@ import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { DateReminderBanner } from "@/components/reminders/DateReminderBanner";
 import { BreadcrumbProvider } from "@/lib/contexts/breadcrumb-context";
 import { getUserId } from "@/lib/auth/require-auth";
+import { ensureProfile } from "@/lib/auth/ensure-profile";
 import { redirect } from "next/navigation";
 import { getActiveDateReminders } from "@/lib/actions/date-reminders";
 import { getMyProfile } from "@/lib/actions/profile";
@@ -20,6 +21,15 @@ export default async function DashboardLayout({
   if (!userId) {
     redirect("/login");
   }
+
+  // Provisioning, not a gate. requireAuthWithProfile() would THROW here, and a
+  // throw in this layout turns the /admin/* redirect above into a 500 — so the
+  // signed-out branch stays a redirect and provisioning happens only after it.
+  //
+  // Every authenticated page renders through this layout, so this is the one
+  // provisioning point for the whole authenticated surface. It must stay ahead
+  // of getMyProfile() below, which does .single() and errors on a missing row.
+  await ensureProfile();
 
   // Get active date reminders for the user
   const { data: reminders } = await getActiveDateReminders();

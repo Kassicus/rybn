@@ -1,5 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 
+import { ensureProfile } from "./ensure-profile";
+
 /**
  * The Clerk user ID for the current request, or null when signed out.
  * Use in paths where being signed out is a legitimate state.
@@ -19,5 +21,20 @@ export async function requireAuth(): Promise<string> {
   if (!userId) {
     throw new Error("Not authenticated");
   }
+  return userId;
+}
+
+/**
+ * The Clerk user ID, with a guaranteed user_profiles row.
+ * Prefer this in pages and actions that read or write profile-linked data.
+ *
+ * Throws when signed out, exactly like requireAuth(). Do NOT reach for this in
+ * a layout or page whose signed-out behaviour is a redirect -- a throw there
+ * turns a 307 into a 500. Gate on getUserId() first and call ensureProfile()
+ * yourself, which is what app/(dashboard)/layout.tsx does.
+ */
+export async function requireAuthWithProfile(): Promise<string> {
+  const userId = await requireAuth();
+  await ensureProfile();
   return userId;
 }
