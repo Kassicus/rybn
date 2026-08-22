@@ -1551,6 +1551,33 @@ authenticated page renders through. That gives one provisioning point
 covering the whole authenticated surface, rather than an upsert on every
 action.
 
+**HAZARD — `requireAuthWithProfile()` THROWS where the layout currently
+REDIRECTS.** `app/(dashboard)/layout.tsx` is the only gate on `/admin/*`, and
+it presently does `redirect("/login")` when there is no user. If you replace
+that with a bare `requireAuthWithProfile()`, an unauthenticated request to
+`/admin/*` degrades from a 307 to a **500**. Keep the redirect reachable —
+call `getUserId()` first, redirect if null, and only then provision. Task 5
+left a comment at the top of that file recording why the gate must not be
+removed; do not delete it.
+
+- [ ] **Step 3b: Re-home the welcome email**
+
+Deleting `app/auth/callback/route.ts` in Task 5 removed the only caller of
+`sendWelcomeEmail` (`lib/resend/send.tsx`), so new users currently receive no
+welcome email and no task owned restoring it. This step owns it.
+
+`ensureProfile()` runs on every authenticated request, so it must send only on
+the request that actually created the profile. Supabase's `upsert` can tell
+you: select the row back and compare `created_at` to `updated_at`, or perform
+an explicit insert-if-missing and branch on whether a row was inserted. Send
+the welcome email only on that branch, and wrap it in try/catch so a mail
+failure never blocks provisioning — the deleted callback did exactly that, and
+that behaviour should survive.
+
+If you would rather this were a Clerk `user.created` webhook, say so in your
+report rather than building one: that is a different architecture and the plan
+deliberately chose lazy provisioning over webhooks.
+
 - [ ] **Step 4: Add the provisioning test**
 
 Create `supabase/tests/rls/05_profile_provisioning.sql`, asserting the
@@ -1673,6 +1700,13 @@ into `user_profiles`.
 
 - [ ] **Step 4: Point Clerk at the app's routes**
 
+**This is now a LIVE dependency, one task earlier than planned.** Task 5 took
+ownership of the `<SignIn>` page, so the app currently has two divergent
+sign-in destinations: middleware sends `/dashboard` to Clerk's hosted portal,
+while `app/(dashboard)/layout.tsx` sends `/admin/*` to `/login`. Setting
+`NEXT_PUBLIC_CLERK_SIGN_IN_URL=/login` is what reconciles them — verify both
+paths land in the same place afterwards.
+
 Add to `.env.local`, and mirror into Vercel for all three environments:
 
 ```
@@ -1686,6 +1720,14 @@ Because of the CLI bug noted in Environment Notes, add the preview values via
 the REST API rather than `vercel env add … preview --yes`.
 
 - [ ] **Step 5: Delete the superseded routes and component**
+
+Note that Task 5 already deleted `app/auth/callback/route.ts`,
+`components/auth/OAuthButton.tsx` and `lib/actions/auth.ts` — it had to, to
+pass its own no-`supabase.auth` gate. **Verify rather than redo.** What remains
+genuinely orphaned here is `app/(auth)/set-username/` and
+`app/(auth)/verify-email/`: both still build as static routes but nothing
+routes to them any more, since the deleted callback was the only thing that
+did.
 
 ```bash
 git rm -r "app/(auth)/set-username" "app/(auth)/verify-email" app/auth/callback components/auth/OAuthButton.tsx
