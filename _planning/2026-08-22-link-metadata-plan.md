@@ -6,7 +6,7 @@
 
 **Architecture:** A Server Action fetches the pasted page through a dispatcher whose DNS lookup validates every resolved IP and pins the connection to the address it checked, then parses JSON-LD / Open Graph / Twitter metadata, ingests the image into the user's own storage folder, and returns optional fields the client applies only where the user has not typed.
 
-**Tech Stack:** Next.js 16 App Router, TypeScript, `undici` (bundled with Node), `ipaddr.js`, `node-html-parser`, Vitest (new), Supabase Storage, Clerk
+**Tech Stack:** Next.js 16 App Router, TypeScript, `undici`, `ipaddr.js`, `node-html-parser`, Vitest (new), Supabase Storage, Clerk
 
 **Spec:** `_planning/2026-08-22-link-metadata-design.md`
 
@@ -399,7 +399,19 @@ cloud metadata endpoint."
 - Consumes: `isBlockedAddress`, `parseSafeUrl` from Task 2.
 - Produces: `safeFetch(raw: string, opts: { maxBytes: number; accept: string }): Promise<{ ok: true; body: Buffer; contentType: string } | { ok: false; reason: string }>`
 
-- [ ] **Step 1: Implement**
+- [ ] **Step 1: Install undici**
+
+```bash
+npm install undici
+```
+
+Node uses undici internally to implement global `fetch`, but does NOT expose it
+as an importable module — `require("undici")` is `MODULE_NOT_FOUND` on this
+machine, verified. An explicit dependency is the supported way to construct a
+dispatcher. It is the same library `fetch` already runs on, so this adds an
+entry to `package.json`, not a second HTTP stack.
+
+- [ ] **Step 2: Implement**
 
 Create `lib/link-metadata/safe-fetch.ts`:
 
@@ -503,7 +515,7 @@ export async function safeFetch(
 }
 ```
 
-- [ ] **Step 2: Verify it compiles**
+- [ ] **Step 3: Verify it compiles**
 
 ```bash
 npm run type-check
@@ -511,7 +523,7 @@ npm run type-check
 
 Expected: clean.
 
-- [ ] **Step 3: Prove the block works, against a real address**
+- [ ] **Step 4: Prove the block works, against a real address**
 
 ```bash
 npx tsx -e "
@@ -537,10 +549,10 @@ If `tsx` is unavailable, compile the module with `npx tsc` to a scratch director
 
 Record the actual output in your report — this is the single most important observation in the task.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add lib/link-metadata/safe-fetch.ts
+git add lib/link-metadata/safe-fetch.ts package.json package-lock.json
 git commit -m "feat: guarded fetcher for user-supplied URLs
 
 Validates at the resolved address and pins the connection to the address it
