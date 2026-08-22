@@ -25,8 +25,13 @@ export async function requireAuth(): Promise<string> {
 }
 
 /**
- * The Clerk user ID, with a guaranteed user_profiles row.
- * Prefer this in pages and actions that read or write profile-linked data.
+ * The Clerk user ID, having attempted to provision the user_profiles row.
+ * Prefer this in actions that read or write profile-linked data.
+ *
+ * The row is ensured, not guaranteed: ensureProfile() is fail-soft and logs
+ * rather than throwing, so a Supabase failure still returns the id with no row
+ * behind it. Callers that cannot proceed without the row must handle its
+ * absence; they just do not have to create it.
  *
  * Throws when signed out, exactly like requireAuth(). Do NOT reach for this in
  * a layout or page whose signed-out behaviour is a redirect -- a throw there

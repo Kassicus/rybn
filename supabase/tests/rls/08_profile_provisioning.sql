@@ -15,7 +15,13 @@
 --      Clerk does not know about those edits, so a `do update` here would
 --      quietly reset a chosen username to a generated one on the next request.
 --
--- The last assertion switches to `authenticated` because the row is WRITTEN by
+-- Assertions 7-9 cover the OTHER way a user ends up with no row: Clerk allows
+-- usernames this column rejects (65 characters, an `@` or a `.`), which raises
+-- 23514 rather than the 23505 the collision retry handles. They pin the two
+-- CHECK constraints that lib/auth/username.ts mirrors, and show that sanitised
+-- forms of both hostile shapes provision.
+--
+-- Assertion 6 switches to `authenticated` because the row is WRITTEN by
 -- the service-role admin client but READ BACK by the RLS-bound client in
 -- getMyProfile(). A row the owner cannot select is a row that provisions the
 -- user into a broken dashboard, and the write side alone cannot see that.
@@ -35,6 +41,15 @@ declare
   v_display       text;
   v_text_pk       int;
   v_owner_sees    int;
+  v_len_def       text;
+  v_fmt_def       text;
+  v_raw_long      text;
+  v_raw_weird     text;
+  v_san_long      text;
+  v_san_weird     text;
+  v_hostile_rows  int;
+  v_stored_long   text;
+  v_stored_weird  text;
   v_orig_role     text;
   v_checks        int := 0;
 begin
@@ -159,9 +174,86 @@ begin
 
   perform set_config('role', v_orig_role, true);
 
-  if v_checks < 6 then
+  ---------------------------------------------------------------------------
+  -- 7. The username column's two CHECK constraints, and the exact bounds they
+  --    impose. lib/auth/username.ts mirrors these numbers and this character
+  --    class in TypeScript; this assertion is what stops that mirror going
+  --    stale silently. If a migration changes either bound, the sanitiser is
+  --    wrong and the failure lands here rather than as a 23514 in production.
+  ---------------------------------------------------------------------------
+  select pg_get_constraintdef(oid) into v_len_def
+    from pg_constraint
+   where conrelid = 'public.user_profiles'::regclass and conname = 'username_length';
+
+  select pg_get_constraintdef(oid) into v_fmt_def
+    from pg_constraint
+   where conrelid = 'public.user_profiles'::regclass and conname = 'username_format';
+
+  if v_len_def is null or v_fmt_def is null
+     or position('char_length(username) >= 3' in v_len_def) = 0
+     or position('char_length(username) <= 30' in v_len_def) = 0
+     or position('^[a-zA-Z0-9_-]+$' in v_fmt_def) = 0 then
     raise exception
-      'HARNESS FAIL: only % assertion(s) ran, expected at least 6. Assertions were skipped or commented out; this file proves nothing.',
+      'PROVISIONING FAIL: the username constraints are missing or no longer say 3..30 / ^[a-zA-Z0-9_-]+$ (length=%, format=%). lib/auth/username.ts sanitises Clerk usernames to exactly those rules and is now wrong.',
+      coalesce(v_len_def, 'MISSING'), coalesce(v_fmt_def, 'MISSING');
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- 8. The hostile fixtures really are hostile. Clerk allows usernames up to
+  --    64 characters and a wider alphabet than this column does, and such a
+  --    username raises 23514 -- which is NOT the 23505 the collision retry in
+  --    ensureProfile() handles. An unsanitised insert would leave the user
+  --    with no row, forever: every later request repeats the same failure.
+  ---------------------------------------------------------------------------
+  v_raw_long  := 'task7' || repeat('x', 60);
+  v_raw_weird := 'task7.probe+weird@example.com';
+
+  if char_length(v_raw_long) <= 30 or v_raw_weird ~ '^[a-zA-Z0-9_-]+$' then
+    raise exception
+      'PROVISIONING FAIL: the fixtures are not actually rejected by the constraints asserted above (long=% chars, weird=%), so assertion 9 would prove nothing.',
+      char_length(v_raw_long), v_raw_weird;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- 9. Sanitised, both provision. Same rules as lib/auth/username.ts: strip
+  --    everything outside the permitted class, clamp to 30, and fall back to
+  --    user_<last 8 of the id> if fewer than 3 characters survive (not
+  --    exercised here -- both fixtures leave plenty). The runtime proof that
+  --    the TypeScript performs this transformation is in the task report; what
+  --    this asserts is that the RESULT of it is storable, which is the half
+  --    that lives in the database.
+  ---------------------------------------------------------------------------
+  v_san_long  := left(regexp_replace(v_raw_long,  '[^a-zA-Z0-9_-]', '', 'g'), 30);
+  v_san_weird := left(regexp_replace(v_raw_weird, '[^a-zA-Z0-9_-]', '', 'g'), 30);
+
+  with hostile as (
+    insert into user_profiles (id, username, display_name)
+      values ('user_2hostileLONG',  v_san_long,  'Long Clerk Username'),
+             ('user_2hostileWEIRD', v_san_weird, 'Weird Clerk Username')
+      on conflict (id) do nothing
+      returning id
+  )
+  select count(*) into v_hostile_rows from hostile;
+
+  select username into v_stored_long
+    from user_profiles where id = 'user_2hostileLONG';
+  select username into v_stored_weird
+    from user_profiles where id = 'user_2hostileWEIRD';
+
+  if v_hostile_rows <> 2
+     or v_stored_long is distinct from ('task7' || repeat('x', 25))
+     or v_stored_weird is distinct from 'task7probeweirdexamplecom' then
+    raise exception
+      'PROVISIONING FAIL: sanitised Clerk usernames did not provision (% row(s) created, stored long=%, stored weird=%). A user whose Clerk username breaks the length or format constraint would be stranded with no profile row.',
+      v_hostile_rows, coalesce(v_stored_long, 'NONE'), coalesce(v_stored_weird, 'NONE');
+  end if;
+  v_checks := v_checks + 1;
+
+  if v_checks < 9 then
+    raise exception
+      'HARNESS FAIL: only % assertion(s) ran, expected at least 9. Assertions were skipped or commented out; this file proves nothing.',
       v_checks;
   end if;
 

@@ -11,6 +11,7 @@ import { formDataToProfileInfo } from "@/lib/schemas/profile";
 import type { ViewerContext, GroupType } from "@/types/privacy";
 
 import { getUserId } from "@/lib/auth/require-auth";
+import { ensureProfile } from "@/lib/auth/ensure-profile";
 /**
  * Get the current user's full profile (all fields visible)
  */
@@ -22,6 +23,15 @@ export async function getMyProfile() {
   if (!userId) {
     return { error: "Not authenticated" };
   }
+
+  // The dashboard layout provisions too, but Next renders layouts and pages
+  // CONCURRENTLY: on a new user's first request this body can run while the
+  // layout's ensureProfile() is still inserting, and the read below would then
+  // miss the row and surface "Error loading profile". Ensuring at the point of
+  // need is what actually closes that race, on every path rather than only the
+  // ones that happen to render under that layout. The existence check inside
+  // makes the steady-state cost one indexed primary-key lookup.
+  await ensureProfile();
 
   // Get basic profile
   const { data: profile, error: profileError } = await supabase
@@ -105,6 +115,10 @@ export async function updateBasicProfile(formData: BasicProfileFormData) {
     return { error: "Not authenticated" };
   }
 
+  // Provision before writing: this updates the caller's own row, and layout
+  // provisioning races with page render (see getMyProfile above).
+  await ensureProfile();
+
   // Update profile
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
@@ -142,6 +156,10 @@ export async function updateProfile(formData: ProfileEditFormData) {
   if (!userId) {
     return { error: "Not authenticated" };
   }
+
+  // Provision before writing: this updates the caller's own row, and layout
+  // provisioning races with page render (see getMyProfile above).
+  await ensureProfile();
 
   // Update basic profile first
   const { data: profile, error: profileError } = await supabase
@@ -354,6 +372,10 @@ export async function setUsername(username: string) {
   if (!userId) {
     return { error: "Not authenticated" };
   }
+
+  // Provision before writing: this updates the caller's own row, and layout
+  // provisioning races with page render (see getMyProfile above).
+  await ensureProfile();
 
   // Validate username format
   const usernameRegex = /^[a-zA-Z0-9_-]+$/;

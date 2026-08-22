@@ -26,9 +26,11 @@ export default async function DashboardLayout({
   // throw in this layout turns the /admin/* redirect above into a 500 — so the
   // signed-out branch stays a redirect and provisioning happens only after it.
   //
-  // Every authenticated page renders through this layout, so this is the one
-  // provisioning point for the whole authenticated surface. It must stay ahead
-  // of getMyProfile() below, which does .single() and errors on a missing row.
+  // Every authenticated page renders through this layout, so this covers the
+  // whole authenticated surface — but it does NOT sequence anything. Next
+  // renders layouts and pages concurrently, so a page body (and the calls
+  // below) can run while this insert is still in flight. Accessors that need
+  // the row therefore ensure it themselves; getMyProfile() does.
   await ensureProfile();
 
   // Get active date reminders for the user
