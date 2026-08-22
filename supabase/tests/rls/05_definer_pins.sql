@@ -139,6 +139,16 @@ begin
   end if;
   v_checks := v_checks + 1;
 
+  -- is_group_admin needs its own control. Without it a body replaced by
+  -- `select false` passes every file in this suite, while silently disabling
+  -- groups UPDATE, group_members UPDATE and admin DELETE. The probe user owns
+  -- v_pg, and owner counts as admin.
+  select public.is_group_admin(v_pg, 'user_n1_probe') into v_bool;
+  if v_bool is not true then
+    raise exception 'PIN FAIL: is_group_admin denies the caller their own admin rights';
+  end if;
+  v_checks := v_checks + 1;
+
   select count(*) into v_count
     from public.get_shared_groups('user_n1_probe', 'user_n1_peer');
   if v_count <> 1 then
@@ -166,9 +176,9 @@ begin
 
   perform set_config('role', v_orig_role, true);
 
-  if v_checks < 12 then
+  if v_checks < 13 then
     raise exception
-      'HARNESS FAIL: only % assertion(s) ran, expected at least 12. Assertions were skipped or commented out; this file proves nothing.',
+      'HARNESS FAIL: only % assertion(s) ran, expected at least 13. Assertions were skipped or commented out; this file proves nothing.',
       v_checks;
   end if;
 

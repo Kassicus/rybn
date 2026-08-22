@@ -1101,6 +1101,19 @@ create trigger pin_exchange_participant_parent
   before update on public.gift_exchange_participants
   for each row execute function public.reject_parent_reassignment('exchange_id', 'user_id');
 
+-- date_notifications belongs in this list too, and was missed the first time.
+-- Its UPDATE policy pins only notified_user_id, so celebrant_id and group_id
+-- stayed rewritable on your own row -- and get_dates_today_for_user() is
+-- SECURITY DEFINER and joins user_profiles and groups on exactly those
+-- columns. Repointing them returned an arbitrary user's username and display
+-- name, plus a private group's name and type, straight past both tables'
+-- SELECT policies. The only legitimate update is banner dismissal
+-- (lib/actions/date-reminders.ts), which touches none of these columns.
+create trigger pin_date_notification_subject
+  before update on public.date_notifications
+  for each row execute function public.reject_parent_reassignment(
+    'celebrant_id', 'group_id', 'field_name', 'notification_year', 'celebration_date');
+
 create trigger update_user_profiles_updated_at
   before update on public.user_profiles
   for each row execute function public.update_updated_at_column();
@@ -1514,15 +1527,33 @@ create policy "Participants can view exchange participants"
   on public.gift_exchange_participants for select to authenticated
   using (public.is_exchange_participant(exchange_id, (select public.requesting_user_id())));
 
+-- The group-membership requirement is not decoration. Without it, holding an
+-- exchange UUID is enough to insert yourself as a participant, and the
+-- participant SELECT policy then hands over the whole roster INCLUDING the
+-- Secret Santa assignments -- in an app whose entire purpose is keeping those
+-- secret. group_gifts_insert above has always carried the equivalent check;
+-- this policy was missing it.
+--
+-- The check is on the CALLER, not on the row's user_id, and it has to be:
+-- is_group_member() is pinned to requesting_user_id(), so asking it about
+-- somebody else always returns false. Checking the caller is also what keeps
+-- exchange creation working, where the creator inserts a participant row for
+-- every member of the group at once.
 create policy "Users can join gift exchanges"
   on public.gift_exchange_participants for insert to authenticated
   with check (
-    user_id = (select public.requesting_user_id())
-    or exists (
-      select 1 from public.gift_exchanges ge
-      where ge.id = gift_exchange_participants.exchange_id
-        and ge.created_by = (select public.requesting_user_id())
+    (
+      user_id = (select public.requesting_user_id())
+      or exists (
+        select 1 from public.gift_exchanges ge
+        where ge.id = gift_exchange_participants.exchange_id
+          and ge.created_by = (select public.requesting_user_id())
+      )
     )
+    and public.is_group_member(
+      (select ge.group_id from public.gift_exchanges ge
+        where ge.id = gift_exchange_participants.exchange_id),
+      (select public.requesting_user_id()))
   );
 
 create policy "Users can update their own participation"
@@ -1696,10 +1727,15 @@ grant execute on function public.get_upcoming_dates_for_notifications(integer, i
 -- that path is Supabase's own tooling, not this application's migrations.
 --
 -- NOT fixed by this block, and worth knowing: a new table still arrives with
--- RLS DISABLED. Grants cannot express that; only an event trigger could, and
--- creating one needs privileges this role does not have. Every table in this
--- baseline enables RLS explicitly, any future migration must do the same, and
--- 06_anon_has_no_reach.sql fails the suite if one ever does not.
+-- RLS DISABLED, and no grant can express otherwise. An event trigger could,
+-- and this role CAN create one -- postgres is a member of
+-- supabase_privileged_role here (verified: `create event trigger` succeeds,
+-- even though postgres is not a superuser). One is deliberately NOT created: a
+-- faulty event trigger on ddl_command_end blocks ALL DDL, including the
+-- migration that would remove it, which is a worse failure than the one it
+-- prevents. Every table in this baseline enables RLS explicitly, any future
+-- migration must do the same, and 06_anon_has_no_reach.sql fails the suite if
+-- one ever does not.
 -- ---------------------------------------------------------------------------
 alter default privileges in schema public revoke all on tables from anon;
 alter default privileges in schema public revoke all on sequences from anon;
@@ -1708,32 +1744,33 @@ alter default privileges in schema public revoke all on functions from anon;
 -- PostgreSQL's own EXECUTE-to-PUBLIC default -- the one that is invisible until
 -- you look at an ACL and see a leading `=X`.
 --
--- This statement is kept because it is correct and harmless, but MEASURED ON
--- THIS DATABASE IT DOES NOT WORK, and the residue is a real hole. Verified in
--- a rolled-back transaction: after issuing it (and again after issuing it as a
--- grant/revoke pair), a freshly created function still carried
---     =X/postgres , postgres=X/postgres , authenticated=X/postgres , ...
--- while pg_default_acl recorded only
---     postgres=X/postgres , authenticated=X/postgres , service_role=X/postgres
--- with no PUBLIC entry at all. The stored default ACL is merged with the
--- hardwired one rather than replacing it, and "PUBLIC has nothing" cannot be
--- represented by an absent entry, so the built-in grant survives.
+-- THE SCOPE MATTERS, and it is the opposite of what you would guess. The
+-- `IN SCHEMA public` form CANNOT remove this: PostgreSQL merges the GLOBAL
+-- default-ACL slot with the per-schema one, and when the global slot is empty
+-- the hardwired `{=X/owner}` stands in for it -- so a per-schema entry can only
+-- ever ADD to `=X/PUBLIC`, never subtract from it. The database-wide form,
+-- below, writes the global slot and does work. Verified in a rolled-back
+-- transaction on this database:
 --
--- anon is a member of PUBLIC, so a function added by a FUTURE migration would
--- be anon-executable again -- exactly the shape of the hole that made
--- get_upcoming_dates_for_notifications an unauthenticated dump of the user
--- table.
+--   before:  =X/postgres , postgres=X , authenticated=X , service_role=X   anon=true
+--   after:             postgres=X , authenticated=X , service_role=X       anon=false
+--   also after: a PROCEDURE -> anon=false; a function in a brand new schema
+--               -> anon=false; authenticated still executes public functions.
 --
--- Since the default cannot be fixed, the invariant is ENFORCED instead:
--- supabase/tests/rls/06_anon_has_no_reach.sql fails the suite if any function
--- in this schema is anon-executable, if anon holds any table privilege, if any
--- table has RLS disabled, or if any policy is left open to PUBLIC. That check
--- is strictly stronger than a default privilege, because it holds regardless
--- of which role created the object -- including objects created through
--- supabase_admin's default ACLs, which this role cannot alter.
+-- anon is a member of PUBLIC, so without this a function added by a FUTURE
+-- migration would be anon-executable -- exactly the shape of the hole that
+-- made get_upcoming_dates_for_notifications an unauthenticated dump of the
+-- user table.
 --
--- A future migration adding a function MUST therefore revoke it explicitly:
---     revoke execute on function public.new_fn(...) from public, anon;
+-- CAVEAT: being database-wide, this applies to every schema for objects
+-- created by THIS role. A future `create extension ... schema x` run as
+-- postgres would also get its functions without PUBLIC execute, which may then
+-- need an explicit grant. `authenticated` and `service_role` are unaffected in
+-- `public` -- they hold their EXECUTE through the per-schema default above.
+alter default privileges revoke execute on functions from public;
+
+-- Kept as well. It is a no-op for PUBLIC (see above), but it is the statement
+-- that carries the per-schema intent, and it is harmless.
 alter default privileges in schema public revoke execute on functions from public;
 
 -- Match what section 9 grants existing tables: DML only, no TRUNCATE.
