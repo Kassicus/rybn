@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { wishlistItemSchema, type WishlistItemFormData, PRIORITY_INFO } from "@/lib/schemas/wishlist";
 import { createWishlistItem } from "@/lib/actions/wishlist";
+import { fetchLinkMetadata } from "@/lib/actions/link-metadata";
 import { useUser } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,9 +28,10 @@ export default function AddWishlistItemPage() {
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, dirtyFields },
     watch,
     setValue,
+    getValues,
   } = useForm<WishlistItemFormData>({
     // @ts-expect-error - Zod resolver type inference mismatch with React Hook Form
     resolver: zodResolver(wishlistItemSchema),
@@ -43,6 +45,99 @@ export default function AddWishlistItemPage() {
   const selectedPriority = watch("priority");
   const visibleToGroupTypes = watch("visible_to_group_types") || ['family', 'friends', 'work', 'custom'];
   const restrictToGroup = watch("restrict_to_group") || null;
+
+  // --- Auto-fill from a pasted product URL -------------------------------
+  //
+  // Everything below is a convenience. A fetch in flight, a fetch that failed,
+  // a rate-limit refusal and no URL at all must all leave the form exactly as
+  // usable as it was before this feature existed, so nothing here disables an
+  // input, blocks submit, or reports through `error` (which renders as a
+  // validation failure). The only visible trace is one quiet line of text.
+  const urlValue = watch("url");
+  const [isFetchingMeta, setIsFetchingMeta] = useState(false);
+  const [metaNote, setMetaNote] = useState<string | null>(null);
+  const lastFetchedUrl = useRef<string | null>(null);
+
+  // Read `dirtyFields` through a ref, not the effect's closure: RHF rebuilds it
+  // as a fresh object on every form-state update, so listing it as a dependency
+  // would restart the debounce on every keystroke anywhere in the form and the
+  // fetch would never fire. Same reason `lib/supabase/use-supabase.ts` keeps the
+  // Clerk session in a ref rather than in a dependency array.
+  //
+  // Destructuring `dirtyFields` from `formState` above is still REQUIRED.
+  // `formState` is a Proxy and RHF only subscribes to the keys you actually
+  // read, so dropping the destructure would leave `dirtyFields` permanently
+  // empty -- the never-clobber rule would be off while still looking on.
+  const dirtyRef = useRef(dirtyFields);
+  dirtyRef.current = dirtyFields;
+
+  useEffect(() => {
+    const raw = (urlValue ?? "").trim();
+    if (!raw || raw === lastFetchedUrl.current) return;
+    try {
+      const u = new URL(raw);
+      if (u.protocol !== "http:" && u.protocol !== "https:") return;
+    } catch {
+      return; // still typing
+    }
+
+    // A superseded run must not write anything. Its fetch is about a URL that is
+    // no longer in the field, so its answer would describe a different page than
+    // the one the item links to.
+    let cancelled = false;
+
+    const timer = setTimeout(async () => {
+      lastFetchedUrl.current = raw;
+      setIsFetchingMeta(true);
+      setMetaNote(null);
+      const result = await fetchLinkMetadata(raw);
+      if (cancelled) return;
+      setIsFetchingMeta(false);
+
+      if (result.error) {
+        // Already a sentence written for a human -- the action never returns raw
+        // error text -- and shown as a note, never as a validation failure.
+        setMetaNote(result.error);
+        return;
+      }
+
+      // Fill only what the user has neither typed into nor already filled.
+      // dirtyFields is the record of what they touched; a slow fetch must never
+      // pull text out from under someone mid-sentence.
+      //
+      // The value check is not redundant with the dirty check: `image_url` is
+      // written through ImageInput's onChange rather than register(), so an
+      // image the user uploaded themselves is not "dirty" but is very much
+      // there, and only `getValues` sees it.
+      //
+      // Read through the ref, not the closure: dirtyFields is a fresh object on
+      // every formState update, so depending on it directly would restart the
+      // debounce timer on each keystroke anywhere in the form.
+      const fill = <K extends "title" | "description" | "price" | "image_url">(
+        field: K,
+        value: string | number | undefined
+      ) => {
+        if (value === undefined) return;
+        if (dirtyRef.current[field]) return;
+        if (getValues(field)) return;
+        setValue(field, value as never, { shouldValidate: true });
+      };
+
+      fill("title", result.title);
+      fill("description", result.description);
+      fill("price", result.price);
+      fill("image_url", result.imagePath);
+
+      if (!result.title && !result.description && !result.price && !result.imagePath) {
+        setMetaNote("We could not read any details from that page — fill them in below.");
+      }
+    }, 600);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [urlValue, getValues, setValue]);
 
   const onSubmit = async (data: WishlistItemFormData) => {
     setIsLoading(true);
@@ -123,6 +218,16 @@ export default function AddWishlistItemPage() {
                 <Text variant="secondary" size="sm" className="mt-1">
                   Link to the product online
                 </Text>
+                {isFetchingMeta && (
+                  <Text variant="secondary" size="sm" className="mt-1">
+                    Reading that page…
+                  </Text>
+                )}
+                {metaNote && !isFetchingMeta && (
+                  <Text variant="secondary" size="sm" className="mt-1">
+                    {metaNote}
+                  </Text>
+                )}
               </div>
 
               <div>
