@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 import { isOwnedStoragePath, isStorageObjectPath } from "@/lib/storage/image-value";
@@ -122,9 +122,25 @@ function respondWith(body: Buffer, contentType: string | null = null) {
   fetchControl.impl = () => ({ ok: true, body, contentType });
 }
 
+/**
+ * Every failing path in `ingestImage` writes one line to stderr, so most tests
+ * in this file produce one. Captured rather than let through: it keeps the
+ * suite's output readable, and it is the only way the lines themselves can be
+ * asserted -- see "a silent failure still leaves a breadcrumb" at the bottom.
+ */
+let logged: unknown[][];
+
 beforeEach(() => {
   fetchControl.impl = null;
   fetchControl.calls.length = 0;
+  logged = [];
+  vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+    logged.push(args);
+  });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 // ---------------------------------------------------------------------------
@@ -149,10 +165,30 @@ describe("sniff: the content type comes from the bytes", () => {
     ]);
   });
 
+  /**
+   * Every fixture below has to be long enough to REACH the comparison it is
+   * named after, or it is testing the length guard in front of that comparison
+   * and nothing else.
+   *
+   * That is not hypothetical. "SOI without a marker" was `[0xff, 0xd8]`: two
+   * bytes, so it died on `buf.length >= 3` and never reached `buf[2] === 0xff`.
+   * Deleting that comparison left the whole suite green, which meant any body
+   * starting `FF D8` -- an HTML page, a ZIP, anything -- was `image/jpeg`. The
+   * three four-byte JPEG near-misses and the non-RIFF WEBP container below are
+   * each the shortest fixture that kills one surviving comparison; see the
+   * report for the mutation runs.
+   */
   it.each([
     ["empty", Buffer.alloc(0)],
     ["one byte of a JPEG", Buffer.from([0xff])],
-    ["SOI without a marker", Buffer.from([0xff, 0xd8])],
+    ["SOI with nothing after it", Buffer.from([0xff, 0xd8])],
+    // Long enough to pass `buf.length >= 3`, so the marker byte is what refuses
+    // it. Kills `buf[2] === 0xff`.
+    ["SOI followed by a byte that is not a marker", Buffer.from([0xff, 0xd8, 0x00, 0x00])],
+    // Kills `buf[0] === 0xff`: everything from offset 1 on is a real JPEG head.
+    ["a JPEG head missing its leading FF", Buffer.from([0x00, 0xd8, 0xff, 0xe0])],
+    // Kills `buf[1] === 0xd8`: FF at both ends of the pair, no SOI between.
+    ["FF followed by something that is not D8", Buffer.from([0xff, 0x00, 0xff, 0xe0])],
     ["a truncated PNG signature", PNG.subarray(0, 7)],
     ["a PNG signature with one bit flipped", flip(PNG, 3)],
     ["GIF88a", Buffer.from("GIF88a....", "latin1")],
@@ -160,6 +196,10 @@ describe("sniff: the content type comes from the bytes", () => {
     ["RIFF/WAVE", riff("WAVE")],
     ["RIFF/AVI ", riff("AVI ")],
     ["RIFF truncated before the form tag", riff("WEBP").subarray(0, 11)],
+    // Full length, WEBP form tag in the right place, wrong magic. Kills the
+    // `subarray(0, 4).equals(RIFF)` half of the WebP check -- every other
+    // fixture in this list fails on the form tag first and leaves it unreached.
+    ["a WEBP form tag in a container that is not RIFF", riff("WEBP", "MOVI")],
     ["HTML", Buffer.from("<!DOCTYPE html><html><body>hi", "latin1")],
     ["SVG", Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>', "latin1")],
     ["a PDF", Buffer.from("%PDF-1.7\n%\xe2\xe3\xcf\xd3", "latin1")],
@@ -463,21 +503,32 @@ describe("ingestImage: every failure is null, never a throw", () => {
     expect(uploads).toHaveLength(0);
   });
 
-  it("refuses a body over the bucket's limit even if the fetcher hands one over", async () => {
+  it("refuses a body one byte over the bucket's limit, and takes one exactly at it", async () => {
     // safeFetch caps while streaming, so this cannot happen today. The check
     // exists so that a change there fails here rather than at the bucket.
-    const huge = Buffer.concat([PNG, Buffer.alloc(MAX_IMAGE_BYTES)]);
-    respondWith(huge);
+    //
+    // The two bodies straddle the limit by a single byte, which is the only
+    // pair that pins `>` from both sides: MAX+1 must stop, MAX must not. An
+    // earlier version compared MAX+16 against a body it called "one byte
+    // under" that was in fact exactly MAX -- so the limit itself was tested
+    // twice and MAX+1, the first value the check has to reject, never once.
+    const body = (size: number) =>
+      Buffer.concat([PNG, Buffer.alloc(size - PNG.length)]);
+
+    const over = body(MAX_IMAGE_BYTES + 1);
+    expect(over.length).toBe(MAX_IMAGE_BYTES + 1);
+    respondWith(over);
     const { client, uploads } = fakeSupabase();
     expect(
       await ingestImage("https://example.com/i", USER_ID, client)
     ).toBeNull();
     expect(uploads).toHaveLength(0);
 
-    // One byte under, same bytes, and it goes.
-    respondWith(
-      Buffer.concat([PNG, Buffer.alloc(MAX_IMAGE_BYTES - PNG.length)])
-    );
+    // Exactly at the limit, same bytes, and it goes -- the bucket accepts this
+    // size, so refusing it here would lose an image storage would have taken.
+    const at = body(MAX_IMAGE_BYTES);
+    expect(at.length).toBe(MAX_IMAGE_BYTES);
+    respondWith(at);
     const second = fakeSupabase();
     expect(
       await ingestImage("https://example.com/i", USER_ID, second.client)
@@ -495,6 +546,116 @@ describe("ingestImage: every failure is null, never a throw", () => {
   });
 });
 
+/**
+ * The caller is told `null` and the user is told nothing. The log is the only
+ * place the difference between "the fetcher would not go there", "that was an
+ * HTML error page" and "storage refused the write" survives -- and this upload
+ * path has never run against a live bucket, so the first real execution of it
+ * is in production. These assertions are what make that first execution
+ * diagnosable.
+ */
+describe("ingestImage: a silent failure still leaves a breadcrumb", () => {
+  const lines = () => logged.map((a) => String(a[0])).join("\n");
+
+  it("says the fetcher refused, and names the URL", async () => {
+    fetchControl.impl = () => ({ ok: false, reason: "too large" });
+    const { client } = fakeSupabase();
+    expect(
+      await ingestImage("https://example.com/i.png", USER_ID, client)
+    ).toBeNull();
+
+    expect(logged).toHaveLength(1);
+    expect(lines()).toContain("[ingest-image]");
+    expect(lines()).toMatch(/refused/i);
+    expect(lines()).toContain("https://example.com/i.png");
+    // The refusal reason rides along, so a blocked address and a 404 are not
+    // the same line.
+    expect(logged[0][1]).toBe("too large");
+  });
+
+  it("says the bytes were not an image, and does not call that a refusal", async () => {
+    // The two most confusable failures: the fetch worked perfectly and the
+    // thing it fetched was an HTML error page.
+    respondWith(Buffer.from("<!DOCTYPE html><h1>404</h1>"), "image/png");
+    const { client } = fakeSupabase();
+    expect(
+      await ingestImage("https://example.com/i.png", USER_ID, client)
+    ).toBeNull();
+
+    expect(logged).toHaveLength(1);
+    expect(lines()).toMatch(/not an image/i);
+    expect(lines()).not.toMatch(/refused/i);
+    // The opening bytes, so the log says WHICH not-an-image it was.
+    expect(String(logged[0][1])).toContain("3c21444f43545950");
+    expect(String(logged[0][1])).toContain("declared image/png");
+  });
+
+  it("says the upload was rejected, and carries the storage error whole", async () => {
+    respondWith(PNG);
+    const { client } = fakeSupabase({
+      error: { message: "new row violates row-level security policy" },
+    });
+    expect(
+      await ingestImage("https://example.com/i.png", USER_ID, client)
+    ).toBeNull();
+
+    expect(logged).toHaveLength(1);
+    expect(lines()).toMatch(/upload/i);
+    expect(logged[0][1]).toEqual({
+      message: "new row violates row-level security policy",
+    });
+  });
+
+  it("says so when the client throws, which the return value cannot", async () => {
+    respondWith(PNG);
+    const { client } = fakeSupabase(() => {
+      throw new Error("fetch failed");
+    });
+    await expect(
+      ingestImage("https://example.com/i.png", USER_ID, client)
+    ).resolves.toBeNull();
+
+    expect(logged).toHaveLength(1);
+    expect(lines()).toMatch(/threw/i);
+  });
+
+  it("stays quiet when the ingest works", async () => {
+    // A breadcrumb on the happy path is noise, and noise is how a real one gets
+    // scrolled past.
+    respondWith(PNG);
+    const { client } = fakeSupabase();
+    expect(
+      await ingestImage("https://example.com/i.png", USER_ID, client)
+    ).not.toBeNull();
+    expect(logged).toEqual([]);
+  });
+
+  it("cannot be made to forge extra log lines by a URL full of newlines", async () => {
+    // The URL comes out of the page's own markup, so it is the attacker's
+    // string. Unescaped it would let that page write log entries of its own.
+    fetchControl.impl = () => ({ ok: false, reason: "refused" });
+    const { client } = fakeSupabase();
+    await ingestImage(
+      "https://example.com/\n[ingest-image] uploaded fine: nothing to see",
+      USER_ID,
+      client
+    );
+
+    expect(logged).toHaveLength(1);
+    expect(String(logged[0][0])).not.toContain("\n");
+    expect(String(logged[0][0])).toContain("\\n");
+  });
+
+  it("bounds how much of a hostile URL reaches the log", async () => {
+    fetchControl.impl = () => ({ ok: false, reason: "refused" });
+    const { client } = fakeSupabase();
+    await ingestImage(`https://example.com/${"a".repeat(5000)}`, USER_ID, client);
+
+    expect(logged).toHaveLength(1);
+    expect(String(logged[0][0]).length).toBeLessThan(300);
+  });
+});
+
 // ---------------------------------------------------------------------------
 
 /** A copy of `buf` with the bit flipped at `index`, for near-miss fixtures. */
@@ -504,10 +665,16 @@ function flip(buf: Buffer, index: number): Buffer {
   return out;
 }
 
-/** A RIFF container whose form tag is `form`. */
-function riff(form: string): Buffer {
+/**
+ * A RIFF-shaped container: four magic bytes, a length word, a form tag, a chunk.
+ *
+ * `magic` is a parameter because the WebP check has two halves and a fixture
+ * that fails the form-tag half never reaches the magic half. Building a body
+ * with the right form tag and the wrong magic is what tests the other one.
+ */
+function riff(form: string, magic = "RIFF"): Buffer {
   return Buffer.concat([
-    Buffer.from("RIFF", "latin1"),
+    Buffer.from(magic, "latin1"),
     Buffer.from([0x1a, 0x00, 0x00, 0x00]),
     Buffer.from(form, "latin1"),
     Buffer.from([0x00, 0x00, 0x00, 0x00]),

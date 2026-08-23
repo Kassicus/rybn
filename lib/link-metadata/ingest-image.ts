@@ -32,6 +32,10 @@ import { safeFetch } from "./safe-fetch";
  * simply not an image must still yield its title and its price; losing the
  * whole lookup over a decorative field would be the wrong trade. Every failure
  * is `null`.
+ *
+ * `null` is all the CALLER gets, but it is not all anyone gets: every one of
+ * those failures also writes a line to the server log saying which one it was.
+ * See `report`.
  */
 
 /**
@@ -117,6 +121,44 @@ function sniff(buf: Buffer): string | null {
 }
 
 /**
+ * One line of stderr for a failure nobody else will ever hear about.
+ *
+ * `ingestImage` returns `null` for seven distinct reasons and the caller cannot
+ * tell them apart -- deliberately, because the user must not be shown any of
+ * them. That leaves the log as the only place the difference survives, and this
+ * upload path has never run against a live bucket: the tests mock the storage
+ * client, so the first real execution of it is in production. "The image
+ * silently did not appear" and "the storage policy is rejecting every write"
+ * have to be distinguishable from the outside on that first run, and a bare
+ * `null` does not distinguish them.
+ *
+ * It observes; it does not decide. Nothing here returns, throws, or changes
+ * what the caller is told, so the "every failure is null" contract above is
+ * exactly as true as it was before.
+ *
+ * The tag matches `lib/supabase/signed-image.ts`, the app's other quiet
+ * storage-side failure.
+ */
+function report(what: string, imageUrl: string, detail?: unknown): void {
+  const line = `[ingest-image] ${what}: ${forLog(imageUrl)}`;
+  if (detail === undefined) console.error(line);
+  else console.error(line, detail);
+}
+
+/**
+ * The URL, made safe to put in a log line.
+ *
+ * It is not ours: it came out of `<meta property="og:image">` on a page chosen
+ * by whoever pasted the link. A raw newline in it would let that page write log
+ * entries of its own, and an arbitrarily long one would bury the entries around
+ * it. `JSON.stringify` escapes the control characters and quotes the result, so
+ * what lands in the log is visibly one field.
+ */
+function forLog(value: string): string {
+  return JSON.stringify(value.length > 200 ? `${value.slice(0, 200)}...` : value);
+}
+
+/**
  * Where this user's objects go: `<clerk user id>/<timestamp>-<random>.<ext>`.
  *
  * The same shape a manual upload produces (`components/ui/image-input.tsx`),
@@ -143,18 +185,45 @@ export async function ingestImage(
       // below. The bytes decide.
       acceptHeader: "image/*",
     });
-    if (!fetched.ok) return null;
+    if (!fetched.ok) {
+      report("the fetcher refused it", imageUrl, fetched.reason);
+      return null;
+    }
 
     const actual = sniff(fetched.body);
-    if (!actual) return null;
+    if (!actual) {
+      // The first bytes and the declared type, because between them they say
+      // whether this was an HTML error page, a format we do not take, or a
+      // genuine image whose signature the sniffer has wrong.
+      report(
+        "the bytes are not an image we take",
+        imageUrl,
+        `${fetched.body.length} bytes opening ${fetched.body
+          .subarray(0, 8)
+          .toString("hex")}, declared ${fetched.contentType ?? "nothing"}`
+      );
+      return null;
+    }
 
     const ext = ALLOWED.get(actual);
-    if (!ext) return null;
+    if (!ext) {
+      // Not reachable while `sniff` and `ALLOWED` agree -- a test pins that they
+      // do. If it ever fires, the two lists have drifted.
+      report("sniffed a type the bucket does not accept", imageUrl, actual);
+      return null;
+    }
 
     // Redundant by `safeFetch`'s contract, which caps while streaming. Kept
     // because the bucket refuses above this number too, and a local refusal is
     // cheaper and clearer than a 413 from storage.
-    if (fetched.body.length > MAX_IMAGE_BYTES) return null;
+    if (fetched.body.length > MAX_IMAGE_BYTES) {
+      report(
+        "larger than the bucket's limit",
+        imageUrl,
+        `${fetched.body.length} > ${MAX_IMAGE_BYTES}`
+      );
+      return null;
+    }
 
     const path = buildObjectPath(userId, ext);
 
@@ -165,7 +234,10 @@ export async function ingestImage(
     // whose first folder is not the user. It runs after the fetch, because the
     // extension is not known until the bytes are, but before the upload, which
     // is the call it is protecting.
-    if (!isOwnedStoragePath(path, userId)) return null;
+    if (!isOwnedStoragePath(path, userId)) {
+      report("the object path is not inside the user's own folder", imageUrl, path);
+      return null;
+    }
 
     const { error } = await supabase.storage
       .from("wishlist-images")
@@ -178,18 +250,27 @@ export async function ingestImage(
         upsert: false,
       });
 
-    if (error) return null;
+    if (error) {
+      // The one failure that is most likely to be a live misconfiguration
+      // rather than a hostile page: an RLS refusal, a missing bucket, a MIME
+      // type the bucket does not allow. The storage error is logged whole.
+      report("the upload was rejected", imageUrl, error);
+      return null;
+    }
 
     // The path we validated, not the `data.path` the response echoes back.
     // They are the same string today, and the manual upload path in
     // `image-input.tsx` reads the echo -- but only one of the two has been
     // through `isOwnedStoragePath`, and it is this one.
     return path;
-  } catch {
+  } catch (err) {
     // The promise of this module is that a failed image costs the image and
     // nothing else. A client that throws instead of returning an error -- a
     // transport fault, a malformed URL in the storage layer -- must not
-    // propagate past here and take the title and price with it.
+    // propagate past here and take the title and price with it. It is still
+    // worth saying so out loud: an exception is the one failure mode that is
+    // never expected.
+    report("it threw", imageUrl, err);
     return null;
   }
 }
