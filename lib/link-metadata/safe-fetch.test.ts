@@ -368,6 +368,17 @@ describe("the hop-and-cap loop", () => {
         case "/to-relative":
           res.writeHead(302, { location: "/ok" });
           return res.end();
+        // A link shortener: a URL on one host that lands on a page on another,
+        // several path segments deep. The dispatcher dials loopback whatever
+        // the host says, so `shop.test` never leaves this process.
+        case "/short":
+          res.writeHead(302, { location: "http://shop.test/store/p/item" });
+          return res.end();
+        case "/store/p/item":
+          res.writeHead(200, { "content-type": "text/html" });
+          return res.end(
+            '<html><head><meta property="og:image" content="hero.jpg"></head></html>'
+          );
         case "/no-location":
           res.writeHead(302);
           return res.end();
@@ -502,6 +513,59 @@ describe("the hop-and-cap loop", () => {
         ok: false,
         reason: TOO_MANY_HOPS,
       });
+    });
+  });
+
+  /**
+   * WHICH url the body came from, which is not the one the caller asked for as
+   * soon as anything redirects.
+   *
+   * A page's relative references resolve against the address the DOCUMENT was
+   * served from. Reporting only the original URL meant `og:image="hero.jpg"` on
+   * a page behind a shortener resolved to the shortener's host and 404'd, with
+   * nothing logged and nothing shown -- and shorteners, geo redirects and
+   * utm-stripping redirects are ordinary on product links.
+   */
+  describe("reports the URL the body actually came from", () => {
+    it("is the requested URL when nothing redirected", async () => {
+      const r = await run("/ok");
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.finalUrl).toBe(`${BASE}/ok`);
+    });
+
+    it("is the LAST hop, not the first", async () => {
+      const r = await run("/short");
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.finalUrl).toBe("http://shop.test/store/p/item");
+        expect(r.finalUrl).not.toBe(`${BASE}/short`);
+      }
+    });
+
+    it("is the base a relative reference on that page resolves against", async () => {
+      // The composition this exists for, done here with `new URL` because that
+      // is precisely what `lib/link-metadata/extract.ts` does with the base it
+      // is handed. Against the pasted URL the same reference lands on the wrong
+      // host AND the wrong directory.
+      const r = await run("/short");
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+
+      expect(r.body.toString()).toContain('content="hero.jpg"');
+      expect(new URL("hero.jpg", r.finalUrl).toString()).toBe(
+        "http://shop.test/store/p/hero.jpg"
+      );
+      expect(new URL("hero.jpg", `${BASE}/short`).toString()).toBe(
+        `${BASE}/hero.jpg`
+      );
+    });
+
+    it("is the normalised form of the hop, not the raw Location string", async () => {
+      // `/to-relative` sends a bare path. What comes back is a whole URL,
+      // because that is what a base has to be.
+      const r = await run("/to-relative");
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.finalUrl).toBe(`${BASE}/ok`);
     });
   });
 

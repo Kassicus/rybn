@@ -37,11 +37,23 @@ const REASON_TOO_MANY_HOPS = "That link redirects too many times.";
  * type system refuse to let a caller conflate them: `contentType.startsWith`
  * does not compile until absence has been handled explicitly.
  *
+ * `finalUrl` is the URL the body was actually read from: the last hop of the
+ * redirect chain, not the string the caller passed in. They differ whenever a
+ * link shortener, a geo redirect or a utm-stripping redirect is involved, which
+ * for product URLs is the ordinary case rather than an exotic one. It matters
+ * because a page's relative references — `<meta property="og:image"
+ * content="/img/p.jpg">` — resolve against the document's own address, and
+ * resolving them against the pre-redirect address silently produces a URL on
+ * the wrong host that 404s with no error anywhere.
+ *
+ * It is the serialisation of the `URL` this module built and validated for that
+ * hop, so it is already normalised and is always absolute http(s).
+ *
  * This module does NOT enforce `acceptHeader` against the response — see the
  * doc on `safeFetch`.
  */
 type SafeFetchResult =
-  | { ok: true; body: Buffer; contentType: string | null }
+  | { ok: true; body: Buffer; contentType: string | null; finalUrl: string }
   | { ok: false; reason: string };
 
 /** What `safeFetch` needs from its caller. */
@@ -343,7 +355,15 @@ async function fetchChain(
       return { ok: false, reason: REASON_UNREADABLE };
     }
 
-    return { ok: true, body: Buffer.concat(chunks), contentType };
+    // `parsed.url`, not `raw` and not `current`: the URL object this hop was
+    // validated and dispatched against, which is the document's own
+    // address and therefore the right base for anything relative in it.
+    return {
+      ok: true,
+      body: Buffer.concat(chunks),
+      contentType,
+      finalUrl: parsed.url.toString(),
+    };
   }
 
   return { ok: false, reason: REASON_TOO_MANY_HOPS };
@@ -356,7 +376,8 @@ async function fetchChain(
  * cap applied while streaming against decompressed bytes.
  *
  * Every failure is a refusal with a reason. There is no path that returns
- * `ok: true` without a body this function read and counted itself.
+ * `ok: true` without a body this function read and counted itself, or without
+ * the `finalUrl` that body came from.
  *
  * **The contract on `contentType`, for downstream callers.** It is
  * `string | null`, and `null` means the response declared nothing. This module
