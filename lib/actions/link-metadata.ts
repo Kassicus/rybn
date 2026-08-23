@@ -6,6 +6,7 @@ import { getUserId } from "@/lib/auth/require-auth";
 import { safeFetch } from "@/lib/link-metadata/safe-fetch";
 import { extractMetadata } from "@/lib/link-metadata/extract";
 import { ingestImage } from "@/lib/link-metadata/ingest-image";
+import { withSignedWishlistImage } from "@/lib/supabase/signed-image";
 
 const MAX_HTML_BYTES = 2 * 1024 * 1024;
 const RATE_LIMIT = 20;
@@ -15,7 +16,26 @@ export interface LinkMetadataResult {
   title?: string;
   description?: string;
   price?: number;
+  /**
+   * The STORED value: an object path inside the private `wishlist-images`
+   * bucket. This is what the form writes to the row.
+   */
   imagePath?: string;
+  /**
+   * The RENDERABLE value for that same object: a signed URL, good for an hour.
+   *
+   * Two fields for the same image because the bucket is private and the two
+   * jobs are different -- exactly the split `components/ui/image-input.tsx`
+   * documents, and the same pair every other read path in the app hands that
+   * component (`image_url`/`image_path` from `withSignedWishlistImages`,
+   * `photo_url`/`photo_path` from `withSignedGiftPhotos`). It expires, so it
+   * must never be stored back into the row.
+   *
+   * `undefined` when there is no image, or when the object could not be signed.
+   * The form falls back to its "attached, preview unavailable" state, which is
+   * what it did for every ingested image before this field existed.
+   */
+  imagePreviewUrl?: string;
   error?: string;
 }
 
@@ -109,7 +129,18 @@ export async function fetchLinkMetadata(url: string): Promise<LinkMetadataResult
     return { error: "That link is not a web page we can read." };
   }
 
-  const meta = extractMetadata(page.body.toString("utf8"), url);
+  // `page.finalUrl`, NOT `url`. Relative references in the page -- an
+  // `og:image` of `/img/product.jpg` -- resolve against the address the
+  // document was served from, and after a redirect that is not the address the
+  // user pasted. Link shorteners, geo redirects and utm-stripping redirects are
+  // routine on product links, so passing `url` here resolved the image against
+  // the wrong host and lost it to a 404 with nothing logged and nothing shown.
+  //
+  // The value is safe to use as a base and no safer to fetch than the original:
+  // every hop that produced it went through the same address checks, and the
+  // image URL that comes back out of the extractor is still unvalidated and
+  // still goes back through `safeFetch` below.
+  const meta = extractMetadata(page.body.toString("utf8"), page.finalUrl);
 
   // The image is best-effort: losing it must not lose the text.
   //
@@ -118,9 +149,34 @@ export async function fetchLinkMetadata(url: string): Promise<LinkMetadataResult
   // here. `ingestImage` runs it back through `safeFetch`, and that revalidation
   // is the SSRF defence, so this must stay the only thing done with the value.
   let imagePath: string | undefined;
+  let imagePreviewUrl: string | undefined;
   if (meta.imageUrl) {
     const supabase = await createClient();
-    imagePath = (await ingestImage(meta.imageUrl, userId, supabase)) ?? undefined;
+    const stored = await ingestImage(meta.imageUrl, userId, supabase);
+    if (stored) {
+      imagePath = stored;
+
+      // The path alone is not renderable: the bucket is private, and the client
+      // cannot sign anything (signing needs the service-role key). Without this
+      // the add form fills in an image the user cannot see -- a grey "preview
+      // unavailable" box for the one field the whole feature exists to fill.
+      //
+      // Signed through the app's single minting helper rather than a second
+      // mechanism, so this URL has the same TTL and the same shape as the one
+      // the wishlist page hands the edit form. `userId` is both the owner and
+      // the viewer here -- the object was just written into that user's own
+      // folder by that user's own client -- so the helper's ownership check is
+      // satisfied by construction.
+      //
+      // Failing to sign costs the preview and nothing else: `image_url` is
+      // already filled, the row still saves, and the image still renders on
+      // /wishlist afterwards.
+      const signed = await withSignedWishlistImage(
+        { image_url: stored, user_id: userId },
+        userId
+      );
+      imagePreviewUrl = signed.image_url ?? undefined;
+    }
   }
 
   return {
@@ -128,5 +184,6 @@ export async function fetchLinkMetadata(url: string): Promise<LinkMetadataResult
     description: meta.description,
     price: meta.price,
     imagePath,
+    imagePreviewUrl,
   };
 }

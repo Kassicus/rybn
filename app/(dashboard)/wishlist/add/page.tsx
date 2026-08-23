@@ -54,8 +54,36 @@ export default function AddWishlistItemPage() {
   // input, blocks submit, or reports through `error` (which renders as a
   // validation failure). The only visible trace is one quiet line of text.
   const urlValue = watch("url");
+  const imageValue = watch("image_url");
   const [isFetchingMeta, setIsFetchingMeta] = useState(false);
   const [metaNote, setMetaNote] = useState<string | null>(null);
+
+  /**
+   * The signed URL for an image the lookup ingested, kept next to the path it
+   * belongs to.
+   *
+   * `image_url` holds an object PATH once the lookup fills it in, and the bucket
+   * is private -- a path is not renderable and the client cannot sign one
+   * (signing needs the service-role key). Without this the headline result of
+   * the whole feature was the grey "Image attached (preview unavailable)" box:
+   * the item saved fine and the image appeared on /wishlist afterwards, but the
+   * form that fetched it could not show it.
+   *
+   * The URL is minted by the same server helper that signs every other image in
+   * the app, and arrives on the action's result. Nothing new is invented here
+   * and the bucket stays private -- this is the pattern GiftForm and
+   * WishlistItemSettings already use, which is why ImageInput has taken a
+   * `previewUrl` all along.
+   *
+   * The PATH is stored alongside so the pair can be checked before it is used.
+   * A signed URL outlives the value it describes: remove the image, upload a
+   * different one, paste an external URL, or run a second lookup, and this
+   * preview would be of something the form no longer holds.
+   */
+  const [ingestedImage, setIngestedImage] = useState<{
+    path: string;
+    previewUrl: string;
+  } | null>(null);
   const lastFetchedUrl = useRef<string | null>(null);
   const requestTicket = useRef(0);
 
@@ -174,20 +202,29 @@ export default function AddWishlistItemPage() {
       // `dirtyRef` rather than a closed-over `dirtyFields` so this reads what the
       // user has touched as of NOW, after the await -- see the note on its
       // declaration.
+      // Returns whether it actually wrote, which only the image needs: its
+      // preview URL describes the value that was filled in, so it must not be
+      // adopted on the runs where the fill was declined.
       const fill = <K extends "title" | "description" | "price" | "image_url">(
         field: K,
         value: string | number | undefined
-      ) => {
-        if (value === undefined) return;
-        if (dirtyRef.current[field]) return;
-        if (getValues(field)) return;
+      ): boolean => {
+        if (value === undefined) return false;
+        if (dirtyRef.current[field]) return false;
+        if (getValues(field)) return false;
         setValue(field, value as never, { shouldValidate: true });
+        return true;
       };
 
       fill("title", result.title);
       fill("description", result.description);
       fill("price", result.price);
-      fill("image_url", result.imagePath);
+      if (fill("image_url", result.imagePath) && result.imagePreviewUrl) {
+        setIngestedImage({
+          path: result.imagePath!,
+          previewUrl: result.imagePreviewUrl,
+        });
+      }
 
       if (!result.title && !result.description && !result.price && !result.imagePath) {
         setMetaNote("We could not read any details from that page — fill them in below.");
@@ -324,7 +361,17 @@ export default function AddWishlistItemPage() {
               <Label>Image</Label>
               {user && (
                 <ImageInput
-                  value={watch("image_url")}
+                  value={imageValue}
+                  // Only ever for the exact value the preview was minted for.
+                  // Anything else the field can hold -- an image the user
+                  // uploaded themselves, an external URL they pasted, a path
+                  // from an earlier lookup, or nothing -- falls back to null,
+                  // and ImageInput handles each of those on its own.
+                  previewUrl={
+                    ingestedImage && imageValue === ingestedImage.path
+                      ? ingestedImage.previewUrl
+                      : null
+                  }
                   onChange={(url) => setValue("image_url", url || "")}
                   bucket="wishlist-images"
                   userId={user.id}
