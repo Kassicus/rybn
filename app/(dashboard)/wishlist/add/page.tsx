@@ -57,42 +57,103 @@ export default function AddWishlistItemPage() {
   const [isFetchingMeta, setIsFetchingMeta] = useState(false);
   const [metaNote, setMetaNote] = useState<string | null>(null);
   const lastFetchedUrl = useRef<string | null>(null);
+  const requestTicket = useRef(0);
 
-  // Read `dirtyFields` through a ref, not the effect's closure: RHF rebuilds it
-  // as a fresh object on every form-state update, so listing it as a dependency
-  // would restart the debounce on every keystroke anywhere in the form and the
-  // fetch would never fire. Same reason `lib/supabase/use-supabase.ts` keeps the
-  // Clerk session in a ref rather than in a dependency array.
+  // Read `dirtyFields` through a ref rather than closing over it. Two reasons,
+  // and the second is the substantive one:
   //
-  // Destructuring `dirtyFields` from `formState` above is still REQUIRED.
-  // `formState` is a Proxy and RHF only subscribes to the keys you actually
-  // read, so dropping the destructure would leave `dirtyFields` permanently
-  // empty -- the never-clobber rule would be off while still looking on.
+  //  1. The debounce must be keyed on the URL and nothing else. Listing form
+  //     state in the dependency array would tie the timer's lifetime to an
+  //     object identity RHF reassigns on paths of its own choosing (reset, field
+  //     arrays) and does not document as stable. Same reason
+  //     `lib/supabase/use-supabase.ts` keeps the Clerk session in a ref.
+  //  2. The check that matters happens AFTER the await, so it has to see what the
+  //     user has touched at the moment the fetch RESOLVED, not at the moment the
+  //     effect ran -- that window is exactly when someone starts typing. This
+  //     works without a re-render because RHF mutates the same dirtyFields object
+  //     in place: updateTouchAndDirty does `set(_formState.dirtyFields, name,
+  //     true)` on each change rather than rebuilding it.
+  //
+  // Destructuring `dirtyFields` from `formState` above is still REQUIRED -- but
+  // NOT because the value would otherwise be empty. `_formState.dirtyFields` is
+  // maintained either way; the `_proxyFormState` flag only decides whether a
+  // change also triggers a render. Reading a `formState` key during render is
+  // what sets that flag, and that flag is both the re-render subscription and the
+  // gate on some recomputation paths (the field-array branch rebuilds dirtyFields
+  // only when it is set). Reaching around the destructure would mean depending on
+  // an internal that RHF has not been told anyone is watching.
   const dirtyRef = useRef(dirtyFields);
   dirtyRef.current = dirtyFields;
 
   useEffect(() => {
     const raw = (urlValue ?? "").trim();
-    if (!raw || raw === lastFetchedUrl.current) return;
+
+    // Take a ticket. Every run of this effect supersedes the one before it, so an
+    // answer that arrives for an older URL is discarded rather than filled in --
+    // it describes a page this item no longer points at. A counter and not a
+    // boolean, so that ownership stays unambiguous when several edits land in
+    // quick succession: exactly one ticket can equal the current one.
+    const ticket = ++requestTicket.current;
+
+    // THE SPINNER AND NOTE INVARIANT, which is why both are cleared here
+    // unconditionally rather than case by case. Changing the URL retires whatever
+    // the previous run started, so the "Reading that page..." line and any note it
+    // left go with it -- neither may outlive the URL that caused it. From this
+    // point the ONLY thing that turns the spinner back on is a timer that has
+    // actually begun a fetch, and that timer turns it off again on every one of
+    // its own exits. So the spinner belongs to the newest run and to nothing else,
+    // and there is no path on which it can stick.
+    //
+    // Setting state to the value it already holds is a no-op in React, so this
+    // costs nothing on the runs where nothing was in flight. The one thing it
+    // gives up: editing away from a URL and back to the same one drops that URL's
+    // note. Silence is the right side to err on -- a note is about a specific
+    // link, and a stale one is worse than none.
+    setIsFetchingMeta(false);
+    setMetaNote(null);
+
+    if (!raw) return;
     try {
       const u = new URL(raw);
       if (u.protocol !== "http:" && u.protocol !== "https:") return;
     } catch {
       return; // still typing
     }
-
-    // A superseded run must not write anything. Its fetch is about a URL that is
-    // no longer in the field, so its answer would describe a different page than
-    // the one the item links to.
-    let cancelled = false;
+    if (raw === lastFetchedUrl.current) return;
 
     const timer = setTimeout(async () => {
       lastFetchedUrl.current = raw;
       setIsFetchingMeta(true);
-      setMetaNote(null);
-      const result = await fetchLinkMetadata(raw);
-      if (cancelled) return;
+
+      // A Server Action call can REJECT, not merely return an `error` field.
+      // `lib/actions/link-metadata.ts` has no try/catch of its own, and the call
+      // is an HTTP round trip that fails outright on an offline client, a dropped
+      // connection, or a deploy that has invalidated this action's id. Left
+      // unhandled that is the one path where raw error text reaches the user --
+      // straight into the Next dev overlay -- and nothing after the await would
+      // run, so the spinner would stay on forever.
+      let result: Awaited<ReturnType<typeof fetchLinkMetadata>> | null = null;
+      try {
+        result = await fetchLinkMetadata(raw);
+      } catch (err) {
+        // Logged, never shown, the same way ImageInput handles a failed upload.
+        console.error("Link metadata lookup failed:", err);
+      }
+
+      // Superseded while in flight. The newer run already owns the spinner and
+      // has already cleared it, so this one writes nothing at all.
+      if (ticket !== requestTicket.current) return;
+
+      // Every remaining exit passes through this line -- rejection, server-
+      // reported error, nothing found, and full success alike. That is what makes
+      // "the spinner always clears" a property of the control flow rather than a
+      // checklist someone has to keep in their head.
       setIsFetchingMeta(false);
+
+      if (!result) {
+        setMetaNote("We could not look that link up just now — fill the details in below.");
+        return;
+      }
 
       if (result.error) {
         // Already a sentence written for a human -- the action never returns raw
@@ -110,9 +171,9 @@ export default function AddWishlistItemPage() {
       // image the user uploaded themselves is not "dirty" but is very much
       // there, and only `getValues` sees it.
       //
-      // Read through the ref, not the closure: dirtyFields is a fresh object on
-      // every formState update, so depending on it directly would restart the
-      // debounce timer on each keystroke anywhere in the form.
+      // `dirtyRef` rather than a closed-over `dirtyFields` so this reads what the
+      // user has touched as of NOW, after the await -- see the note on its
+      // declaration.
       const fill = <K extends "title" | "description" | "price" | "image_url">(
         field: K,
         value: string | number | undefined
@@ -133,10 +194,10 @@ export default function AddWishlistItemPage() {
       }
     }, 600);
 
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
+    // Only the not-yet-fired timer needs cancelling here. A fetch already in
+    // flight is retired by the ticket the NEXT run takes, which is why that
+    // increment sits at the top of the effect and not inside the timer.
+    return () => clearTimeout(timer);
   }, [urlValue, getValues, setValue]);
 
   const onSubmit = async (data: WishlistItemFormData) => {
