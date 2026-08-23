@@ -46,5 +46,10 @@
 --
 -- `user_id` stays `not null`. The column must still identify someone; it just
 -- no longer requires that someone to have a profile row.
+-- `if exists` so a hand-run of this file against a database that has already
+-- dropped the constraint -- or that never had it -- is a no-op rather than an
+-- error. The CLI replays migrations in order and would only ever meet the
+-- constraint once, so this changes nothing about the tracked path; it is there
+-- for the untracked one.
 alter table public.link_fetch_log
-  drop constraint link_fetch_log_user_id_fkey;
+  drop constraint if exists link_fetch_log_user_id_fkey;
