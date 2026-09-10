@@ -82,7 +82,7 @@ export function RecipientCard({
   const isComplete = progressPercent === 100;
 
   return (
-    <div className="border border-light-border rounded-lg bg-white overflow-hidden">
+    <div className="border border-light-border rounded-lg bg-light-background overflow-hidden">
       {/* Header - clickable to expand */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}

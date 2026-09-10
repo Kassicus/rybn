@@ -197,7 +197,7 @@ function EndpointTester({ endpoint }: { endpoint: ApiEndpoint }) {
                       onChange={(e) =>
                         setQueryParams({ ...queryParams, [param.name]: e.target.value })
                       }
-                      className="w-full px-3 py-2 rounded-lg border border-light-border bg-white text-sm"
+                      className="w-full px-3 py-2 rounded-lg border border-light-border bg-light-background text-sm"
                     />
                     <Text size="sm" variant="secondary" className="mt-1">
                       {param.description}
@@ -228,7 +228,7 @@ function EndpointTester({ endpoint }: { endpoint: ApiEndpoint }) {
                       onChange={(e) =>
                         setHeaders({ ...headers, [header.name]: e.target.value })
                       }
-                      className="w-full px-3 py-2 rounded-lg border border-light-border bg-white text-sm font-mono"
+                      className="w-full px-3 py-2 rounded-lg border border-light-border bg-light-background text-sm font-mono"
                     />
                     <Text size="sm" variant="secondary" className="mt-1">
                       {header.description}
@@ -267,7 +267,7 @@ function EndpointTester({ endpoint }: { endpoint: ApiEndpoint }) {
                 value={bodyJson}
                 onChange={(e) => setBodyJson(e.target.value)}
                 rows={6}
-                className="w-full px-3 py-2 rounded-lg border border-light-border bg-white font-mono text-sm"
+                className="w-full px-3 py-2 rounded-lg border border-light-border bg-light-background font-mono text-sm"
                 placeholder='{"key": "value"}'
               />
             </div>

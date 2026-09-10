@@ -62,7 +62,7 @@ export function AssignmentReveal({
 
       {isRevealed ? (
         <div className="space-y-4">
-          <div className="flex items-center gap-4 p-4 rounded-lg bg-white border border-light-border">
+          <div className="flex items-center gap-4 p-4 rounded-lg bg-light-background border border-light-border">
             <Avatar className="w-16 h-16">
               {assignedUser.avatar_url && (
                 <AvatarImage src={assignedUser.avatar_url} />
@@ -84,7 +84,7 @@ export function AssignmentReveal({
           </div>
 
           {budgetRange && (
-            <div className="p-4 rounded-lg bg-white border border-light-border">
+            <div className="p-4 rounded-lg bg-light-background border border-light-border">
               <Text size="sm" variant="secondary" className="mb-1">
                 Budget Range
               </Text>
@@ -115,7 +115,7 @@ export function AssignmentReveal({
         </div>
       ) : (
         <div className="p-12 rounded-lg bg-gradient-to-br from-primary-100 to-primary-50 text-center border-2 border-dashed border-primary">
-          <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center mx-auto mb-4 shadow-lg">
+          <div className="w-20 h-20 rounded-full bg-light-background flex items-center justify-center mx-auto mb-4 shadow-lg">
             <Gift className="w-10 h-10 text-primary" />
           </div>
           <Heading level="h3" className="mb-2">

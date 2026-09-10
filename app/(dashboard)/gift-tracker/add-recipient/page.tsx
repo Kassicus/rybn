@@ -27,7 +27,7 @@ export default async function AddRecipientPage() {
         </Text>
       </div>
 
-      <div className="bg-white rounded-lg border border-light-border p-6">
+      <div className="bg-light-background rounded-lg border border-light-border p-6">
         <RecipientForm />
       </div>
     </div>

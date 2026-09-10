@@ -47,7 +47,8 @@ export function TopBar({ user, profile }: TopBarProps) {
   };
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-light-border bg-light-background/95 backdrop-blur supports-[backdrop-filter]:bg-light-background/60">
+    <>
+      <header className="sticky top-0 z-40 w-full border-b border-light-border bg-light-background/95 backdrop-blur supports-[backdrop-filter]:bg-light-background/60">
       <div className="container flex h-16 items-center justify-between px-4 mx-auto max-w-screen-2xl">
         {/* Left: Hamburger + Logo */}
         <div className="flex items-center gap-2 md:gap-6">
@@ -116,7 +117,7 @@ export function TopBar({ user, profile }: TopBarProps) {
 
             {/* Dropdown Menu */}
             {showProfileMenu && (
-              <div className="absolute right-0 mt-2 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-light-border bg-white shadow-lg overflow-hidden">
+              <div className="absolute right-0 mt-2 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-light-border bg-light-background shadow-lg overflow-hidden">
                 {/* User Info */}
                 <div className="px-4 py-3 border-b border-light-border">
                   <p className="text-sm font-medium text-light-text-primary truncate">
@@ -174,13 +175,23 @@ export function TopBar({ user, profile }: TopBarProps) {
         </div>
       )}
 
-      {/* Mobile navigation drawer */}
+    </header>
+
+      {/* Mobile navigation drawer.
+
+          Deliberately a SIBLING of <header>, not a child. The header carries
+          `backdrop-blur`, and an element with a backdrop-filter becomes the
+          containing block for its `position: fixed` descendants -- so nested
+          inside it, the drawer's full-screen backdrop and full-height panel
+          were being laid out against a ~64px header box instead of the
+          viewport. The panel collapsed to the header's height, which read as
+          a menu with no background at all. */}
       <MobileDrawer
         isOpen={showMobileNav}
         onClose={() => setShowMobileNav(false)}
         user={user}
         profile={profile}
       />
-    </header>
+    </>
   );
 }

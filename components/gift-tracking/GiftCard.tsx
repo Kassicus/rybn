@@ -77,7 +77,7 @@ export function GiftCard({
   };
 
   return (
-    <div className={`relative p-4 rounded-lg border border-light-border hover:border-primary transition-colors bg-white ${isDeleting ? "opacity-50" : ""}`}>
+    <div className={`relative p-4 rounded-lg border border-light-border hover:border-primary transition-colors bg-light-background ${isDeleting ? "opacity-50" : ""}`}>
       <div className="flex gap-4">
         {/* Image */}
         {gift.photo_url ? (
@@ -125,7 +125,7 @@ export function GiftCard({
                     className="fixed inset-0 z-10"
                     onClick={() => setShowMenu(false)}
                   />
-                  <div className="absolute right-0 top-8 z-20 bg-white border border-light-border rounded-lg shadow-lg py-1 min-w-[120px]">
+                  <div className="absolute right-0 top-8 z-20 bg-light-background border border-light-border rounded-lg shadow-lg py-1 min-w-[120px]">
                     <Link
                       href={`/gift-tracker/${gift.recipient_id}/${gift.id}`}
                       className="flex items-center gap-2 px-3 py-2 hover:bg-light-background-hover transition-colors"
@@ -167,7 +167,7 @@ export function GiftCard({
                     onClick={() => setShowStatusDropdown(false)}
                   />
                   <div
-                    className="fixed z-50 bg-white border border-light-border rounded-lg shadow-lg py-1 min-w-[140px] max-h-[300px] overflow-y-auto"
+                    className="fixed z-50 bg-light-background border border-light-border rounded-lg shadow-lg py-1 min-w-[140px] max-h-[300px] overflow-y-auto"
                     style={{ top: dropdownPosition.top, left: dropdownPosition.left }}
                   >
                     {giftStatuses.map((status) => {
