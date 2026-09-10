@@ -13,9 +13,11 @@ interface GroupTypeSelectorProps {
 }
 
 const groupTypeConfig = {
-  family: { label: 'Family', icon: Home, color: 'text-blue-600' },
-  friends: { label: 'Friends', icon: Heart, color: 'text-pink-600' },
-  work: { label: 'Work', icon: Briefcase, color: 'text-purple-600' },
+  // Categorical, not ordinal: evergreen / cranberry / gold are the three
+  // chromatic families in the palette, and 'custom' takes the neutral.
+  family: { label: 'Family', icon: Home, color: 'text-primary' },
+  friends: { label: 'Friends', icon: Heart, color: 'text-accent' },
+  work: { label: 'Work', icon: Briefcase, color: 'text-gold-ink' },
   custom: { label: 'Other', icon: Users, color: 'text-ink-soft' },
 };
 
@@ -74,9 +76,9 @@ export function GroupTypeSelector({ value, onChange, label, description }: Group
       <div className={`p-3 rounded-lg border ${
         isPrivate
           ? 'border-control-line bg-light-background-hover'
-          : 'border-green-300 bg-green-50'
+          : 'border-success bg-success-light'
       }`}>
-        <Text size="sm" className={isPrivate ? 'text-ink-soft' : 'text-green-700'}>
+        <Text size="sm" className={isPrivate ? 'text-ink-soft' : 'text-success'}>
           {isPrivate ? (
             <>🔒 <strong>Private:</strong> Only you can see these fields</>
           ) : (

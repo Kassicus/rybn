@@ -84,7 +84,7 @@ export function GiftStatusStepper({
                   <Text
                     size="sm"
                     className="mt-2 text-center font-medium"
-                    style={{ color: isCurrent || isCompleted ? info.hexColor : '#676879' }}
+                    style={{ color: isCurrent || isCompleted ? info.hexColor : '#5C6660' }}
                   >
                     {info.label}
                   </Text>
@@ -96,7 +96,7 @@ export function GiftStatusStepper({
                 <div
                   className="flex-1 h-1 mx-2 rounded-full transition-colors"
                   style={{
-                    backgroundColor: info.step < currentStep ? info.hexColor : '#E5E7EB'
+                    backgroundColor: info.step < currentStep ? info.hexColor : '#E9E3D8'
                   }}
                 />
               )}

@@ -106,7 +106,7 @@ export default function SettingsPage() {
   if (!settings) {
     return (
       <div className="max-w-3xl mx-auto space-y-8 p-6">
-        <div className="p-4 rounded-lg bg-red-50 border border-red-200">
+        <div className="p-4 rounded-lg bg-error-light border border-error">
           <Text variant="error">Failed to load settings. Please try again.</Text>
         </div>
       </div>
@@ -134,15 +134,15 @@ export default function SettingsPage() {
 
       {/* Status Messages */}
       {error && (
-        <div className="p-4 rounded-lg bg-red-50 border border-red-200">
+        <div className="p-4 rounded-lg bg-error-light border border-error">
           <Text variant="error">{error}</Text>
         </div>
       )}
 
       {success && (
-        <div className="p-4 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
-          <CheckCircle className="w-5 h-5 text-green-600" />
-          <Text className="text-green-700">Settings saved successfully!</Text>
+        <div className="p-4 rounded-lg bg-success-light border border-success flex items-center gap-2">
+          <CheckCircle className="w-5 h-5 text-success" />
+          <Text className="text-success">Settings saved successfully!</Text>
         </div>
       )}
 
@@ -291,8 +291,8 @@ export default function SettingsPage() {
         </div>
 
         {/* Unsubscribe Warning */}
-        <div className="mt-6 p-4 rounded-lg bg-yellow-50 border border-yellow-200">
-          <Text size="sm" className="text-yellow-800">
+        <div className="mt-6 p-4 rounded-lg bg-warning-light border border-warning">
+          <Text size="sm" className="text-warning">
             <strong>Note:</strong> Turning off all email notifications means you won&apos;t receive
             any emails from Rybn, including important account and group activity updates. We
             recommend keeping at least group invitations and date reminders enabled.

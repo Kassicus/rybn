@@ -36,7 +36,7 @@ export function SearchResultItem({ result, onClick }: SearchResultItemProps) {
       case "tracked_gift":
         return <Package className="h-4 w-4 text-light-text-secondary" />;
       case "recipient":
-        return <UserCircle className="h-4 w-4 text-purple-500" />;
+        return <UserCircle className="h-4 w-4 text-light-text-secondary" />;
       default:
         return null;
     }
@@ -102,7 +102,7 @@ export function SearchResultItem({ result, onClick }: SearchResultItemProps) {
               </span>
             )}
             {result.metadata.status && (
-              <span className="px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium capitalize">
+              <span className="px-1.5 py-0.5 rounded-full bg-gold-tint text-gold-ink font-medium capitalize">
                 {result.metadata.status}
               </span>
             )}
@@ -116,7 +116,7 @@ export function SearchResultItem({ result, onClick }: SearchResultItemProps) {
       case "recipient":
         return (
           <div className="flex items-center gap-2 text-xs">
-            <span className="px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium">
+            <span className="px-1.5 py-0.5 rounded-full bg-gold-tint text-gold-ink font-medium">
               Gift Tracker
             </span>
             {result.metadata.gift_count !== undefined && (

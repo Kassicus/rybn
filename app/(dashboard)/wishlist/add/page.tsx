@@ -270,7 +270,7 @@ export default function AddWishlistItemPage() {
       {/* @ts-expect-error - Form submit handler type inference */}
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {error && (
-          <div className="p-3 rounded bg-red-50 border border-red-200">
+          <div className="p-3 rounded bg-error-light border border-error">
             <Text variant="error" size="sm">
               {error}
             </Text>

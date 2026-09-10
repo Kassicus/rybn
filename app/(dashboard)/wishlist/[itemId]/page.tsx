@@ -226,17 +226,17 @@ export default function WishlistItemDetailPage({
             <div className="flex items-center gap-3 mb-2">
               <Heading level="h1">{item.title}</Heading>
               {item.claimed_by && !isOwnWishlist && (
-                <span className="px-2 py-1 rounded text-sm bg-green-100 text-green-700">
+                <span className="px-2 py-1 rounded text-sm bg-success-light text-success">
                   Claimed
                 </span>
               )}
               {item.purchased && !isOwnWishlist && (
-                <span className="px-2 py-1 rounded text-sm bg-blue-100 text-blue-700">
+                <span className="px-2 py-1 rounded text-sm bg-primary-100 text-primary">
                   Purchased
                 </span>
               )}
               {item.out_of_stock_marked_by && !isOwnWishlist && (
-                <span className="px-2 py-1 rounded text-sm bg-red-100 text-red-700">
+                <span className="px-2 py-1 rounded text-sm bg-error-light text-error">
                   Out of Stock
                 </span>
               )}

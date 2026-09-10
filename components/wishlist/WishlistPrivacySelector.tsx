@@ -29,9 +29,9 @@ interface WishlistPrivacySelectorProps {
 }
 
 const groupTypeConfig = {
-  family: { label: 'Family', icon: Home, color: 'text-blue-600' },
-  friends: { label: 'Friends', icon: Heart, color: 'text-pink-600' },
-  work: { label: 'Work', icon: Briefcase, color: 'text-purple-600' },
+  family: { label: 'Family', icon: Home, color: 'text-primary' },
+  friends: { label: 'Friends', icon: Heart, color: 'text-accent' },
+  work: { label: 'Work', icon: Briefcase, color: 'text-gold-ink' },
   custom: { label: 'Other', icon: Users, color: 'text-ink-soft' },
 };
 
@@ -160,8 +160,8 @@ export function WishlistPrivacySelector({
           isPrivate
             ? 'border-control-line bg-light-background-hover'
             : hasRestriction
-            ? 'border-orange-300 bg-orange-50'
-            : 'border-green-300 bg-green-50'
+            ? 'border-warning bg-warning-light'
+            : 'border-success bg-success-light'
         }`}>
           <div className="flex items-center gap-2">
             <Lock className="w-4 h-4" />
@@ -169,8 +169,8 @@ export function WishlistPrivacySelector({
               isPrivate
                 ? 'text-ink-soft'
                 : hasRestriction
-                ? 'text-orange-700'
-                : 'text-green-700'
+                ? 'text-warning'
+                : 'text-success'
             }>
               {isPrivate ? (
                 <><strong>Private:</strong> Only you can see this item</>

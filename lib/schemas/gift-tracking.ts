@@ -117,6 +117,12 @@ export interface StatusInfo {
   value: GiftStatus;
   label: string;
   description: string;
+  /**
+   * Hex rather than Tailwind classes because these are consumed as inline
+   * styles in five components (progress segments, stepper, badge). Values
+   * mirror the light palette in app/globals.css and must be updated by hand
+   * if it moves. Every pair clears 4.5:1 as text on its own background.
+   */
   hexColor: string;
   hexBgColor: string;
   icon: string;
@@ -128,8 +134,8 @@ export const STATUS_INFO: Record<GiftStatus, StatusInfo> = {
     value: 'planned',
     label: 'Planned',
     description: 'Gift idea saved',
-    hexColor: '#9CA3AF', // gray - matches wishlist "low" priority
-    hexBgColor: '#F3F4F6',
+    hexColor: '#5C6660', // not started: neutral
+    hexBgColor: '#F0EBE1',
     icon: 'Lightbulb',
     step: 1,
   },
@@ -137,8 +143,8 @@ export const STATUS_INFO: Record<GiftStatus, StatusInfo> = {
     value: 'ordered',
     label: 'Ordered',
     description: 'Purchased or ordered',
-    hexColor: '#3B82F6', // blue - matches wishlist "medium" priority
-    hexBgColor: '#DBEAFE',
+    hexColor: '#7A5D09', // in motion: gold
+    hexBgColor: '#F5EEDD',
     icon: 'ShoppingCart',
     step: 2,
   },
@@ -146,8 +152,8 @@ export const STATUS_INFO: Record<GiftStatus, StatusInfo> = {
     value: 'arrived',
     label: 'Arrived',
     description: 'Item has arrived',
-    hexColor: '#14B8A6', // teal - matches wishlist "high" priority
-    hexBgColor: '#CCFBF1',
+    hexColor: '#9F1239', // in hand: cranberry
+    hexBgColor: '#F7E6EA',
     icon: 'Package',
     step: 3,
   },
@@ -155,8 +161,8 @@ export const STATUS_INFO: Record<GiftStatus, StatusInfo> = {
     value: 'wrapped',
     label: 'Wrapped',
     description: 'Ready to give',
-    hexColor: '#10B981', // emerald - between teal and green
-    hexBgColor: '#D1FAE5',
+    hexColor: '#2F6B49', // nearly there: mid evergreen
+    hexBgColor: '#E1EBE4',
     icon: 'Gift',
     step: 4,
   },
@@ -164,8 +170,8 @@ export const STATUS_INFO: Record<GiftStatus, StatusInfo> = {
     value: 'given',
     label: 'Given',
     description: 'Gift delivered!',
-    hexColor: '#009E01', // rybn green - matches wishlist "must-have" priority
-    hexBgColor: '#E6F9E6',
+    hexColor: '#14432A', // done: evergreen
+    hexBgColor: '#EAF0EA',
     icon: 'CheckCircle2',
     step: 5,
   },

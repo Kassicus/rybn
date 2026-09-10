@@ -19,11 +19,11 @@ import { API_ENDPOINTS, API_CATEGORIES, type ApiEndpoint } from "@/lib/api/endpo
 
 function MethodBadge({ method }: { method: string }) {
   const colors = {
-    GET: "bg-blue-100 text-blue-700",
-    POST: "bg-green-100 text-green-700",
-    PUT: "bg-orange-100 text-orange-700",
-    DELETE: "bg-red-100 text-red-700",
-    PATCH: "bg-purple-100 text-purple-700",
+    GET: "bg-primary-100 text-primary",
+    POST: "bg-success-light text-success",
+    PUT: "bg-warning-light text-warning",
+    DELETE: "bg-error-light text-error",
+    PATCH: "bg-gold-tint text-gold-ink",
   };
 
   return (
@@ -144,7 +144,7 @@ function EndpointTester({ endpoint }: { endpoint: ApiEndpoint }) {
         <MethodBadge method={endpoint.method} />
         <code className="flex-1 text-left font-mono text-sm">{endpoint.path}</code>
         {endpoint.requiresAuth && (
-          <span className="px-2 py-1 rounded text-xs bg-yellow-100 text-yellow-700">
+          <span className="px-2 py-1 rounded text-xs bg-warning-light text-warning">
             Auth Required
           </span>
         )}
@@ -160,12 +160,12 @@ function EndpointTester({ endpoint }: { endpoint: ApiEndpoint }) {
 
           {/* Notes */}
           {endpoint.notes && endpoint.notes.length > 0 && (
-            <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
+            <div className="p-3 rounded-lg bg-primary-50 border border-primary-200">
               <div className="flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                <AlertCircle className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
                 <div className="space-y-1">
                   {endpoint.notes.map((note, i) => (
-                    <Text key={i} size="sm" className="text-blue-800">
+                    <Text key={i} size="sm" className="text-primary">
                       {note}
                     </Text>
                   ))}
@@ -321,9 +321,9 @@ function EndpointTester({ endpoint }: { endpoint: ApiEndpoint }) {
               <Heading level="h4" className="mb-2 flex items-center gap-2">
                 Response
                 {result.ok ? (
-                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  <CheckCircle className="w-5 h-5 text-success" />
                 ) : (
-                  <XCircle className="w-5 h-5 text-red-600" />
+                  <XCircle className="w-5 h-5 text-error" />
                 )}
               </Heading>
               <div className="space-y-2">
@@ -331,8 +331,8 @@ function EndpointTester({ endpoint }: { endpoint: ApiEndpoint }) {
                   <span
                     className={`px-2 py-1 rounded text-xs font-semibold ${
                       result.ok
-                        ? "bg-green-100 text-green-700"
-                        : "bg-red-100 text-red-700"
+                        ? "bg-success-light text-success"
+                        : "bg-error-light text-error"
                     }`}
                   >
                     {result.status} {result.statusText}
@@ -409,14 +409,14 @@ export default function ApiExplorerPage() {
       </div>
 
       {/* Info Box */}
-      <div className="p-4 rounded-xl border border-blue-200 bg-blue-50">
+      <div className="p-4 rounded-xl border border-primary-200 bg-primary-50">
         <div className="flex items-start gap-2">
-          <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+          <AlertCircle className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
           <div>
-            <Text className="text-blue-900 font-semibold mb-1">
+            <Text className="text-primary font-semibold mb-1">
               Testing Tips
             </Text>
-            <ul className="text-sm text-blue-800 space-y-1">
+            <ul className="text-sm text-primary space-y-1">
               <li>• Endpoints marked &quot;Auth Required&quot; need you to be logged in</li>
               <li>• Use the &quot;Copy as cURL&quot; button to get command-line examples</li>
               <li>• Expand each endpoint to see parameters and test it</li>

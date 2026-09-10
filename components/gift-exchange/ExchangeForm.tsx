@@ -50,11 +50,11 @@ export function ExchangeForm({ groupId }: ExchangeFormProps) {
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Info Banner */}
-      <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
+      <div className="p-4 rounded-lg bg-primary-50 border border-primary-200">
         <div className="flex items-start gap-3">
-          <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+          <Info className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
           <div>
-            <Text size="sm" className="font-medium text-blue-900">
+            <Text size="sm" className="font-medium text-primary">
               All group members will be automatically added
             </Text>
             <Text variant="secondary" size="sm" className="mt-1">
@@ -71,8 +71,8 @@ export function ExchangeForm({ groupId }: ExchangeFormProps) {
       )}
 
       {success && (
-        <div className="p-4 rounded-lg bg-green-50 border border-green-200">
-          <Text className="text-green-900">{success}</Text>
+        <div className="p-4 rounded-lg bg-success-light border border-success">
+          <Text className="text-success">{success}</Text>
         </div>
       )}
 

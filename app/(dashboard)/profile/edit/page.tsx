@@ -112,7 +112,7 @@ export default function ProfileEditPage() {
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Error banner */}
         {error && (
-          <div className="p-3 rounded bg-red-50 border border-red-200">
+          <div className="p-3 rounded bg-error-light border border-error">
             <Text variant="error" size="sm">
               {error}
             </Text>
@@ -121,8 +121,8 @@ export default function ProfileEditPage() {
 
         {/* Success banner */}
         {success && (
-          <div className="p-3 rounded bg-green-50 border border-green-200">
-            <Text className="text-green-700" size="sm">
+          <div className="p-3 rounded bg-success-light border border-success">
+            <Text className="text-success" size="sm">
               Profile updated successfully! Redirecting...
             </Text>
           </div>

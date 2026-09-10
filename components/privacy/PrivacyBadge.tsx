@@ -22,11 +22,14 @@ export function PrivacyBadge({ level, className, showLabel = true }: PrivacyBadg
   const IconComponent = ICON_MAP[info.icon as keyof typeof ICON_MAP];
 
   const colors = {
-    private: "text-ink-soft",
-    group: "text-blue-600",
-    friends: "text-pink-600",
-    family: "text-green-600",
-    public: "text-purple-600",
+    // Five levels against three chromatic families, so the two most
+    // restrictive take the neutrals -- which also reads as an escalation
+    // from quiet to visible.
+    private: "text-ink-muted",
+    group: "text-ink-soft",
+    friends: "text-accent",
+    family: "text-primary",
+    public: "text-gold-ink",
   };
 
   return (

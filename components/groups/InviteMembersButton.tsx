@@ -105,8 +105,8 @@ export function InviteMembersButton({
           )}
 
           {warning && (
-            <div className="p-3 rounded bg-yellow-100 border border-yellow-500">
-              <Text size="sm" className="text-yellow-800">
+            <div className="p-3 rounded bg-warning-light border border-warning">
+              <Text size="sm" className="text-warning">
                 ⚠️ {warning}
               </Text>
             </div>

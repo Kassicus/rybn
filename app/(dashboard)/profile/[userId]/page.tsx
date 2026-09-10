@@ -58,7 +58,7 @@ export default async function UserProfilePage({
       <ProfileHeader profile={profileData} isOwnProfile={false} />
 
       {/* Visibility indicator */}
-      <div className="p-3 rounded bg-blue-50 border border-blue-200">
+      <div className="p-3 rounded bg-primary-50 border border-primary-200">
         <div className="flex items-center gap-2">
           <Eye className="w-4 h-4" />
           <Text size="sm">
