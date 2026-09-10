@@ -1,23 +1,39 @@
 # Supabase CLI configuration for rybn.
 #
-# The Clerk instance is registered below. Both required changes are done:
-# the real Frontend API domain is set, and the block is enabled.
+# READ THIS BEFORE TRUSTING THE BLOCK AT THE BOTTOM.
 #
-# Historical note, kept because it will bite whoever edits this next: the CLI
-# validates `domain` whenever this block is enabled, and rejects a placeholder
-# outright --
+# This file does NOT control which Clerk issuer Supabase trusts. That was
+# believed during the Clerk migration and it is wrong. Verified on 2026-09-10
+# during the production cutover:
+#
+#   - `supabase config diff` reports zero drift for auth.third_party even when
+#     the local domain and the remote setting genuinely differ.
+#   - `supabase config push` reports "Remote Auth config is up to date" and
+#     "Nothing to push" in exactly that situation.
+#
+# The CLI does not manage third-party auth at all. It only *validates* the
+# domain's syntax. So this block can silently disagree with production and
+# nothing will warn you.
+#
+# The issuer Supabase actually trusts is set in the dashboard:
+#   Authentication -> Sign In / Providers -> Third Party Auth
+#   https://supabase.com/dashboard/project/xomvbdvvrlbxoyqdsstt/auth/third-party
+# Change it there. Changing it here does nothing. Keep the two in agreement so
+# this file stays an honest record of what production is set to -- but treat it
+# as documentation, not as a control surface.
+#
+# Why a wrong value here is still dangerous: when this block is enabled the CLI
+# validates `domain` on EVERY command, and rejects a placeholder outright --
 #
 #   Invalid config: auth.third_party.clerk has invalid domain, it usually is
 #   like clerk.example.com or example.clerk.accounts.dev
 #
-# -- which makes EVERY CLI command fail, including `db reset --linked` and the
-# RLS test harness. So never leave this enabled with a placeholder domain, and
-# never substitute a syntactically valid but wrong one: that survives
-# validation and would quietly register a bogus issuer on `config push`.
+# -- which breaks every CLI command, including `db reset --linked` and the RLS
+# test harness. A syntactically valid but wrong domain passes validation and
+# just sits here lying to the next reader.
 #
-# The database side of the Clerk migration does not depend on this file:
-# policies read the JWT `sub` claim through public.requesting_user_id(). This
-# block is what tells the Supabase platform which issuer to trust.
+# The database side of the Clerk migration does not depend on this file at all:
+# policies read the JWT `sub` claim through public.requesting_user_id().
 
 project_id = "xomvbdvvrlbxoyqdsstt"
 
