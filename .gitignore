@@ -47,3 +47,10 @@ docs/
 # silently aimed this repo at a decommissioned database. The project identity
 # belongs in supabase/config.toml (project_id), where Task 3 will record it.
 supabase/.temp/
+
+# Agent tooling scratch (machine-local, not project source).
+# .claude/ contains worktrees/ -- full checkouts with their own node_modules --
+# so leaving it untracked puts a nested copy of this repo one `git add -A`
+# away from being committed.
+.claude/
+.agents/
