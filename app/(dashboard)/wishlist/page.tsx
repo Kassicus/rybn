@@ -26,16 +26,18 @@ export default async function WishlistPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 p-6">
+    <div className="mx-auto flex max-w-4xl flex-col gap-6 p-6">
       <BreadcrumbSetter
         items={[
           { label: "Dashboard", href: "/dashboard" },
           { label: "My Wishlist", href: "/wishlist" },
         ]}
       />
-      <div className="flex items-center justify-between">
-        <div>
-          <Heading level="h1">My Wishlist</Heading>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <Heading level="h1" className="font-display">
+            My Wishlist
+          </Heading>
           <Text variant="secondary">
             Items you&apos;d love to receive as gifts
           </Text>
@@ -50,16 +52,22 @@ export default async function WishlistPage() {
 
       {/* Empty state */}
       {items && items.length === 0 && (
-        <div className="text-center py-16">
-          <Gift className="w-16 h-16 mx-auto text-light-text-secondary mb-4" />
-          <Heading level="h3" className="mb-2">No wishlist items yet</Heading>
-          <Text variant="secondary" className="mb-6">
-            Start adding items you&apos;d love to receive!
-          </Text>
+        <div className="flex flex-col items-center gap-4 rounded-lg border border-dashed border-light-border px-6 py-16 text-center">
+          <span className="flex h-14 w-14 items-center justify-center rounded-md bg-primary-50">
+            <Gift className="h-7 w-7 text-primary" />
+          </span>
+          <div className="flex flex-col gap-1.5">
+            <Heading level="h3" className="font-display">
+              Nothing on your list yet
+            </Heading>
+            <Text variant="secondary">
+              Add something you&apos;d like, and anyone you share with can see it.
+            </Text>
+          </div>
           <Link href="/wishlist/add">
             <Button variant="primary">
               <Plus className="w-4 h-4 mr-2" />
-              Add Your First Item
+              Add your first item
             </Button>
           </Link>
         </div>
@@ -67,7 +75,7 @@ export default async function WishlistPage() {
 
       {/* Wishlist items */}
       {items && items.length > 0 && (
-        <div className="space-y-4">
+        <div className="flex flex-col gap-4">
           {items.map((item) => (
             <WishlistItemCard
               key={item.id}

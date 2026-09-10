@@ -7,6 +7,7 @@ import { PRIORITY_INFO } from "@/lib/schemas/wishlist";
 import type { GroupType } from "@/types/privacy";
 import { GROUP_TYPES } from "@/types/privacy";
 import { ClaimActions } from "./ClaimActions";
+import { cn } from "@/lib/utils";
 
 interface ClaimerInfo {
   id: string;
@@ -63,16 +64,20 @@ export function WishlistItemCard({
 
   return (
     <div
-      className={`rounded-lg border border-light-border bg-white ${
+      className={`rounded-lg border border-light-border bg-light-background ${
         isPurchasedForViewer ? "opacity-50" : ""
       }`}
     >
       <Link href={`/wishlist/${item.id}`} className="block">
-        <div className="p-4 hover:bg-gray-50 transition-colors rounded-t-lg">
+        <div className="p-4 hover:bg-light-background-hover transition-colors rounded-t-lg">
           <div className="flex gap-4">
             {/* Image */}
             {item.image_url && (
-              <div className="w-24 h-24 flex-shrink-0 rounded-md overflow-hidden bg-gray-100">
+              <div className="w-24 h-24 flex-shrink-0 rounded-md overflow-hidden bg-light-background-hover">
+                {/* eslint-disable-next-line @next/next/no-img-element --
+                    signed Supabase URLs and arbitrary retailer URLs from
+                    pasted links; next/image needs enumerable remotePatterns
+                    and the retailer set is open-ended. */}
                 <img
                   src={item.image_url}
                   alt={item.title}
@@ -86,21 +91,21 @@ export function WishlistItemCard({
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <Text className="font-semibold text-lg truncate">
+                    <Text className="font-display font-semibold text-lg truncate">
                       {item.title}
                     </Text>
                     {item.claimed_by && !isOwnWishlist && (
-                      <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700">
+                      <span className="px-2 py-0.5 rounded-sm text-xs font-semibold bg-primary-50 text-primary">
                         Claimed
                       </span>
                     )}
                     {item.purchased && !isOwnWishlist && (
-                      <span className="px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">
+                      <span className="px-2 py-0.5 rounded-sm text-xs font-semibold bg-gold-tint text-gold-ink">
                         Purchased
                       </span>
                     )}
                     {item.out_of_stock_marked_by && !isOwnWishlist && (
-                      <span className="px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">
+                      <span className="px-2 py-0.5 rounded-sm text-xs font-semibold bg-error-light text-error">
                         Out of Stock
                       </span>
                     )}
@@ -120,11 +125,10 @@ export function WishlistItemCard({
                     {/* Priority */}
                     <div className="flex items-center gap-1.5">
                       <Circle
-                        className="w-4 h-4"
-                        style={{ color: priorityInfo.hexColor }}
+                        className={cn("w-4 h-4", priorityInfo.toneClass)}
                         fill="currentColor"
                       />
-                      <Text size="sm" style={{ color: priorityInfo.hexColor }}>
+                      <Text size="sm" className={priorityInfo.toneClass}>
                         {priorityInfo.label}
                       </Text>
                     </div>
@@ -138,7 +142,7 @@ export function WishlistItemCard({
 
                     {/* Category */}
                     {item.category && (
-                      <span className="px-2 py-0.5 rounded text-xs bg-light-background-hover">
+                      <span className="px-2 py-0.5 rounded-sm text-xs font-medium bg-light-background-hover text-ink-soft">
                         {item.category}
                       </span>
                     )}
@@ -146,7 +150,7 @@ export function WishlistItemCard({
                     {/* Privacy indicator - only show on own wishlist */}
                     {isOwnWishlist && (
                       <div className="flex items-center gap-1">
-                        <Lock className="w-3 h-3 text-gray-500" />
+                        <Lock className="w-3 h-3 text-ink-muted" />
                         <Text size="sm" variant="secondary">
                           {isPrivate
                             ? "Private"

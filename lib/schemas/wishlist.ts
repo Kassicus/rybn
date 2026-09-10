@@ -91,7 +91,13 @@ export interface PriorityInfo {
   value: Priority;
   label: string;
   description: string;
-  hexColor: string;
+  /**
+   * Tailwind classes rather than a hex, so priority follows the theme tokens
+   * instead of a second, silently-diverging palette. The four values are an
+   * ordinal escalation -- quiet, brand, warm, urgent -- not four unrelated
+   * hues; the previous set was stock grey/blue/teal plus the retired #009E01.
+   */
+  toneClass: string;
   icon: string;
 }
 
@@ -100,28 +106,28 @@ export const PRIORITY_INFO: Record<Priority, PriorityInfo> = {
     value: 'low',
     label: 'Low',
     description: 'Nice to have',
-    hexColor: '#9CA3AF', // gray
+    toneClass: 'text-ink-muted',
     icon: 'Circle',
   },
   'medium': {
     value: 'medium',
     label: 'Medium',
     description: 'Would appreciate',
-    hexColor: '#3B82F6', // blue
+    toneClass: 'text-primary',
     icon: 'Circle',
   },
   'high': {
     value: 'high',
     label: 'High',
     description: 'Really want this',
-    hexColor: '#14B8A6', // teal (blue-green)
+    toneClass: 'text-gold-ink',
     icon: 'Circle',
   },
   'must-have': {
     value: 'must-have',
     label: 'Must Have',
     description: 'Top priority!',
-    hexColor: '#009E01', // rybn green
+    toneClass: 'text-accent',
     icon: 'Circle',
   },
 };

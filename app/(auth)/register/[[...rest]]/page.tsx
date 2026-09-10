@@ -6,7 +6,7 @@ export default function RegisterPage() {
       <SignUp
         appearance={{
           variables: {
-            colorPrimary: "#009E01",
+            colorPrimary: "#9F1239", // cranberry; mirrors --accent, which Clerk cannot read
             fontFamily: "var(--font-quicksand)",
             borderRadius: "0.75rem",
           },

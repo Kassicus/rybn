@@ -89,8 +89,13 @@ export function TopBar({ user, profile }: TopBarProps) {
             className="relative p-2 rounded-lg hover:bg-light-background-hover transition-colors"
           >
             <Bell className="w-5 h-5 text-light-text-secondary" />
-            {/* Notification badge */}
-            <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
+            {/* Notification badge. Cranberry, not evergreen: this is an alert,
+                and evergreen is the brand surface colour here.
+
+                NOTE: it renders unconditionally -- there is no unread count
+                behind it, so it claims there is something to see whether or
+                not there is. Worth wiring to real state. */}
+            <span className="absolute top-1 right-1 w-2 h-2 bg-accent rounded-full" />
           </button>
 
           {/* Profile Avatar with Dropdown */}

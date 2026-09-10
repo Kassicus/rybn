@@ -11,6 +11,7 @@ import { WishlistItemSettings } from "@/components/wishlist/WishlistItemSettings
 import { ClaimActions } from "@/components/wishlist/ClaimActions";
 import { getWishlistItem, getClaimerProfile } from "@/lib/actions/wishlist";
 import { PRIORITY_INFO } from "@/lib/schemas/wishlist";
+import { cn } from "@/lib/utils";
 import { SIGNED_IMAGE_REFRESH_MS } from "@/lib/storage/image-value";
 import { GROUP_TYPES } from "@/types/privacy";
 import type { GroupType } from "@/types/privacy";
@@ -243,8 +244,8 @@ export default function WishlistItemDetailPage({
 
             <div className="flex items-center gap-4 flex-wrap">
               <div className="flex items-center gap-1.5">
-                <Circle className="w-5 h-5" style={{ color: priorityInfo.hexColor }} fill="currentColor" />
-                <Text style={{ color: priorityInfo.hexColor }}>
+                <Circle className={cn("w-5 h-5", priorityInfo.toneClass)} fill="currentColor" />
+                <Text className={priorityInfo.toneClass}>
                   {priorityInfo.label}
                 </Text>
               </div>
@@ -357,8 +358,8 @@ export default function WishlistItemDetailPage({
           <div className="p-4 rounded-lg border border-light-border">
             <Text variant="secondary" size="sm" className="mb-1">Priority</Text>
             <div className="flex items-center gap-2">
-              <Circle className="w-5 h-5" style={{ color: priorityInfo.hexColor }} fill="currentColor" />
-              <Text className="font-medium" style={{ color: priorityInfo.hexColor }}>
+              <Circle className={cn("w-5 h-5", priorityInfo.toneClass)} fill="currentColor" />
+              <Text className={cn("font-medium", priorityInfo.toneClass)}>
                 {priorityInfo.label}
               </Text>
             </div>
