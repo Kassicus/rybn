@@ -69,6 +69,12 @@ export default async function DashboardPage() {
   // Limit to 3 items for preview
   const previewGiftExchanges = exchangesWithData;
 
+  const quickActions = [
+    { href: "/gifts/create", label: "Create group gift", icon: Gift },
+    { href: "/gift-exchange/create", label: "Start gift exchange", icon: Calendar },
+    { href: "/wishlist/add", label: "Add to wishlist", icon: ListPlus },
+  ];
+
   const navTiles = [
     {
       href: "/groups",
@@ -129,42 +135,26 @@ export default async function DashboardPage() {
         }}
       />
 
-      {/* Quick Actions */}
-      <div>
-        <Heading level="h3" className="mb-4">Quick Actions</Heading>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Link href="/gifts/create">
-            <Button
-              variant="secondary"
-              size="large"
-              className="w-full h-24 rounded-2xl flex-col gap-2"
+      {/* Quick actions. Compact and filled rather than 96px outlined boxes:
+          they sit above a five-card grid, so they have to read as a denser
+          row of verbs, not compete with it. */}
+      <div className="flex flex-col gap-4">
+        <Heading level="h3" className="font-display">
+          Quick Actions
+        </Heading>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {quickActions.map((action) => (
+            <Link
+              key={action.href}
+              href={action.href}
+              className="group flex items-center gap-3 rounded-md border border-light-border bg-light-background p-4 transition-colors hover:border-primary hover:bg-light-background-hover"
             >
-              <Gift className="w-6 h-6" />
-              <span>Create Group Gift</span>
-            </Button>
-          </Link>
-
-          <Link href="/gift-exchange/create">
-            <Button
-              variant="secondary"
-              size="large"
-              className="w-full h-24 rounded-2xl flex-col gap-2"
-            >
-              <Calendar className="w-6 h-6" />
-              <span>Start Gift Exchange</span>
-            </Button>
-          </Link>
-
-          <Link href="/wishlist/add">
-            <Button
-              variant="secondary"
-              size="large"
-              className="w-full h-24 rounded-2xl flex-col gap-2"
-            >
-              <ListPlus className="w-6 h-6" />
-              <span>Add to Wishlist</span>
-            </Button>
-          </Link>
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm bg-primary-50">
+                <action.icon className="h-5 w-5 text-primary" />
+              </span>
+              <Text className="font-semibold">{action.label}</Text>
+            </Link>
+          ))}
         </div>
       </div>
 
