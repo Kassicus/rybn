@@ -11,6 +11,7 @@ import { getMyProfile } from "@/lib/actions/profile";
 import { getGiftTrackingStats } from "@/lib/actions/gift-tracking";
 import { GiftExchangeCard } from "@/components/gift-exchange/GiftExchangeCard";
 import { createClient } from "@/lib/supabase/server";
+import { cn } from "@/lib/utils";
 
 import { getUserId } from "@/lib/auth/require-auth";
 
@@ -68,6 +69,51 @@ export default async function DashboardPage() {
   // Limit to 3 items for preview
   const previewGiftExchanges = exchangesWithData;
 
+  const navTiles = [
+    {
+      href: "/groups",
+      title: "Groups",
+      icon: Users,
+      well: "bg-primary-50",
+      stroke: "text-primary",
+      detail: `${groups.length} ${groups.length === 1 ? "group" : "groups"}`,
+    },
+    {
+      href: "/gifts",
+      title: "Group Gifts",
+      icon: Gift,
+      well: "bg-accent-tint",
+      stroke: "text-accent",
+      detail: `${groupGifts.length} active ${groupGifts.length === 1 ? "gift" : "gifts"}`,
+    },
+    {
+      href: "/gift-tracker",
+      title: "Gift Tracker",
+      icon: Package,
+      well: "bg-gold-tint",
+      stroke: "text-gold-ink",
+      detail: giftTrackingStats
+        ? `${giftTrackingStats.giftCount - giftTrackingStats.byStatus.given.count} gifts to give`
+        : "Track your gifts",
+    },
+    {
+      href: "/gift-exchange",
+      title: "Exchanges",
+      icon: Calendar,
+      well: "bg-accent-tint",
+      stroke: "text-accent",
+      detail: `${exchangesWithData.length} active ${exchangesWithData.length === 1 ? "exchange" : "exchanges"}`,
+    },
+    {
+      href: "/wishlist",
+      title: "My Wishlist",
+      icon: ListPlus,
+      well: "bg-primary-50",
+      stroke: "text-primary",
+      detail: `${wishlistItems.length} ${wishlistItems.length === 1 ? "item" : "items"}`,
+    },
+  ];
+
   return (
     <div className="space-y-8">
       <BreadcrumbSetter
@@ -122,108 +168,30 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Navigation Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* Groups */}
-        <Link href="/groups" className="group">
-          <div className="p-8 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="p-4 rounded-xl bg-success/10 group-hover:bg-success/20 transition-colors">
-                <Users className="w-8 h-8 text-success" />
+      {/* Navigation grid. Wells are limited to the three palette families --
+          evergreen, cranberry, gold -- rather than one hue per tile: the old
+          grid ran success/warning/purple/error/primary, and purple was not in
+          the palette at all. */}
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+        {navTiles.map((tile) => (
+          <Link key={tile.href} href={tile.href} className="group">
+            <div className="flex h-full flex-col items-start gap-5 rounded-lg border border-light-border bg-light-background p-6 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary hover:shadow-md">
+              <div className={cn("flex h-12 w-12 items-center justify-center rounded-md", tile.well)}>
+                <tile.icon className={cn("h-6 w-6", tile.stroke)} />
               </div>
-              <Heading level="h2">Groups</Heading>
-            </div>
-            <Text variant="secondary" size="lg" className="mb-6">
-              {groups.length} {groups.length === 1 ? "group" : "groups"}
-            </Text>
-            <div className="flex items-center gap-2 text-primary">
-              <Text className="font-medium">View All</Text>
-              <ArrowRight className="w-5 h-5" />
-            </div>
-          </div>
-        </Link>
-
-        {/* Group Gifts */}
-        <Link href="/gifts" className="group">
-          <div className="p-8 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="p-4 rounded-xl bg-warning/10 group-hover:bg-warning/20 transition-colors">
-                <Gift className="w-8 h-8 text-warning" />
+              <div className="flex flex-col gap-1.5">
+                <Heading as="h2" level="h4" className="font-display">
+                  {tile.title}
+                </Heading>
+                <Text variant="secondary">{tile.detail}</Text>
               </div>
-              <Heading level="h2">Group Gifts</Heading>
-            </div>
-            <Text variant="secondary" size="lg" className="mb-6">
-              {groupGifts.length} active {groupGifts.length === 1 ? "gift" : "gifts"}
-            </Text>
-            <div className="flex items-center gap-2 text-primary">
-              <Text className="font-medium">View All</Text>
-              <ArrowRight className="w-5 h-5" />
-            </div>
-          </div>
-        </Link>
-
-        {/* Gift Tracker */}
-        <Link href="/gift-tracker" className="group">
-          <div className="p-8 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="p-4 rounded-xl bg-purple-500/10 group-hover:bg-purple-500/20 transition-colors">
-                <Package className="w-8 h-8 text-purple-500" />
+              <div className="mt-auto flex items-center gap-1.5">
+                <Text className="font-semibold text-accent">View all</Text>
+                <ArrowRight className="h-4 w-4 text-accent" />
               </div>
-              <Heading level="h2">Gift Tracker</Heading>
             </div>
-            <Text variant="secondary" size="lg" className="mb-6">
-              {giftTrackingStats ? (
-                <>
-                  {giftTrackingStats.giftCount - giftTrackingStats.byStatus.given.count} gifts to give
-                </>
-              ) : (
-                "Track your gifts"
-              )}
-            </Text>
-            <div className="flex items-center gap-2 text-primary">
-              <Text className="font-medium">View All</Text>
-              <ArrowRight className="w-5 h-5" />
-            </div>
-          </div>
-        </Link>
-
-        {/* Exchanges */}
-        <Link href="/gift-exchange" className="group">
-          <div className="p-8 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="p-4 rounded-xl bg-error/10 group-hover:bg-error/20 transition-colors">
-                <Calendar className="w-8 h-8 text-error" />
-              </div>
-              <Heading level="h2">Exchanges</Heading>
-            </div>
-            <Text variant="secondary" size="lg" className="mb-6">
-              {exchangesWithData.length} active {exchangesWithData.length === 1 ? "exchange" : "exchanges"}
-            </Text>
-            <div className="flex items-center gap-2 text-primary">
-              <Text className="font-medium">View All</Text>
-              <ArrowRight className="w-5 h-5" />
-            </div>
-          </div>
-        </Link>
-
-        {/* My Wishlist */}
-        <Link href="/wishlist" className="group">
-          <div className="p-8 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="p-4 rounded-xl bg-primary/10 group-hover:bg-primary/20 transition-colors">
-                <ListPlus className="w-8 h-8 text-primary" />
-              </div>
-              <Heading level="h2">My Wishlist</Heading>
-            </div>
-            <Text variant="secondary" size="lg" className="mb-6">
-              {wishlistItems.length} {wishlistItems.length === 1 ? "item" : "items"}
-            </Text>
-            <div className="flex items-center gap-2 text-primary">
-              <Text className="font-medium">View All</Text>
-              <ArrowRight className="w-5 h-5" />
-            </div>
-          </div>
-        </Link>
+          </Link>
+        ))}
       </div>
 
       {/* Featured Exchange */}

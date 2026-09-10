@@ -2,7 +2,6 @@
 
 import { useHydrated } from "@/hooks/useHydrated";
 import { Heading, Text } from "@/components/ui/text";
-import { Gift, Calendar, Users } from "lucide-react";
 
 interface HeroBannerProps {
   userName?: string;
@@ -13,75 +12,61 @@ interface HeroBannerProps {
   };
 }
 
+type Stat = { value: number; label: (n: number) => string };
+type MaybeStat = { value: number | undefined; label: (n: number) => string };
+
 export function HeroBanner({ userName, stats }: HeroBannerProps) {
   // getGreeting() reads the clock, so it cannot run while rendering on the
   // server: the two sides can straddle a boundary like noon and disagree.
   const greeting = useHydrated() ? getGreeting() : "Hello";
 
+  // Zeroes are omitted rather than shown: an empty dashboard should not open
+  // with three noughts.
+  const candidates: MaybeStat[] = [
+    { value: stats?.upcomingEvents, label: (n) => (n === 1 ? "upcoming event" : "upcoming events") },
+    { value: stats?.activeGifts, label: (n) => (n === 1 ? "active gift" : "active gifts") },
+    { value: stats?.groupCount, label: (n) => (n === 1 ? "group" : "groups") },
+  ];
+  const shown = candidates.filter(
+    (s): s is Stat => typeof s.value === "number" && s.value > 0
+  );
+
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-8 mb-8 border border-primary/20">
-      {/* Decorative elements */}
-      <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -z-10" />
-      <div className="absolute bottom-0 left-0 w-48 h-48 bg-primary/5 rounded-full blur-3xl -z-10" />
+    <div className="relative overflow-hidden rounded-xl border border-hero-line bg-hero p-8 md:p-10">
+      {/* Two soft washes, cranberry and gold, sitting behind the copy. They
+          are dialled back in dark mode, where the ground gives far less
+          contrast to absorb them. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-10 -top-16 h-64 w-64 rounded-full bg-accent/20 blur-3xl dark:bg-accent/10"
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -bottom-24 right-36 h-52 w-52 rounded-full bg-gold/15 blur-3xl dark:bg-gold/10"
+      />
 
-      <div className="relative z-10">
-        <Heading level="h2" className="mb-2">
-          {greeting}, {userName || "there"}!
-        </Heading>
-        <Text variant="secondary" size="lg" className="mb-6 max-w-2xl">
-          Ready to make someone&apos;s day special?
-        </Text>
+      <div className="relative flex flex-col gap-7">
+        <div className="flex flex-col gap-2">
+          <Heading level="h2" className="font-display text-hero-ink">
+            {greeting}, {userName || "there"}
+          </Heading>
+          <Text size="lg" className="max-w-2xl text-hero-soft">
+            Ready to make someone&apos;s day special?
+          </Text>
+        </div>
 
-        {/* Quick Stats */}
-        {stats && (
-          <div className="flex flex-wrap gap-6">
-            {stats.upcomingEvents !== undefined && stats.upcomingEvents > 0 && (
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Calendar className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <Text className="font-medium text-light-text-primary">
-                    {stats.upcomingEvents}
-                  </Text>
-                  <Text variant="secondary" size="sm">
-                    {stats.upcomingEvents === 1 ? "upcoming event" : "upcoming events"}
-                  </Text>
-                </div>
+        {shown.length > 0 && (
+          <div className="flex flex-wrap gap-x-10 gap-y-5">
+            {shown.map((stat) => (
+              <div key={stat.label(stat.value)} className="flex flex-col gap-1">
+                <span className="font-display text-3xl font-semibold leading-none text-hero-stat">
+                  {stat.value}
+                </span>
+                <Text size="sm" className="text-hero-soft">
+                  {stat.label(stat.value)}
+                </Text>
               </div>
-            )}
-
-            {stats.activeGifts !== undefined && stats.activeGifts > 0 && (
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Gift className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <Text className="font-medium text-light-text-primary">
-                    {stats.activeGifts}
-                  </Text>
-                  <Text variant="secondary" size="sm">
-                    {stats.activeGifts === 1 ? "active gift" : "active gifts"}
-                  </Text>
-                </div>
-              </div>
-            )}
-
-            {stats.groupCount !== undefined && stats.groupCount > 0 && (
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Users className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <Text className="font-medium text-light-text-primary">
-                    {stats.groupCount}
-                  </Text>
-                  <Text variant="secondary" size="sm">
-                    {stats.groupCount === 1 ? "group" : "groups"}
-                  </Text>
-                </div>
-              </div>
-            )}
+            ))}
           </div>
         )}
       </div>
