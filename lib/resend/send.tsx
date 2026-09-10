@@ -36,22 +36,27 @@ export async function sendGroupInviteEmail(data: {
   groupName: string;
   inviterName: string;
   inviteToken: string;
+  /**
+   * Switches the template between "here is what Rybn is, come create an
+   * account" and "sign in to accept". Supplied by the caller rather than
+   * looked up here: sendGroupInvitation already queries user_profiles for
+   * this email to decide whether the invitee is in the group, so the answer
+   * exists before this is called -- and keeping the query there leaves this
+   * module free of any database of its own.
+   */
+  isNewUser: boolean;
 }) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://rybn.app';
   const supportEmail = process.env.EMAIL_SUPPORT || 'support@rybn.app';
   const inviteUrl = `${appUrl}/accept-invite?token=${data.inviteToken}`;
   const unsubscribeUrl = `${appUrl}/settings`;
 
-  // For now, assume all invites are for new users
-  // In the future, we can check if the email exists in the database
-  const isNewUser = true;
-
   const emailHtml = await render(
     <GroupInviteEmail
       groupName={data.groupName}
       inviterName={data.inviterName}
       inviteUrl={inviteUrl}
-      isNewUser={isNewUser}
+      isNewUser={data.isNewUser}
     />
   );
 
@@ -60,7 +65,7 @@ export async function sendGroupInviteEmail(data: {
       groupName={data.groupName}
       inviterName={data.inviterName}
       inviteUrl={inviteUrl}
-      isNewUser={isNewUser}
+      isNewUser={data.isNewUser}
     />,
     { plainText: true }
   );

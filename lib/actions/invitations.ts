@@ -201,6 +201,10 @@ export async function sendGroupInvitation(data: {
       groupName: data.groupName,
       inviterName,
       inviteToken: token,
+      // Looked up above, to check whether this person is already in the
+      // group. Reused rather than re-queried -- and it is the reason the
+      // template can stop telling account holders to create an account.
+      isNewUser: !existingUser,
     });
 
     if (sendError) {

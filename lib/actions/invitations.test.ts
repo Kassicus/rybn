@@ -123,6 +123,63 @@ beforeEach(() => {
   supabase = createSupabaseMock(happyPathScript());
 });
 
+/**
+ * The invite template branches on isNewUser for both its body copy and its
+ * button label ("Join Rybn & Accept Invite" vs "Accept Invitation"). It used
+ * to be hardcoded true in lib/resend/send.tsx, so somebody who already had an
+ * account was told to create one.
+ *
+ * The answer was already sitting in this action: it looks up the invitee in
+ * user_profiles by email a few lines earlier, to check whether they are
+ * already in the group. These pin that the lookup's result is what reaches
+ * the template -- and, by passing it as an argument, that the email module
+ * never needs a database of its own.
+ */
+describe("sendGroupInvitation invitee copy", () => {
+  it("marks the invitee as new when no account exists", async () => {
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    await sendGroupInvitation({
+      groupId: "group-1",
+      groupName: "The Suchows",
+      email: "invitee@example.com",
+    });
+
+    expect(sendGroupInviteEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ isNewUser: true })
+    );
+  });
+
+  it("marks the invitee as existing when they already have an account", async () => {
+    supabase = createSupabaseMock({
+      user_profiles: [
+        { data: { username: "kason", email: "kason@example.com" }, error: null },
+        { data: { id: "user-existing" }, error: null }, // invitee HAS an account
+      ],
+      group_members: [
+        { data: { role: "admin" }, error: null }, // inviter's membership
+        { data: null, error: null }, // invitee is not in this group yet
+      ],
+      invitations: [
+        { data: [], error: null },
+        { data: [], error: null },
+        { data: { id: "invitation-1" }, error: null },
+      ],
+    });
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    await sendGroupInvitation({
+      groupId: "group-1",
+      groupName: "The Suchows",
+      email: "invitee@example.com",
+    });
+
+    expect(sendGroupInviteEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ isNewUser: false })
+    );
+  });
+});
+
 describe("sendGroupInvitation", () => {
   it("reports failure when Resend rejects the send", async () => {
     // Exactly the payload Resend returns for rybn.app while the domain is
