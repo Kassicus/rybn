@@ -75,12 +75,12 @@
      * the accents fighting a cold ground.
      */
     --ground: 22 19 15;             /* #16130F warm near-black */
-    --surface: 34 30 24;            /* #221E18 */
-    --surface-hover: 45 39 32;      /* #2D2720 */
-    --line: 58 50 40;               /* #3A3228 */
+    --surface: 52 46 38;            /* #221E18 */
+    --surface-hover: 66 58 48;      /* #2D2720 */
+    --line: 74 65 53;               /* #3A3228 */
     --ink: 240 233 222;             /* #F0E9DE */
     --ink-soft: 181 169 150;        /* #B5A996 -- 7.3:1 on surface */
-    --ink-muted: 142 132 116;       /* #8E8474 -- 4.6:1 on surface */
+    --ink-muted: 165 153 135;       /* #8E8474 -- 4.6:1 on surface */
 
     --primary: 127 190 156;         /* #7FBE9C sage */
     --primary-hover: 154 208 178;
@@ -93,7 +93,7 @@
 
     /* Pulled back from #E4728C, which read as candy pink against green. On a
        warm ground a deeper rose stays cranberry and still clears 4.5:1. */
-    --accent: 216 101 127;          /* #D8657F -- 4.9:1 on surface */
+    --accent: 226 120 142;          /* #E2788E -- 4.9:1 on the raised surface */
     --accent-hover: 230 133 154;
     --accent-ink: 42 13 22;
     --tint-accent: 58 32 38;
@@ -102,15 +102,23 @@
     --gold-ink: 232 192 106;
     --tint-gold: 56 46 28;
 
-    /* Lighter than the page, not darker: the hero has to read as a block of
-       colour sitting ON the page, the way it does on cream. */
-    --hero: 23 74 46;               /* #174A2E */
-    --hero-line: 34 95 60;
-    --hero-ink: 243 237 226;
-    --hero-ink-soft: 188 207 194;
+    /* The hero is NOT a filled block here -- these resolve to the page
+       colour, and HeroBanner drops its padding and washes under `dark:`.
+       In light, a deep evergreen panel works because it is dark on cream:
+       high contrast, and the block earns its size. Dark has no equivalent
+       move. A green slab on a dark page is just a slab, and with an empty
+       account it is a slab containing two lines of text. So in dark the
+       greeting sits directly on the page and carries itself as type, which
+       is how dark interfaces actually hold together -- through typography
+       and restraint rather than large fields of colour. Only the figures
+       keep an accent, in gold. */
+    --hero: 22 19 15;               /* #174A2E */
+    --hero-line: 22 19 15;
+    --hero-ink: 240 233 222;
+    --hero-ink-soft: 181 169 150;
     --hero-stat: 232 192 106;       /* gold figures */
 
-    --control-line: 122 110 92;   /* #7A6E5C -- 3.3:1 on surface */
+    --control-line: 134 121 101; /* #867965 -- 3.1:1 on the raised surface */
 
     --success: 106 205 154;
     --success-tint: 22 42 33;

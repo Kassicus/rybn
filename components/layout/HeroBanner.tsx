@@ -32,17 +32,16 @@ export function HeroBanner({ userName, stats }: HeroBannerProps) {
   );
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-hero-line bg-hero p-8 md:p-10">
-      {/* Two soft washes, cranberry and gold, sitting behind the copy. They
-          are dialled back in dark mode, where the ground gives far less
-          contrast to absorb them. */}
+    <div className="relative overflow-hidden rounded-xl border border-hero-line bg-hero p-8 dark:rounded-none dark:border-0 dark:p-0 md:p-10 dark:md:p-0">
+      {/* Two soft washes behind the copy, light mode only. Over a dark
+          ground a large blur reads as banding, not atmosphere. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute -right-10 -top-16 h-64 w-64 rounded-full bg-accent/20 blur-3xl dark:bg-accent/10"
+        className="pointer-events-none absolute -right-10 -top-16 h-64 w-64 rounded-full bg-accent/20 blur-3xl dark:hidden"
       />
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute -bottom-24 right-36 h-52 w-52 rounded-full bg-gold/15 blur-3xl dark:bg-gold/10"
+        className="pointer-events-none absolute -bottom-24 right-36 h-52 w-52 rounded-full bg-gold/15 blur-3xl dark:hidden"
       />
 
       <div className="relative flex flex-col gap-7">

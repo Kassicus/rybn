@@ -169,8 +169,12 @@ export default async function DashboardPage() {
             </div>
 
             <div className="mt-auto flex w-full items-center justify-between gap-3">
-              <span className="flex items-center gap-1.5 text-accent">
-                <Text className="font-semibold text-accent">View all</Text>
+              {/* Deliberately quiet. These repeat five times down the page;
+                  when they carried the accent they were the loudest thing on
+                  screen and pulled the eye to the least important control.
+                  They pick up the accent on hover, with the card. */}
+              <span className="flex items-center gap-1.5 text-ink-soft transition-colors group-hover:text-accent">
+                <Text className="font-semibold text-inherit">View all</Text>
                 <ArrowRight className="h-4 w-4" />
               </span>
               <Link
