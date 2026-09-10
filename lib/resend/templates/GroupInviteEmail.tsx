@@ -69,14 +69,19 @@ export const GroupInviteEmail: React.FC<GroupInviteEmailProps> = ({
   );
 };
 
+// Colours are hardcoded hex, not theme tokens, on purpose: mail clients do
+// not support CSS custom properties, so app/globals.css cannot reach here.
+// These mirror the light palette -- cream page, warm neutrals, evergreen for
+// brand accents, cranberry for the action -- and have to be updated by hand
+// if those move.
 const main = {
-  backgroundColor: "#f6f9fc",
+  backgroundColor: "#FAF6EF",
   fontFamily:
     '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Ubuntu,sans-serif',
 };
 
 const container = {
-  backgroundColor: "#ffffff",
+  backgroundColor: "#FFFDF9",
   margin: "0 auto",
   padding: "20px 0 48px",
   marginBottom: "64px",
@@ -87,7 +92,7 @@ const content = {
 };
 
 const h1 = {
-  color: "#333333",
+  color: "#1F2A24",
   fontSize: "24px",
   fontWeight: "bold",
   margin: "40px 0 20px",
@@ -95,7 +100,7 @@ const h1 = {
 };
 
 const text = {
-  color: "#333333",
+  color: "#1F2A24",
   fontSize: "16px",
   lineHeight: "26px",
   margin: "16px 0",
@@ -106,9 +111,9 @@ const buttonContainer = {
 };
 
 const button = {
-  backgroundColor: "#009E01",
+  backgroundColor: "#9F1239",
   borderRadius: "4px",
-  color: "#fff",
+  color: "#FFF7F0",
   fontSize: "16px",
   fontWeight: "bold",
   textDecoration: "none",
@@ -119,19 +124,19 @@ const button = {
 };
 
 const hr = {
-  borderColor: "#e6ebf1",
+  borderColor: "#E4DED2",
   margin: "20px 0",
 };
 
 const footer = {
-  color: "#8898aa",
+  color: "#746E62",
   fontSize: "14px",
   lineHeight: "24px",
   marginTop: "32px",
 };
 
 const footerSmall = {
-  color: "#8898aa",
+  color: "#746E62",
   fontSize: "12px",
   lineHeight: "16px",
   marginTop: "16px",

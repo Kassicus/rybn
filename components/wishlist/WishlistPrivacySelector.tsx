@@ -32,7 +32,7 @@ const groupTypeConfig = {
   family: { label: 'Family', icon: Home, color: 'text-blue-600' },
   friends: { label: 'Friends', icon: Heart, color: 'text-pink-600' },
   work: { label: 'Work', icon: Briefcase, color: 'text-purple-600' },
-  custom: { label: 'Other', icon: Users, color: 'text-gray-600' },
+  custom: { label: 'Other', icon: Users, color: 'text-ink-soft' },
 };
 
 export function WishlistPrivacySelector({
@@ -108,7 +108,7 @@ export function WishlistPrivacySelector({
                     type="checkbox"
                     checked={isChecked}
                     onChange={() => toggleGroupType(groupType)}
-                    className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                    className="w-4 h-4 text-primary-600 border-control-line rounded focus:ring-primary-500"
                   />
                   <Icon className={`w-5 h-5 ${config.color}`} />
                   <div className="flex-1">
@@ -158,7 +158,7 @@ export function WishlistPrivacySelector({
         {/* Privacy Status Display */}
         <div className={`p-3 rounded-lg border ${
           isPrivate
-            ? 'border-gray-300 bg-gray-50'
+            ? 'border-control-line bg-light-background-hover'
             : hasRestriction
             ? 'border-orange-300 bg-orange-50'
             : 'border-green-300 bg-green-50'
@@ -167,7 +167,7 @@ export function WishlistPrivacySelector({
             <Lock className="w-4 h-4" />
             <Text size="sm" className={
               isPrivate
-                ? 'text-gray-600'
+                ? 'text-ink-soft'
                 : hasRestriction
                 ? 'text-orange-700'
                 : 'text-green-700'
@@ -184,8 +184,8 @@ export function WishlistPrivacySelector({
         </div>
 
         {!loading && groups.length === 0 && (
-          <div className="p-3 rounded-lg border border-gray-300 bg-gray-50">
-            <Text size="sm" className="text-gray-600">
+          <div className="p-3 rounded-lg border border-control-line bg-light-background-hover">
+            <Text size="sm" className="text-ink-soft">
               <Info className="inline w-4 h-4 mr-1" />
               You&apos;re not in any groups yet. Create or join groups to share wishlist items.
             </Text>

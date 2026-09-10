@@ -94,14 +94,19 @@ export const DateReminderEmail: React.FC<DateReminderEmailProps> = ({
   );
 };
 
+// Colours are hardcoded hex, not theme tokens, on purpose: mail clients do
+// not support CSS custom properties, so app/globals.css cannot reach here.
+// These mirror the light palette -- cream page, warm neutrals, evergreen for
+// brand accents, cranberry for the action -- and have to be updated by hand
+// if those move.
 const main = {
-  backgroundColor: "#f6f9fc",
+  backgroundColor: "#FAF6EF",
   fontFamily:
     '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Ubuntu,sans-serif',
 };
 
 const container = {
-  backgroundColor: "#ffffff",
+  backgroundColor: "#FFFDF9",
   margin: "0 auto",
   padding: "20px 0 48px",
   marginBottom: "64px",
@@ -113,7 +118,7 @@ const content = {
 };
 
 const h1 = {
-  color: "#333333",
+  color: "#1F2A24",
   fontSize: "24px",
   fontWeight: "bold",
   margin: "40px 0 20px",
@@ -121,15 +126,15 @@ const h1 = {
 };
 
 const text = {
-  color: "#333333",
+  color: "#1F2A24",
   fontSize: "16px",
   lineHeight: "26px",
   margin: "16px 0",
 };
 
 const highlightBox = {
-  backgroundColor: "#f5f5ff",
-  border: "2px solid #009E01",
+  backgroundColor: "#EAF0EA",
+  border: "2px solid #14432A",
   borderRadius: "8px",
   padding: "20px",
   margin: "20px 0",
@@ -139,20 +144,20 @@ const highlightTitle = {
   margin: "0 0 8px 0",
   fontSize: "18px",
   fontWeight: "bold",
-  color: "#009E01",
+  color: "#14432A",
 };
 
 const highlightDate = {
   margin: "0",
   fontSize: "20px",
   fontWeight: "bold",
-  color: "#333",
+  color: "#1F2A24",
 };
 
 const highlightSubtext = {
   margin: "8px 0 0 0",
   fontSize: "14px",
-  color: "#666",
+  color: "#5C6660",
 };
 
 const buttonContainer = {
@@ -160,8 +165,8 @@ const buttonContainer = {
 };
 
 const buttonPrimary = {
-  backgroundColor: "#009E01",
-  color: "#fff",
+  backgroundColor: "#9F1239",
+  color: "#FFF7F0",
   padding: "12px 24px",
   textDecoration: "none",
   borderRadius: "4px",
@@ -173,31 +178,31 @@ const buttonPrimary = {
 };
 
 const buttonSecondary = {
-  backgroundColor: "#ffffff",
-  color: "#009E01",
+  backgroundColor: "#FFFDF9",
+  color: "#1F2A24",
   padding: "12px 24px",
   textDecoration: "none",
   borderRadius: "4px",
   display: "inline-block",
-  border: "2px solid #009E01",
+  border: "1px solid #9A8E80",
   fontSize: "16px",
   fontWeight: "bold",
 };
 
 const hr = {
-  borderColor: "#e6ebf1",
+  borderColor: "#E4DED2",
   margin: "30px 0 20px 0",
 };
 
 const footerText = {
   fontSize: "14px",
-  color: "#666666",
+  color: "#5C6660",
   lineHeight: "24px",
   margin: "16px 0",
 };
 
 const footer = {
-  color: "#8898aa",
+  color: "#746E62",
   fontSize: "14px",
   lineHeight: "24px",
   marginTop: "32px",

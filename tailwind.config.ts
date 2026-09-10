@@ -23,6 +23,7 @@ const config: Config = {
           hover: c("surface-hover"),
         },
         line: c("line"),
+        muted: c("fill-muted"),
         ink: {
           DEFAULT: c("ink"),
           soft: c("ink-soft"),

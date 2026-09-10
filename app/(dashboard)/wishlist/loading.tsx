@@ -4,10 +4,10 @@ export default function WishlistLoading() {
       {/* Header Skeleton */}
       <div className="flex items-center justify-between">
         <div>
-          <div className="h-9 bg-gray-200 rounded w-40 mb-2" />
-          <div className="h-4 bg-gray-200 rounded w-64" />
+          <div className="h-9 bg-muted rounded w-40 mb-2" />
+          <div className="h-4 bg-muted rounded w-64" />
         </div>
-        <div className="h-10 bg-gray-200 rounded w-36" />
+        <div className="h-10 bg-muted rounded w-36" />
       </div>
 
       {/* Wishlist Items Grid Skeleton */}
@@ -16,17 +16,17 @@ export default function WishlistLoading() {
           <div key={i} className="p-4 rounded-lg border border-light-border bg-white">
             <div className="flex gap-4">
               {/* Image skeleton */}
-              <div className="w-24 h-24 bg-gray-200 rounded-md flex-shrink-0" />
+              <div className="w-24 h-24 bg-muted rounded-md flex-shrink-0" />
 
               {/* Content skeleton */}
               <div className="flex-1 min-w-0 space-y-2">
-                <div className="h-5 bg-gray-200 rounded w-full" />
-                <div className="h-4 bg-gray-200 rounded w-3/4" />
-                <div className="h-4 bg-gray-200 rounded w-1/2" />
+                <div className="h-5 bg-muted rounded w-full" />
+                <div className="h-4 bg-muted rounded w-3/4" />
+                <div className="h-4 bg-muted rounded w-1/2" />
 
                 <div className="flex items-center gap-2">
-                  <div className="h-3 bg-gray-200 rounded w-16" />
-                  <div className="h-3 bg-gray-200 rounded w-12" />
+                  <div className="h-3 bg-muted rounded w-16" />
+                  <div className="h-3 bg-muted rounded w-12" />
                 </div>
               </div>
             </div>

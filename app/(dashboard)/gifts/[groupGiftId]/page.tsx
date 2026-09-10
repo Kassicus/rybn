@@ -53,7 +53,7 @@ export default async function GroupGiftDetailPage({
               <div className="flex items-center gap-2">
                 <Heading level="h1">{groupGift.name}</Heading>
                 {!groupGift.is_active && (
-                  <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600">
+                  <span className="px-2 py-1 rounded text-xs font-medium bg-light-background-hover text-ink-soft">
                     Inactive
                   </span>
                 )}

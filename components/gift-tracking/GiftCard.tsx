@@ -81,7 +81,7 @@ export function GiftCard({
       <div className="flex gap-4">
         {/* Image */}
         {gift.photo_url ? (
-          <div className="w-20 h-20 flex-shrink-0 rounded-md overflow-hidden bg-gray-100">
+          <div className="w-20 h-20 flex-shrink-0 rounded-md overflow-hidden bg-light-background-hover">
             <img
               src={gift.photo_url}
               alt={gift.name}
@@ -89,7 +89,7 @@ export function GiftCard({
             />
           </div>
         ) : (
-          <div className="w-20 h-20 flex-shrink-0 rounded-md bg-gray-100 flex items-center justify-center">
+          <div className="w-20 h-20 flex-shrink-0 rounded-md bg-light-background-hover flex items-center justify-center">
             <Text variant="secondary" size="sm">No image</Text>
           </div>
         )}
@@ -116,7 +116,7 @@ export function GiftCard({
                 onClick={() => setShowMenu(!showMenu)}
                 className="p-1 rounded hover:bg-light-background-hover transition-colors"
               >
-                <MoreHorizontal className="w-5 h-5 text-gray-400" />
+                <MoreHorizontal className="w-5 h-5 text-ink-muted" />
               </button>
 
               {showMenu && (
@@ -215,7 +215,7 @@ export function GiftCard({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="text-gray-400 hover:text-primary transition-colors"
+                className="text-ink-muted hover:text-primary transition-colors"
               >
                 <ExternalLink className="w-4 h-4" />
               </a>

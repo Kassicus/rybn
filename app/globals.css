@@ -27,6 +27,7 @@
     --surface: 255 253 249;         /* #FFFDF9 cards */
     --surface-hover: 245 240 231;   /* #F5F0E7 */
     --line: 228 222 210;            /* #E4DED2 hairlines */
+    --fill-muted: 233 227 216;      /* #E9E3D8 skeletons, switch tracks */
     --ink: 31 42 36;                /* #1F2A24 */
     --ink-soft: 92 102 96;          /* #5C6660 */
     --ink-muted: 116 110 98;        /* #746E62 -- 4.8:1 on ground */

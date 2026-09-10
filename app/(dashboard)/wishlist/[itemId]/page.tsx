@@ -194,8 +194,8 @@ export default function WishlistItemDetailPage({
     return (
       <div className="max-w-4xl mx-auto space-y-8">
         <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
-          <div className="h-12 bg-gray-200 rounded w-2/3"></div>
+          <div className="h-8 bg-muted rounded w-1/3 mb-4"></div>
+          <div className="h-12 bg-muted rounded w-2/3"></div>
         </div>
       </div>
     );
@@ -281,7 +281,7 @@ export default function WishlistItemDetailPage({
       <div className="space-y-6">
         {/* Image */}
         {item.image_url && (
-          <div className="w-full max-w-md mx-auto rounded-lg overflow-hidden bg-gray-100">
+          <div className="w-full max-w-md mx-auto rounded-lg overflow-hidden bg-light-background-hover">
             <img
               src={item.image_url}
               alt={item.title}
@@ -339,7 +339,7 @@ export default function WishlistItemDetailPage({
           <div className="p-4 rounded-lg border border-light-border bg-light-background-hover">
             <Heading level="h4" className="mb-2">Privacy</Heading>
             <div className="flex items-center gap-2">
-              <Lock className="w-4 h-4 text-gray-500" />
+              <Lock className="w-4 h-4 text-ink-muted" />
               <Text variant="secondary">
                 {isPrivate
                   ? "Private: Only you can see this item"

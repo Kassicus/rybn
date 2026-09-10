@@ -112,7 +112,7 @@ export function RecipientCard({
             {gifts.length > 0 && (
               <div className="flex items-center gap-2">
                 {/* Segmented progress bar showing status breakdown */}
-                <div className="w-28 h-2 bg-gray-200 rounded-full overflow-hidden flex">
+                <div className="w-28 h-2 bg-muted rounded-full overflow-hidden flex">
                   {/* Stack segments in order: given, wrapped, arrived, ordered, planned */}
                   {statusCounts.given > 0 && (
                     <div
@@ -175,9 +175,9 @@ export function RecipientCard({
 
         {/* Expand icon */}
         {isExpanded ? (
-          <ChevronDown className="w-5 h-5 text-gray-400" />
+          <ChevronDown className="w-5 h-5 text-ink-muted" />
         ) : (
-          <ChevronRight className="w-5 h-5 text-gray-400" />
+          <ChevronRight className="w-5 h-5 text-ink-muted" />
         )}
       </button>
 

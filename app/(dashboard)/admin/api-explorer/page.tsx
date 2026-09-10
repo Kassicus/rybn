@@ -29,7 +29,7 @@ function MethodBadge({ method }: { method: string }) {
   return (
     <span
       className={`px-2 py-1 rounded text-xs font-semibold ${
-        colors[method as keyof typeof colors] || "bg-gray-100 text-gray-700"
+        colors[method as keyof typeof colors] || "bg-light-background-hover text-ink"
       }`}
     >
       {method}
@@ -249,7 +249,7 @@ function EndpointTester({ endpoint }: { endpoint: ApiEndpoint }) {
                 {endpoint.bodyParams.map((param) => (
                   <div
                     key={param.name}
-                    className="flex items-start gap-2 text-sm p-2 bg-gray-50 rounded"
+                    className="flex items-start gap-2 text-sm p-2 bg-light-background-hover rounded"
                   >
                     <Code className="w-4 h-4 text-light-text-secondary flex-shrink-0 mt-0.5" />
                     <div>
@@ -309,7 +309,7 @@ function EndpointTester({ endpoint }: { endpoint: ApiEndpoint }) {
               <Heading level="h4" className="mb-2">
                 Example Response
               </Heading>
-              <pre className="p-3 rounded-lg bg-gray-900 text-green-400 text-xs overflow-x-auto">
+              <pre className="p-3 rounded-lg bg-ink text-gold text-xs overflow-x-auto">
                 {JSON.stringify(endpoint.exampleResponse, null, 2)}
               </pre>
             </div>
@@ -338,7 +338,7 @@ function EndpointTester({ endpoint }: { endpoint: ApiEndpoint }) {
                     {result.status} {result.statusText}
                   </span>
                 </div>
-                <pre className="p-3 rounded-lg bg-gray-900 text-green-400 text-xs overflow-x-auto">
+                <pre className="p-3 rounded-lg bg-ink text-gold text-xs overflow-x-auto">
                   {JSON.stringify(result.data || result, null, 2)}
                 </pre>
               </div>

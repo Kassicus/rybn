@@ -51,7 +51,7 @@ export function GroupGiftCard({ groupGift, memberCount = 0 }: GroupGiftCardProps
             </div>
           </div>
           {!groupGift.is_active && (
-            <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600 ml-2">
+            <span className="px-2 py-1 rounded text-xs font-medium bg-light-background-hover text-ink-soft ml-2">
               Inactive
             </span>
           )}
