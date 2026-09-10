@@ -178,9 +178,21 @@ Birthdays live in `profile_info` and must stay there -- one source of truth,
 edits take effect immediately, privacy is already modelled. But tags and claims
 need a real foreign key to point at. The design splits the two paths:
 
-**Display is derived.** `get_upcoming_occasions(p_viewer_id, p_days_ahead)` is
-a `security definer` function in the mould of
-`get_upcoming_dates_for_notifications`. It returns the union of:
+**Display is derived.** `get_upcoming_occasions(p_days_ahead)` is a
+`security definer` function that takes **no viewer parameter** and pins the
+viewer to `requesting_user_id()` internally.
+
+That is not a stylistic choice. `get_upcoming_dates_for_notifications` takes a
+day window and a year with no caller filter, which is exactly why the baseline
+grants it to `service_role` only -- the anon key ships to every browser and
+PostgREST exposes public functions at `/rest/v1/rpc/`, so an authenticated
+grant there would be a dump of the user table. A `p_viewer_id` parameter would
+reproduce that hole: any signed-in caller could ask for anyone else's view.
+Taking no such parameter is the same defence `accept_group_invitation` and
+`join_group_with_code` already use, and it lets this function be granted to
+`authenticated`.
+
+It returns the union of:
 
 1. birthday and anniversary occasions computed live from `profile_info`, one
    per celebrant per year, gated on `can_view_field(celebrant, viewer,
@@ -195,11 +207,18 @@ p_date)` returns the existing row or inserts one, made idempotent by
 `occasions_celebrant_identity`. It is called only when a foreign
 key is genuinely needed: the first tag or the first claim for that occasion.
 
-The shared birthday-derivation logic is factored into one SQL helper used by
-both `get_upcoming_occasions` and `get_upcoming_dates_for_notifications`, so
-the two cannot drift on privacy handling. This is a small refactor of existing
-working code and is in scope precisely because divergence here would be a
-privacy bug.
+The shared date arithmetic is factored into one immutable helper,
+`celebration_date_in_year(field_value text, target_year integer) returns date`,
+used by both `get_upcoming_occasions` and
+`get_upcoming_dates_for_notifications`.
+
+This also fixes a latent crash in the existing function. It computes the
+celebration date as `(target_year || '-' || substring(field_value from 6 for
+5))::date`, so a birthday of `2000-02-29` in a non-leap target year casts
+`'2027-02-29'` and raises `date/time field value out of range`. The date is
+computed in the WHERE clause across every `profile_info` dates row, so a single
+Feb-29 birthday anywhere in the table takes down the reminder run for every
+user. The helper clamps Feb 29 to Feb 28 in non-leap years.
 
 Consequences worth stating: no cron, no yearly generation job, no backfill when
 someone joins a group or edits their birthday, and no rows for occasions nobody
