@@ -17,7 +17,6 @@ import { ImageInput } from "@/components/ui/image-input";
 import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { WishlistPrivacySelector } from "@/components/wishlist/WishlistPrivacySelector";
 import { FormSection } from "@/components/profile/FormSection";
-import type { PrivacyLevel } from "@/types/privacy";
 
 export default function AddWishlistItemPage() {
   const router = useRouter();
@@ -264,7 +263,7 @@ export default function AddWishlistItemPage() {
       <div>
         <Heading level="h1">Add Wishlist Item</Heading>
         <Text variant="secondary">
-          Add something you'd love to receive as a gift
+          Add something you&apos;d love to receive as a gift
         </Text>
       </div>
 

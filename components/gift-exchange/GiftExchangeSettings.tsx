@@ -108,7 +108,7 @@ export function GiftExchangeSettings({
                         </div>
                         <Text size="sm" variant="secondary">
                           Remove yourself from this exchange. You can rejoin later if
-                          assignments haven't been generated yet.
+                          assignments haven&apos;t been generated yet.
                         </Text>
                       </div>
                       <Button
@@ -161,11 +161,11 @@ export function GiftExchangeSettings({
               <div className="space-y-4">
                 <div className="p-4 rounded-lg bg-warning-light border border-warning">
                   <Text className="font-medium mb-2">
-                    Leave "{exchangeName}"?
+                    Leave &quot;{exchangeName}&quot;?
                   </Text>
                   <Text size="sm" variant="secondary">
                     Are you sure you want to leave this gift exchange? You can rejoin later
-                    if assignments haven't been generated yet.
+                    if assignments haven&apos;t been generated yet.
                   </Text>
                 </div>
 
@@ -194,7 +194,7 @@ export function GiftExchangeSettings({
               <div className="space-y-4">
                 <div className="p-4 rounded-lg bg-error-light border border-error">
                   <Text className="font-medium mb-2 text-error">
-                    Delete "{exchangeName}"?
+                    Delete &quot;{exchangeName}&quot;?
                   </Text>
                   <Text size="sm" variant="secondary">
                     This will permanently delete this gift exchange and all its data,

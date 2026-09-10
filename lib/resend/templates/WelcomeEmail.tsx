@@ -61,7 +61,7 @@ export const WelcomeEmail: React.FC<WelcomeEmailProps> = ({
             </Text>
 
             <Text style={footerSmall}>
-              If you didn't create an account with Rybn, you can safely ignore this email.
+              If you didn&apos;t create an account with Rybn, you can safely ignore this email.
             </Text>
           </Section>
         </Container>

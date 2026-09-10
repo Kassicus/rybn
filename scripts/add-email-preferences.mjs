@@ -43,7 +43,7 @@ ON user_profiles USING GIN (email_preferences);
 `;
 
 try {
-  const { data, error } = await supabase.rpc('exec_sql', { sql_string: sql });
+  const { error } = await supabase.rpc('exec_sql', { sql_string: sql });
 
   if (error) {
     // If exec_sql doesn't exist, try direct SQL execution

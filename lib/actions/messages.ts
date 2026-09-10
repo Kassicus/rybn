@@ -10,7 +10,6 @@ import { getUserId } from "@/lib/auth/require-auth";
  * Send a message to a group gift
  */
 export async function sendMessage(data: MessageFormData) {
-  const supabase = await createClient();
   const adminClient = createAdminClient();
 
   const userId = await getUserId();
@@ -57,7 +56,6 @@ export async function sendMessage(data: MessageFormData) {
  * Get messages for a group gift
  */
 export async function getMessages(groupGiftId: string, limit = 50, offset = 0) {
-  const supabase = await createClient();
   const adminClient = createAdminClient();
 
   const userId = await getUserId();
@@ -198,7 +196,6 @@ export async function deleteMessage(messageId: string) {
  * This is a helper function that components can use with Supabase Realtime
  */
 export async function canAccessGroupGift(groupGiftId: string): Promise<boolean> {
-  const supabase = await createClient();
   const adminClient = createAdminClient();
 
   const userId = await getUserId();

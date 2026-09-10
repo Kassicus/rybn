@@ -155,7 +155,7 @@ export default function ProfileEditPage() {
                 className="mt-1"
               />
               <Text variant="secondary" size="sm" className="mt-1">
-                How you'd like to be called
+                How you&apos;d like to be called
               </Text>
             </div>
 

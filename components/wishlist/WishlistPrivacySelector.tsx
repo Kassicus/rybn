@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Home, Heart, Briefcase, Users, Lock, Info, ChevronDown } from "lucide-react";
+import { Home, Heart, Briefcase, Users, Lock, Info } from "lucide-react";
 import type { GroupType } from "@/types/privacy";
 import { getMyGroups } from "@/lib/actions/groups";
 import { Label } from "@/components/ui/label";
@@ -187,7 +187,7 @@ export function WishlistPrivacySelector({
           <div className="p-3 rounded-lg border border-gray-300 bg-gray-50">
             <Text size="sm" className="text-gray-600">
               <Info className="inline w-4 h-4 mr-1" />
-              You're not in any groups yet. Create or join groups to share wishlist items.
+              You&apos;re not in any groups yet. Create or join groups to share wishlist items.
             </Text>
           </div>
         )}

@@ -276,9 +276,14 @@ export function getLegacyPrivacyDescription(
  */
 export function getPrivacyDescription(
   privacySettings: PrivacySettings,
-  userGroups: { id: string; name: string; type: GroupType }[]
+  // Unread. This description is derived from visibleToGroupTypes alone, so it
+  // does not mention per-group overrides even when privacySettings carries
+  // them -- see the note in the caller-facing docs above. Kept in the
+  // signature because every caller passes it and because describing overrides
+  // is the obvious next change here.
+  _userGroups: { id: string; name: string; type: GroupType }[]
 ): string {
-  const { visibleToGroupTypes, overrides } = privacySettings;
+  const { visibleToGroupTypes } = privacySettings;
 
   // If no group types selected, it's private
   if (visibleToGroupTypes.length === 0) {

@@ -79,7 +79,6 @@ export async function createGroupGift(formData: GroupGiftFormData) {
  * Get all group gifts the user is a member of
  */
 export async function getMyGroupGifts() {
-  const supabase = await createClient();
   const adminClient = createAdminClient();
 
   const userId = await getUserId();
@@ -170,7 +169,6 @@ export async function getGroupGiftsByGroup(groupId: string) {
  */
 export async function getGroupGiftById(groupGiftId: string) {
   // Use regular client for auth, admin client for data (to bypass RLS recursion)
-  const supabase = await createClient();
   const adminClient = createAdminClient();
 
   const userId = await getUserId();
@@ -401,7 +399,6 @@ export async function leaveGroupGift(groupGiftId: string) {
  * Delete a group gift (creator only)
  */
 export async function deleteGroupGift(groupGiftId: string) {
-  const supabase = await createClient();
   const adminClient = createAdminClient();
 
   const userId = await getUserId();

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Gift, DollarSign } from "lucide-react";
 import Link from "next/link";
 import { Heading, Text } from "@/components/ui/text";
@@ -13,7 +12,6 @@ import { getMyGroups } from "@/lib/actions/groups";
 import { useEffect } from "react";
 
 export default function CreateGiftGroupPage() {
-  const router = useRouter();
   const [groups, setGroups] = useState<any[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [name, setName] = useState("");

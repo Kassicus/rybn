@@ -65,15 +65,6 @@ export function SortableWishlistItems({
   const [sortBy, setSortBy] = useState<SortOption>("priority");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
-  // Get unique categories for display
-  const categories = useMemo(() => {
-    const cats = new Set<string>();
-    items.forEach((item) => {
-      if (item.category) cats.add(item.category);
-    });
-    return Array.from(cats).sort();
-  }, [items]);
-
   const sortedItems = useMemo(() => {
     const sorted = [...items];
     const directionMultiplier = sortDirection === "desc" ? 1 : -1;

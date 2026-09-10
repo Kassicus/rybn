@@ -37,7 +37,7 @@ export default async function WishlistPage() {
         <div>
           <Heading level="h1">My Wishlist</Heading>
           <Text variant="secondary">
-            Items you'd love to receive as gifts
+            Items you&apos;d love to receive as gifts
           </Text>
         </div>
         <Link href="/wishlist/add">
@@ -54,7 +54,7 @@ export default async function WishlistPage() {
           <Gift className="w-16 h-16 mx-auto text-light-text-secondary mb-4" />
           <Heading level="h3" className="mb-2">No wishlist items yet</Heading>
           <Text variant="secondary" className="mb-6">
-            Start adding items you'd love to receive!
+            Start adding items you&apos;d love to receive!
           </Text>
           <Link href="/wishlist/add">
             <Button variant="primary">

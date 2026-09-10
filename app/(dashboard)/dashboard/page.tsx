@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Plus, Lock, Users, Gift, Calendar, ListPlus, Package } from "lucide-react";
+import { ArrowRight, Plus, Users, Gift, Calendar, ListPlus, Package } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
 import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { Button } from "@/components/ui/button";
@@ -9,95 +9,14 @@ import { getMyWishlist } from "@/lib/actions/wishlist";
 import { getMyGroupGifts } from "@/lib/actions/gifts";
 import { getMyProfile } from "@/lib/actions/profile";
 import { getGiftTrackingStats } from "@/lib/actions/gift-tracking";
-import { GroupGiftCard } from "@/components/gifts/GiftGroupCard";
 import { GiftExchangeCard } from "@/components/gift-exchange/GiftExchangeCard";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { GROUP_TYPES } from "@/types/privacy";
-import type { GroupType } from "@/types/privacy";
-import JoinGroupButton from "@/components/groups/JoinGroupButton";
 
 import { getUserId } from "@/lib/auth/require-auth";
-// Simple Group Card Component
-function GroupCard({ group }: { group: any }) {
-  return (
-    <Link href={`/groups/${group.id}`}>
-      <div className="p-6 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full hover:shadow-lg hover:-translate-y-1">
-        <Heading level="h4" className="mb-2">{group.name}</Heading>
-        {group.description && (
-          <Text variant="secondary" size="sm" className="line-clamp-2 mb-3">
-            {group.description}
-          </Text>
-        )}
-        <div className="flex items-center gap-2">
-          <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-light-background-hover text-light-text-secondary capitalize">
-            {group.type}
-          </span>
-          {group.myRole === "owner" && (
-            <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-primary-100 text-primary">
-              Owner
-            </span>
-          )}
-        </div>
-      </div>
-    </Link>
-  );
-}
-
-// Simple Wishlist Card Component
-function WishlistCard({ item }: { item: any }) {
-  const visibleToGroupTypes = item.privacy_settings?.visibleToGroupTypes || [];
-  const restrictToGroup = item.privacy_settings?.restrictToGroup;
-  const isPrivate = visibleToGroupTypes.length === 0 && !restrictToGroup;
-
-  return (
-    <Link href={`/wishlist`}>
-      <div className="p-6 rounded-2xl border border-light-border hover:border-primary transition-all duration-200 bg-light-background h-full flex flex-col hover:shadow-lg hover:-translate-y-1">
-        <Heading level="h4" className="mb-2 line-clamp-1">{item.title}</Heading>
-        {item.description && (
-          <Text variant="secondary" size="sm" className="line-clamp-2 mb-3">
-            {item.description}
-          </Text>
-        )}
-        <div className="flex items-center gap-2 mb-3">
-          {item.price && (
-            <Text className="font-semibold text-primary">
-              ${parseFloat(item.price).toFixed(2)}
-            </Text>
-          )}
-          {item.priority && (
-            <span className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize ${
-              item.priority === 'must-have' ? 'bg-error-light text-error' :
-              item.priority === 'high' ? 'bg-warning-light text-warning' :
-              item.priority === 'medium' ? 'bg-primary-light text-primary' :
-              'bg-light-background-hover text-light-text-secondary'
-            }`}>
-              {item.priority}
-            </span>
-          )}
-        </div>
-        <hr className="border-t border-light-border mb-3" />
-        {/* Privacy indicator */}
-        <div className="flex items-center gap-1.5">
-          <Lock className="w-3 h-3 text-light-text-secondary" />
-          <Text size="sm" variant="secondary">
-            {isPrivate
-              ? 'Private'
-              : restrictToGroup
-              ? 'Restricted to 1 group'
-              : `${visibleToGroupTypes.map((t: GroupType) => GROUP_TYPES[t].label).join(', ')}`
-            }
-          </Text>
-        </div>
-      </div>
-    </Link>
-  );
-}
 
 export default async function DashboardPage() {
   // Fetch data
   const supabase = await createClient();
-  const adminClient = createAdminClient();
   const userId = await getUserId();
 
   if (!userId) {
@@ -112,21 +31,6 @@ export default async function DashboardPage() {
 
   // Extract group IDs
   const groupIds = groups.map((g) => g.id);
-
-  // Get member counts for group gifts using admin client
-  const groupGiftsWithCounts = await Promise.all(
-    groupGifts.slice(0, 3).map(async (groupGift) => {
-      const { count } = await adminClient
-        .from("group_gift_members")
-        .select("*", { count: "exact", head: true })
-        .eq("group_gift_id", groupGift.id);
-
-      return {
-        ...groupGift,
-        memberCount: count || 0,
-      };
-    })
-  );
 
   // Get gift exchanges for user's groups
   const { data: allExchanges = [] } = await supabase
@@ -162,9 +66,6 @@ export default async function DashboardPage() {
   );
 
   // Limit to 3 items for preview
-  const previewGroups = groups.slice(0, 3);
-  const previewWishlist = wishlistItems.slice(0, 3);
-  const previewGroupGifts = groupGiftsWithCounts;
   const previewGiftExchanges = exchangesWithData;
 
   return (

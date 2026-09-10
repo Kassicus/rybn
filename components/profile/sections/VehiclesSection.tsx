@@ -61,7 +61,7 @@ export function VehiclesSection({ register, errors }: VehiclesSectionProps) {
           className="mt-1"
         />
         <Text variant="secondary" size="sm" className="mt-1">
-          List vehicle accessories or upgrades you'd like
+          List vehicle accessories or upgrades you&apos;d like
         </Text>
       </div>
 

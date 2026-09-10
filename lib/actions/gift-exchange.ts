@@ -137,7 +137,6 @@ export async function getGiftExchangesByGroup(groupId: string) {
  */
 export async function getGiftExchangeById(exchangeId: string) {
   // Use regular client for auth, admin client for data (to bypass RLS recursion)
-  const supabase = await createClient();
   const adminClient = createAdminClient();
 
   const userId = await getUserId();
@@ -451,7 +450,6 @@ export async function updateMyParticipation(
  * Delete a gift exchange (creator only)
  */
 export async function deleteGiftExchange(exchangeId: string) {
-  const supabase = await createClient();
   const adminClient = createAdminClient();
 
   const userId = await getUserId();

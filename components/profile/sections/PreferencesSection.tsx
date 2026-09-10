@@ -84,7 +84,7 @@ export function PreferencesSection({ register, errors }: PreferencesSectionProps
           rows={3}
         />
         <Text variant="secondary" size="sm" className="mt-1">
-          Topics and subjects you're passionate about
+          Topics and subjects you&apos;re passionate about
         </Text>
       </div>
 
@@ -99,7 +99,7 @@ export function PreferencesSection({ register, errors }: PreferencesSectionProps
           rows={2}
         />
         <Text variant="secondary" size="sm" className="mt-1">
-          Help others avoid gifts you wouldn't enjoy
+          Help others avoid gifts you wouldn&apos;t enjoy
         </Text>
       </div>
     </div>

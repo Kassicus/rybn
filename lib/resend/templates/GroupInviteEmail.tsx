@@ -30,7 +30,7 @@ export const GroupInviteEmail: React.FC<GroupInviteEmailProps> = ({
       <Body style={main}>
         <Container style={container}>
           <Section style={content}>
-            <Heading style={h1}>You're invited to join {groupName} on Rybn!</Heading>
+            <Heading style={h1}>You&apos;re invited to join {groupName} on Rybn!</Heading>
 
             <Text style={text}>
               {inviterName} has invited you to join <strong>{groupName}</strong> on Rybn.
@@ -60,7 +60,7 @@ export const GroupInviteEmail: React.FC<GroupInviteEmailProps> = ({
             </Text>
 
             <Text style={footerSmall}>
-              If you didn't expect this invitation, you can safely ignore this email.
+              If you didn&apos;t expect this invitation, you can safely ignore this email.
             </Text>
           </Section>
         </Container>

@@ -26,7 +26,6 @@ interface DateReminderEmailProps {
 export const DateReminderEmail: React.FC<DateReminderEmailProps> = ({
   recipientName,
   celebrantName,
-  celebrantUsername,
   dateType,
   celebrationDate,
   groupName,
@@ -56,7 +55,7 @@ export const DateReminderEmail: React.FC<DateReminderEmailProps> = ({
 
             <Section style={highlightBox}>
               <Text style={highlightTitle}>
-                {celebrantName}'s {dateTypeLabel}
+                {celebrantName}&apos;s {dateTypeLabel}
               </Text>
               <Text style={highlightDate}>{celebrationDate}</Text>
               <Text style={highlightSubtext}>
@@ -70,7 +69,7 @@ export const DateReminderEmail: React.FC<DateReminderEmailProps> = ({
 
             <Section style={buttonContainer}>
               <Link href={wishlistUrl} style={buttonPrimary}>
-                View {celebrantName}'s Wishlist
+                View {celebrantName}&apos;s Wishlist
               </Link>
               <Link href={profileUrl} style={buttonSecondary}>
                 View Profile
@@ -80,7 +79,7 @@ export const DateReminderEmail: React.FC<DateReminderEmailProps> = ({
             <Hr style={hr} />
 
             <Text style={footerText}>
-              You're receiving this because you're a member of the <strong>{groupName}</strong> group and {celebrantName} has shared their {dateType} with the group.
+              You&apos;re receiving this because you&apos;re a member of the <strong>{groupName}</strong> group and {celebrantName} has shared their {dateType} with the group.
             </Text>
 
             <Text style={footer}>

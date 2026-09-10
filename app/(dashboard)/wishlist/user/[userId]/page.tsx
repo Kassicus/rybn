@@ -57,7 +57,7 @@ export default async function UserWishlistPage({
           </Avatar>
           <div>
             <Heading level="h1">
-              {targetUser.display_name || targetUser.username || "User"}'s Wishlist
+              {targetUser.display_name || targetUser.username || "User"}&apos;s Wishlist
             </Heading>
             {targetUser.username && targetUser.display_name && (
               <Text variant="secondary">@{targetUser.username}</Text>
@@ -71,7 +71,7 @@ export default async function UserWishlistPage({
             <Text className="font-medium">No Shared Groups</Text>
           </div>
           <Text variant="secondary">
-            You don't share any groups with this user, so you cannot view their wishlist.
+            You don&apos;t share any groups with this user, so you cannot view their wishlist.
           </Text>
         </div>
       </div>
@@ -118,7 +118,7 @@ export default async function UserWishlistPage({
         </Avatar>
         <div>
           <Heading level="h1">
-            {displayName}'s Wishlist
+            {displayName}&apos;s Wishlist
           </Heading>
           {targetUser.username && targetUser.display_name && (
             <Text variant="secondary">@{targetUser.username}</Text>
@@ -162,7 +162,7 @@ export default async function UserWishlistPage({
           <Gift className="w-16 h-16 mx-auto text-light-text-secondary mb-4" />
           <Heading level="h3" className="mb-2">No wishlist items</Heading>
           <Text variant="secondary">
-            This user hasn't added any wishlist items you can see yet.
+            This user hasn&apos;t added any wishlist items you can see yet.
           </Text>
         </div>
       )}

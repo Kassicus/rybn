@@ -31,7 +31,7 @@ export function HeroBanner({ userName, stats }: HeroBannerProps) {
           {greeting}, {userName || "there"}!
         </Heading>
         <Text variant="secondary" size="lg" className="mb-6 max-w-2xl">
-          Ready to make someone's day special?
+          Ready to make someone&apos;s day special?
         </Text>
 
         {/* Quick Stats */}

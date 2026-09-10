@@ -191,7 +191,7 @@ export default async function UserProfilePage({
       {profileInfo.length === 0 && (
         <div className="text-center py-12">
           <p className="text-light-text-secondary">
-            This user hasn't added any profile information yet, or you don't have permission to view it.
+            This user hasn&apos;t added any profile information yet, or you don&apos;t have permission to view it.
           </p>
         </div>
       )}

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, Lock, Mail, CheckCircle, Settings as SettingsIcon } from "lucide-react";
+import { Mail, CheckCircle, Settings as SettingsIcon } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -293,7 +293,7 @@ export default function SettingsPage() {
         {/* Unsubscribe Warning */}
         <div className="mt-6 p-4 rounded-lg bg-yellow-50 border border-yellow-200">
           <Text size="sm" className="text-yellow-800">
-            <strong>Note:</strong> Turning off all email notifications means you won't receive
+            <strong>Note:</strong> Turning off all email notifications means you won&apos;t receive
             any emails from Rybn, including important account and group activity updates. We
             recommend keeping at least group invitations and date reminders enabled.
           </Text>

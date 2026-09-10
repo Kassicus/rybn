@@ -27,7 +27,7 @@ export async function GET() {
       .maybeSingle();
 
     // Test 1: Check if date_notifications table exists
-    const { data: tableCheck, error: tableError } = await supabase
+    const { error: tableError } = await supabase
       .from('date_notifications')
       .select('id')
       .limit(1);

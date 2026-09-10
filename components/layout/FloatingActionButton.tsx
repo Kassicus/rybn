@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Gift, ListPlus, Users, X } from "lucide-react";
-import { Text } from "@/components/ui/text";
+import { Plus, Gift, ListPlus, Users } from "lucide-react";
 
 export function FloatingActionButton() {
   const router = useRouter();

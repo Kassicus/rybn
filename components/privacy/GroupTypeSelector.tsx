@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { Home, Heart, Briefcase, Users } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";

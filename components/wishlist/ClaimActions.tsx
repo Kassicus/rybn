@@ -255,7 +255,7 @@ export function ClaimActions({
               loading={isLoading}
             >
               <Gift className="w-4 h-4" />
-              I'll get this
+              I&apos;ll get this
             </Button>
             <Button
               variant={isOutOfStock ? "tertiary" : "secondary"}
@@ -467,13 +467,13 @@ export function ClaimActions({
       {!claimedBy && (
         <div className="space-y-2">
           <Text variant="secondary" size="sm">
-            This item hasn't been claimed yet. Claim it to let others know
-            you're getting it!
+            This item hasn&apos;t been claimed yet. Claim it to let others know
+            you&apos;re getting it!
           </Text>
           <div className="flex gap-2 flex-wrap">
             <Button variant="primary" onClick={handleClaim} loading={isLoading}>
               <Gift className="w-4 h-4" />
-              I'll Get This Gift
+              I&apos;ll Get This Gift
             </Button>
             <Button
               variant={isOutOfStock ? "tertiary" : "secondary"}

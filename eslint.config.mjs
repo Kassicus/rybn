@@ -12,6 +12,23 @@ import nextTs from "eslint-config-next/typescript";
 export default defineConfig([
   ...nextVitals,
   ...nextTs,
+  {
+    rules: {
+      // A leading underscore is this codebase's marker for "declared on
+      // purpose, never read" -- lib/storage/image-value.ts uses it for
+      // compile-time assertions that exist only to fail the build if the
+      // branded image types are ever widened to plain string. Deleting those
+      // to satisfy the linter would delete the check.
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        {
+          varsIgnorePattern: "^_",
+          argsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
+    },
+  },
   globalIgnores([
     // eslint-config-next's own defaults, which must be restated once anything
     // else is added here.

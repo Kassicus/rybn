@@ -2,7 +2,6 @@ import { redirect, notFound } from "next/navigation";
 import {
   getRecipientById,
   getGiftsForRecipient,
-  deleteRecipient,
 } from "@/lib/actions/gift-tracking";
 import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
