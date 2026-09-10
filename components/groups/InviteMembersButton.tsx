@@ -112,14 +112,15 @@ export function InviteMembersButton({
             </div>
           )}
 
-          {success && (
+          {/* Suppressed when a warning is showing: a green "success" box
+              beside an amber "we could not send it" box told the user two
+              different things at once, and the green one was the lie. */}
+          {success && !warning && (
             <div className="p-3 rounded bg-success-light border border-success">
               <Text variant="success" size="sm">
-                {warning
-                  ? "Invitation created (but check warning above)"
-                  : isResend
-                    ? "Invitation resent successfully!"
-                    : "Invitation sent successfully!"}
+                {isResend
+                  ? "Invitation resent successfully!"
+                  : "Invitation sent successfully!"}
               </Text>
             </div>
           )}

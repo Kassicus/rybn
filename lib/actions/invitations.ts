@@ -6,6 +6,27 @@ import { generateInviteToken, getInviteExpiration } from "@/lib/utils/groups";
 import { sendGroupInviteEmail } from "@/lib/resend/send";
 import { revalidatePath } from "next/cache";
 
+/**
+ * What an inviter sees when the send fails.
+ *
+ * Deliberately generic, and the genericness is the point. `emailError` holds
+ * the provider's own words, which for the failure that prompted this read
+ * "The rybn.app domain is not verified. Please, add and verify your domain on
+ * https://resend.com/domains" -- a sentence addressed to whoever operates this
+ * app, that was being shown verbatim to a group member trying to invite a
+ * friend. The detail belongs in the server log, and that is now the only place
+ * it goes.
+ *
+ * "Try resending" is honest advice for every failure shape reaching here: the
+ * invitation row is committed before the send is attempted, so a failed email
+ * never costs the user the invitation, and resending picks up the same row.
+ *
+ * Not exported -- see the "use server" constraint above.
+ */
+const EMAIL_SEND_FAILED_MESSAGE =
+  "The invitation is saved, but we couldn't send the email just now. " +
+  "Try resending it in a moment.";
+
 export async function sendGroupInvitation(data: {
   groupId: string;
   groupName: string;
@@ -183,19 +204,19 @@ export async function sendGroupInvitation(data: {
     });
 
     if (sendError) {
-      console.error("Resend rejected the invite email:", sendError);
       emailError = sendError.message || "Unknown error";
     } else {
       emailSent = true;
     }
   } catch (error) {
-    console.error("Failed to send invite email:", error);
     emailError = error instanceof Error ? error.message : "Unknown error";
     // Don't fail the invitation creation if email fails
   }
 
   if (!emailSent) {
-    console.error("Invite email details:", {
+    // The provider's own words stop here. See EMAIL_SEND_FAILED_MESSAGE.
+    console.error("Invite email failed to send:", {
+      reason: emailError,
       toEmail: data.email,
       groupName: data.groupName,
       inviterName,
@@ -206,7 +227,7 @@ export async function sendGroupInvitation(data: {
     data: invitation,
     emailSent,
     isResend: existingInvite && !existingInvite.accepted ? true : false,
-    warning: !emailSent ? `Invitation created but email failed to send: ${emailError}` : undefined
+    warning: emailSent ? undefined : EMAIL_SEND_FAILED_MESSAGE,
   };
 }
 

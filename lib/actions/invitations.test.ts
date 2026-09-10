@@ -17,6 +17,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * handle both.
  */
 
+/**
+ * Mirrors EMAIL_SEND_FAILED_MESSAGE in ./invitations. It cannot be imported:
+ * that module is "use server", where every export must be an async function.
+ * If the wording there changes, these assertions fail -- which is the intent.
+ */
+const EMAIL_SEND_FAILED_MESSAGE =
+  "The invitation is saved, but we couldn't send the email just now. " +
+  "Try resending it in a moment.";
+
 const sendGroupInviteEmail = vi.fn();
 
 vi.mock("@/lib/resend/send", () => ({
@@ -134,7 +143,12 @@ describe("sendGroupInvitation", () => {
     });
 
     expect(result.emailSent).toBe(false);
-    expect(result.warning).toContain("not verified");
+    expect(result.warning).toBe(EMAIL_SEND_FAILED_MESSAGE);
+    // The provider's message named the app's own sending domain and linked
+    // the Resend dashboard. A group member inviting a friend must never be
+    // handed either; both stay in the server log.
+    expect(result.warning).not.toContain("rybn.app");
+    expect(result.warning).not.toContain("resend.com");
     // The invitation row itself is still created: a mail failure must not
     // cost the user the invitation.
     expect(result.data).toEqual({ id: "invitation-1" });
@@ -150,7 +164,10 @@ describe("sendGroupInvitation", () => {
     });
 
     expect(result.emailSent).toBe(false);
-    expect(result.warning).toContain("fetch failed");
+    // Same message as an API rejection: the two failure shapes are one
+    // situation from the inviter's side, and "fetch failed" means nothing
+    // to them.
+    expect(result.warning).toBe(EMAIL_SEND_FAILED_MESSAGE);
   });
 
   it("reports success when Resend accepts the send", async () => {
