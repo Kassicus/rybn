@@ -1,6 +1,14 @@
 import type { Config } from "tailwindcss";
 
+// Every colour resolves through a CSS variable defined in app/globals.css, so
+// light and dark are the same class names with different values. The
+// `rgb(var(--x) / <alpha-value>)` wrapper is what preserves opacity modifiers
+// (bg-primary/10, bg-light-background/95) -- a bare var() holding hex breaks
+// them silently.
+const c = (name: string) => `rgb(var(--${name}) / <alpha-value>)`;
+
 const config: Config = {
+  darkMode: "class",
   content: [
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -9,49 +17,86 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Rybn brand colors
+        // --- Evergreen & Cranberry, semantic names for new work -------------
+        ground: c("ground"),
+        surface: {
+          DEFAULT: c("surface"),
+          hover: c("surface-hover"),
+        },
+        line: c("line"),
+        ink: {
+          DEFAULT: c("ink"),
+          soft: c("ink-soft"),
+          muted: c("ink-muted"),
+        },
+        accent: {
+          DEFAULT: c("accent"),
+          hover: c("accent-hover"),
+          ink: c("accent-ink"),
+          tint: c("tint-accent"),
+        },
+        gold: {
+          DEFAULT: c("gold"),
+          ink: c("gold-ink"),
+          tint: c("tint-gold"),
+        },
+        hero: {
+          DEFAULT: c("hero"),
+          line: c("hero-line"),
+          ink: c("hero-ink"),
+          soft: c("hero-ink-soft"),
+          stat: c("hero-stat"),
+        },
+        control: {
+          line: c("control-line"),
+        },
+
+        // --- Existing names, repointed at the new palette -------------------
+        // 600+ usages across the app read these, so they are remapped rather
+        // than renamed: every screen picks up the new palette and dark mode
+        // without being touched. The `light.*` prefix is now a misnomer (it
+        // flips with the theme) and is worth renaming in a later pass.
         primary: {
-          DEFAULT: "#009E01",
-          hover: "#00B501",
-          selected: "#007A01",
-          50: "#E6F9E6",
-          100: "#CCFACC",
-          200: "#99F099",
-          300: "#66E666",
-          400: "#33D133",
-          500: "#009E01",
-          600: "#007A01",
-          700: "#006001",
-          800: "#004701",
-          900: "#002D01",
+          DEFAULT: c("primary"),
+          hover: c("primary-hover"),
+          selected: c("primary-600"),
+          50: c("primary-50"),
+          100: c("primary-100"),
+          200: c("primary-200"),
+          300: c("primary-200"),
+          400: c("primary-500"),
+          500: c("primary-500"),
+          600: c("primary-600"),
+          700: c("primary-700"),
+          800: c("primary-700"),
+          900: c("primary-700"),
+        },
+        light: {
+          background: c("surface"),
+          "background-secondary": c("ground"),
+          "background-hover": c("surface-hover"),
+          border: c("line"),
+          "text-primary": c("ink"),
+          "text-secondary": c("ink-soft"),
+          "text-tertiary": c("ink-muted"),
         },
         success: {
-          DEFAULT: "#00C875",
-          hover: "#00B36B",
-          light: "#E6FCF5",
-          dark: "#003D2E",
+          DEFAULT: c("success"),
+          hover: c("success"),
+          light: c("success-tint"),
+          dark: c("success"),
         },
         error: {
-          DEFAULT: "#E2445C",
-          hover: "#D63A52",
-          light: "#FFEBEE",
-          dark: "#3D0A15",
+          DEFAULT: c("error"),
+          hover: c("error"),
+          light: c("error-tint"),
+          dark: c("error"),
         },
         warning: {
-          DEFAULT: "#FDAB3D",
-          hover: "#FC9D26",
-          light: "#FFF4E5",
-          dark: "#3D2810",
-        },
-        // Rybn light mode colors
-        light: {
-          background: "#FFFFFF",
-          "background-secondary": "#F6F7FB",
-          "background-hover": "#F5F6F8",
-          border: "#D0D4E4",
-          "text-primary": "#323338",
-          "text-secondary": "#676879",
-          "text-tertiary": "#9699A6",
+          DEFAULT: c("warning"),
+          hover: c("warning"),
+          light: c("warning-tint"),
+          dark: c("warning"),
         },
       },
       borderRadius: {
@@ -64,10 +109,10 @@ const config: Config = {
       },
       boxShadow: {
         sm: "0px 4px 6px rgba(0, 0, 0, 0.04)",
-        DEFAULT: "0px 6px 20px rgba(0, 158, 1, 0.08)",
-        md: "0px 8px 24px rgba(0, 158, 1, 0.12)",
-        lg: "0px 12px 32px rgba(0, 158, 1, 0.16)",
-        "gift": "0px 8px 32px rgba(0, 158, 1, 0.15)",
+        DEFAULT: "0px 6px 20px rgba(20, 67, 42, 0.08)",
+        md: "0px 8px 24px rgba(20, 67, 42, 0.12)",
+        lg: "0px 12px 32px rgba(20, 67, 42, 0.16)",
+        gift: "0px 8px 32px rgba(20, 67, 42, 0.15)",
       },
       fontFamily: {
         sans: [
@@ -80,10 +125,10 @@ const config: Config = {
           "Arial",
           "sans-serif",
         ],
-        heading: [
-          "Playwrite DE SAS",
-          "cursive",
-        ],
+        // Lora carries headings and figures. Georgia is the fallback because
+        // its metrics are close enough that a swap does not reflow the page.
+        display: ["var(--font-lora)", "Georgia", "Times New Roman", "serif"],
+        heading: ["Playwrite DE SAS", "cursive"],
       },
       fontWeight: {
         light: "300",
@@ -93,7 +138,6 @@ const config: Config = {
         bold: "700",
       },
       fontSize: {
-        // Vibe design system typography scale
         xs: ["12px", { lineHeight: "16px", letterSpacing: "0.01em", fontWeight: "400" }],
         sm: ["14px", { lineHeight: "20px", letterSpacing: "0.01em", fontWeight: "400" }],
         base: ["16px", { lineHeight: "24px", letterSpacing: "0", fontWeight: "400" }],

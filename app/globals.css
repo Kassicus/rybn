@@ -3,10 +3,105 @@
 @tailwind utilities;
 
 @layer base {
-  /* Rybn brand colors */
+  /*
+   * Evergreen & Cranberry.
+   *
+   * Values are SPACE-SEPARATED RGB CHANNELS, not hex, because the Tailwind
+   * config wraps each one as `rgb(var(--token) / <alpha-value>)`. That is what
+   * keeps opacity modifiers working -- `bg-primary/10`, `border-primary/20`
+   * and `bg-light-background/95` are all load-bearing in this codebase, and a
+   * plain `var(--token)` holding a hex string silently breaks every one of
+   * them.
+   *
+   * Dark is not light dimmed: both accents LIFT (evergreen -> sage, cranberry
+   * -> a lighter rose) so they stay legible on a dark ground, and the ground
+   * stays warm green-black rather than neutral grey, which is what keeps it
+   * recognisably the same brand.
+   */
   :root {
-    --background: #FFFFFF;
-    --foreground: #323338;
+    --ground: 250 246 239;          /* #FAF6EF page */
+    --surface: 255 253 249;         /* #FFFDF9 cards */
+    --surface-hover: 245 240 231;   /* #F5F0E7 */
+    --line: 228 222 210;            /* #E4DED2 hairlines */
+    --ink: 31 42 36;                /* #1F2A24 */
+    --ink-soft: 92 102 96;          /* #5C6660 */
+    --ink-muted: 116 110 98;        /* #746E62 -- 4.8:1 on ground */
+
+    --primary: 20 67 42;            /* #14432A evergreen */
+    --primary-hover: 26 85 53;
+    --primary-50: 234 240 234;
+    --primary-100: 216 228 219;
+    --primary-200: 180 203 188;
+    --primary-500: 20 67 42;
+    --primary-600: 15 53 32;
+    --primary-700: 11 40 24;
+
+    --accent: 159 18 57;            /* #9F1239 cranberry */
+    --accent-hover: 122 14 44;
+    --accent-ink: 255 247 240;      /* text ON accent */
+    --tint-accent: 247 230 234;
+
+    --gold: 184 134 11;             /* #B8860B graphics only */
+    --gold-ink: 122 93 9;           /* #7A5D09 text on tint-gold */
+    --tint-gold: 245 238 221;
+
+    --hero: 20 67 42;
+    --hero-line: 20 67 42;
+    --hero-ink: 243 237 226;
+    --hero-ink-soft: 201 214 205;
+    --hero-stat: 243 237 226;
+
+    --control-line: 154 142 128;    /* #9A8E80 -- 3.2:1, a control boundary */
+
+    --success: 12 122 80;
+    --success-tint: 230 249 241;
+    --error: 168 30 51;
+    --error-tint: 253 233 236;
+    --warning: 154 106 12;
+    --warning-tint: 250 240 224;
+  }
+
+  .dark {
+    --ground: 16 26 20;             /* #101A14 */
+    --surface: 23 36 28;            /* #17241C */
+    --surface-hover: 31 51 40;
+    --line: 42 61 49;               /* #2A3D31 */
+    --ink: 237 231 219;             /* #EDE7DB */
+    --ink-soft: 159 176 164;        /* #9FB0A4 */
+    --ink-muted: 126 145 134;       /* #7E9186 */
+
+    --primary: 111 169 138;         /* #6FA98A sage */
+    --primary-hover: 138 190 161;
+    --primary-50: 26 44 34;
+    --primary-100: 31 51 40;
+    --primary-200: 42 70 54;
+    --primary-500: 111 169 138;
+    --primary-600: 138 190 161;
+    --primary-700: 165 211 184;
+
+    --accent: 228 114 140;          /* #E4728C */
+    --accent-hover: 240 155 174;
+    --accent-ink: 42 13 22;         /* dark text ON the lifted accent */
+    --tint-accent: 51 32 42;
+
+    --gold: 212 169 74;             /* #D4A94A */
+    --gold-ink: 212 169 74;
+    --tint-gold: 47 42 27;
+
+    --hero: 22 40 30;               /* #16281E */
+    --hero-line: 39 64 54;
+    --hero-ink: 237 231 219;
+    --hero-ink-soft: 159 176 164;
+    --hero-stat: 212 169 74;
+
+    --control-line: 90 117 102;     /* #5A7566 -- 3.3:1 on surface */
+
+    --success: 74 199 143;
+    --success-tint: 16 41 31;
+    --error: 240 138 152;
+    --error-tint: 46 20 24;
+    --warning: 224 174 86;
+    --warning-tint: 46 35 20;
   }
 
   * {
@@ -14,15 +109,14 @@
   }
 
   body {
-    @apply bg-light-background text-light-text-primary font-sans;
+    @apply bg-ground text-ink font-sans;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
   }
 
-  /* Improved heading typography - using Quicksand */
   h1, h2, h3, h4, h5, h6 {
-    @apply font-sans;
+    @apply font-display;
     font-weight: 600;
   }
 }
@@ -32,24 +126,9 @@
     text-wrap: balance;
   }
 
-  /* Font weight utilities following Vibe */
-  .font-light {
-    font-weight: 300;
-  }
-
-  .font-normal {
-    font-weight: 400;
-  }
-
-  .font-medium {
-    font-weight: 500;
-  }
-
-  .font-semibold {
-    font-weight: 600;
-  }
-
-  .font-bold {
-    font-weight: 700;
-  }
+  .font-light { font-weight: 300; }
+  .font-normal { font-weight: 400; }
+  .font-medium { font-weight: 500; }
+  .font-semibold { font-weight: 600; }
+  .font-bold { font-weight: 700; }
 }

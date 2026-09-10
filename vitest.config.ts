@@ -13,7 +13,11 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["**/*.test.ts"],
-    exclude: ["node_modules/**", ".next/**"],
+    // Globs must be **-prefixed. "node_modules/**" matches only the root
+    // one, so a nested checkout -- an agent worktree under .claude/, a
+    // vendored package -- drops its dependencies' own test files into this
+    // run. That is how a 6-file suite briefly became 169.
+    exclude: ["**/node_modules/**", "**/.next/**", "**/.claude/**"],
     env,
   },
   resolve: {
