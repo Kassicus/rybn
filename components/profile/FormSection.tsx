@@ -17,7 +17,9 @@ export function FormSection({
   return (
     <div className={`space-y-4 ${className}`}>
       <div>
-        <Heading level="h3">{title}</Heading>
+        <Heading level="h3" className="font-display">
+          {title}
+        </Heading>
         {description && (
           <Text variant="secondary" size="sm" className="mt-1">
             {description}

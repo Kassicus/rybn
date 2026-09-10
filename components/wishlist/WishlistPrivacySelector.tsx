@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Home, Heart, Briefcase, Users, Lock, Info } from "lucide-react";
-import type { GroupType } from "@/types/privacy";
+import { useEffect, useState } from "react";
+import { Users, Lock, UsersRound } from "lucide-react";
 import { getMyGroups } from "@/lib/actions/groups";
-import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -13,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { PrivacyChoice } from "@/lib/wishlist/privacy-choice";
 
 interface Group {
   id: string;
@@ -21,177 +21,157 @@ interface Group {
 }
 
 interface WishlistPrivacySelectorProps {
-  visibleToGroupTypes: GroupType[];
-  restrictToGroup: string | null;
-  onVisibleToGroupTypesChange: (groupTypes: GroupType[]) => void;
-  onRestrictToGroupChange: (groupId: string | null) => void;
+  choice: PrivacyChoice;
+  onChange: (choice: PrivacyChoice) => void;
   className?: string;
 }
 
-const groupTypeConfig = {
-  family: { label: 'Family', icon: Home, color: 'text-primary' },
-  friends: { label: 'Friends', icon: Heart, color: 'text-accent' },
-  work: { label: 'Work', icon: Briefcase, color: 'text-gold-ink' },
-  custom: { label: 'Other', icon: Users, color: 'text-ink-soft' },
-};
+const OPTIONS = [
+  {
+    kind: "groups" as const,
+    icon: Users,
+    label: "Everyone in your groups",
+    detail: "Anyone you share a group with can see this item.",
+  },
+  {
+    kind: "group" as const,
+    icon: UsersRound,
+    label: "Just one group",
+    detail: "Only people in the group you pick.",
+  },
+  {
+    kind: "private" as const,
+    icon: Lock,
+    label: "Only you",
+    detail: "Nobody else sees this, not even in a shared group.",
+  },
+];
 
+/**
+ * Three plain choices over a two-axis stored shape. The mapping lives in
+ * lib/wishlist/privacy-choice.ts and is tested there; this component only
+ * renders it.
+ *
+ * `legacyTypes` is a fourth state that cannot be chosen -- it appears when an
+ * item was saved while the family/friends/work toggles still existed. It is
+ * shown as its own selected row so that editing the title of such an item
+ * cannot quietly widen who can see it.
+ */
 export function WishlistPrivacySelector({
-  visibleToGroupTypes,
-  restrictToGroup,
-  onVisibleToGroupTypesChange,
-  onRestrictToGroupChange,
+  choice,
+  onChange,
   className,
 }: WishlistPrivacySelectorProps) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchGroups() {
-      const result = await getMyGroups();
-      if (result.data) {
-        setGroups(result.data as any);
-      }
-      setLoading(false);
-    }
-    fetchGroups();
+    let cancelled = false;
+    getMyGroups()
+      .then((result) => {
+        if (cancelled) return;
+        setGroups((result.data ?? []) as Group[]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const toggleGroupType = (groupType: GroupType) => {
-    if (visibleToGroupTypes.includes(groupType)) {
-      onVisibleToGroupTypesChange(visibleToGroupTypes.filter(t => t !== groupType));
-    } else {
-      onVisibleToGroupTypesChange([...visibleToGroupTypes, groupType]);
+  const select = (kind: "groups" | "group" | "private") => {
+    if (kind === "group") {
+      const existing = choice.kind === "group" ? choice.groupId : "";
+      onChange({ kind: "group", groupId: existing });
+      return;
     }
+    onChange({ kind });
   };
 
-  const isPrivate = visibleToGroupTypes.length === 0 && !restrictToGroup;
-  const hasRestriction = restrictToGroup !== null && restrictToGroup !== '';
-
   return (
-    <div className={className}>
-      <div className="space-y-4">
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <Lock className="w-5 h-5" />
-            <Label className="text-base font-semibold">Privacy Settings</Label>
-          </div>
-          <Text variant="secondary" size="sm">
-            Control who can see this wishlist item
+    <fieldset className={cn("flex flex-col gap-3", className)}>
+      <legend className="sr-only">Who can see this item</legend>
+
+      {choice.kind === "legacyTypes" && (
+        <div className="rounded-md border border-gold-ink/40 bg-gold-tint p-4">
+          <Text size="sm" className="font-semibold text-gold-ink">
+            Currently limited to your {choice.types.join(", ")} groups
+          </Text>
+          <Text size="sm" variant="secondary" className="mt-1">
+            This item was saved with an older setting. Leave it as it is, or
+            pick one of the options below to change it.
           </Text>
         </div>
+      )}
 
-        {/* Group Type Checkboxes */}
-        <div className="space-y-3">
-          <Label>Who can see this item?</Label>
-          <Text variant="secondary" size="sm">
-            Select the types of groups that can view this item
-          </Text>
-
-          <div className="space-y-2">
-            {(Object.keys(groupTypeConfig) as GroupType[]).map((groupType) => {
-              const config = groupTypeConfig[groupType];
-              const Icon = config.icon;
-              const isChecked = visibleToGroupTypes.includes(groupType);
-
-              return (
-                <label
-                  key={groupType}
-                  className={`
-                    flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all
-                    ${isChecked
-                      ? 'border-primary-500 bg-primary-50'
-                      : 'border-light-border hover:bg-light-background-hover'
-                    }
-                  `}
-                >
-                  <input
-                    type="checkbox"
-                    checked={isChecked}
-                    onChange={() => toggleGroupType(groupType)}
-                    className="w-4 h-4 text-primary-600 border-control-line rounded focus:ring-primary-500"
-                  />
-                  <Icon className={`w-5 h-5 ${config.color}`} />
-                  <div className="flex-1">
-                    <Text className="font-medium">{config.label}</Text>
-                  </div>
-                </label>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Single Group Restriction */}
-        {!loading && groups.length > 0 && (
-          <div className="space-y-3">
-            <Label>Or restrict to a single group (Optional)</Label>
-            <Text variant="secondary" size="sm">
-              If you select a specific group, only members of that group can see this item
-            </Text>
-            <Select
-              value={restrictToGroup || "none"}
-              onValueChange={(value) => onRestrictToGroupChange(value === "none" ? null : value)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="No restriction" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">
-                  <span className="text-light-text-secondary">
-                    No restriction
-                  </span>
-                </SelectItem>
-                {groups.map((group) => (
-                  <SelectItem key={group.id} value={group.id}>
-                    <div className="flex items-center gap-2">
-                      <span>{group.name}</span>
-                      <span className="text-xs text-light-text-secondary">
-                        ({group.group_type})
-                      </span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        {/* Privacy Status Display */}
-        <div className={`p-3 rounded-lg border ${
-          isPrivate
-            ? 'border-control-line bg-light-background-hover'
-            : hasRestriction
-            ? 'border-warning bg-warning-light'
-            : 'border-success bg-success-light'
-        }`}>
-          <div className="flex items-center gap-2">
-            <Lock className="w-4 h-4" />
-            <Text size="sm" className={
-              isPrivate
-                ? 'text-ink-soft'
-                : hasRestriction
-                ? 'text-warning'
-                : 'text-success'
-            }>
-              {isPrivate ? (
-                <><strong>Private:</strong> Only you can see this item</>
-              ) : hasRestriction ? (
-                <><strong>Restricted:</strong> Only members of {groups.find(g => g.id === restrictToGroup)?.name} can see this</>
-              ) : (
-                <><strong>Shared with:</strong> {visibleToGroupTypes.map(t => groupTypeConfig[t].label).join(', ')} groups</>
+      <div className="flex flex-col gap-2">
+        {OPTIONS.map((option) => {
+          const checked = choice.kind === option.kind;
+          const Icon = option.icon;
+          return (
+            <label
+              key={option.kind}
+              className={cn(
+                "flex cursor-pointer items-start gap-3 rounded-md border p-4 transition-colors",
+                "focus-within:ring-2 focus-within:ring-accent",
+                checked
+                  ? "border-primary bg-primary-50"
+                  : "border-light-border bg-light-background hover:bg-light-background-hover"
               )}
-            </Text>
-          </div>
-        </div>
-
-        {!loading && groups.length === 0 && (
-          <div className="p-3 rounded-lg border border-control-line bg-light-background-hover">
-            <Text size="sm" className="text-ink-soft">
-              <Info className="inline w-4 h-4 mr-1" />
-              You&apos;re not in any groups yet. Create or join groups to share wishlist items.
-            </Text>
-          </div>
-        )}
+            >
+              <input
+                type="radio"
+                name="wishlist-privacy"
+                className="mt-1 h-4 w-4 shrink-0 accent-primary focus:outline-none"
+                checked={checked}
+                onChange={() => select(option.kind)}
+              />
+              <Icon
+                className={cn(
+                  "mt-0.5 h-5 w-5 shrink-0",
+                  checked ? "text-primary" : "text-ink-muted"
+                )}
+                aria-hidden="true"
+              />
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="font-semibold">{option.label}</span>
+                <Text size="sm" variant="secondary">
+                  {option.detail}
+                </Text>
+              </span>
+            </label>
+          );
+        })}
       </div>
-    </div>
+
+      {choice.kind === "group" && (
+        <div className="flex flex-col gap-2 pl-1">
+          <Select
+            value={choice.groupId || undefined}
+            onValueChange={(groupId) => onChange({ kind: "group", groupId })}
+          >
+            <SelectTrigger className="h-12">
+              <SelectValue
+                placeholder={loading ? "Loading your groups…" : "Choose a group"}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {groups.map((group) => (
+                <SelectItem key={group.id} value={group.id}>
+                  {group.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {!loading && groups.length === 0 && (
+            <Text size="sm" variant="secondary">
+              You are not in any groups yet, so there is nothing to restrict it
+              to.
+            </Text>
+          )}
+        </div>
+      )}
+    </fieldset>
   );
 }

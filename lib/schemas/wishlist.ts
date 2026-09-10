@@ -10,9 +10,9 @@ import { imageValueProblem } from '@/lib/storage/image-value';
  *
  * Exported because they are not only a form rule: `wishlist_items` carries a
  * `title_length between 1 and 200` check constraint, and
- * `lib/link-metadata/extract.ts` trims auto-filled values to exactly these
- * numbers so a fetched page can never produce a value the form would reject.
- * One definition, so the two cannot drift apart.
+ * numbers, so the form and the column cannot drift apart. (They were also
+ * used by the removed link-metadata extractor, which trimmed fetched values
+ * to the same caps.)
  */
 export const TITLE_MAX_LENGTH = 200;
 export const DESCRIPTION_MAX_LENGTH = 1000;

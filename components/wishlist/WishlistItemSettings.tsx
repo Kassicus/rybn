@@ -12,6 +12,11 @@ import { Label } from "@/components/ui/label";
 import { Heading, Text } from "@/components/ui/text";
 import { ImageInput } from "@/components/ui/image-input";
 import { WishlistPrivacySelector } from "@/components/wishlist/WishlistPrivacySelector";
+import {
+  fromStored,
+  toStored,
+  type PrivacyChoice,
+} from "@/lib/wishlist/privacy-choice";
 import { FormSection } from "@/components/profile/FormSection";
 import { useUser } from "@clerk/nextjs";
 import { deleteWishlistItem, updateWishlistItem } from "@/lib/actions/wishlist";
@@ -94,8 +99,20 @@ export function WishlistItemSettings({
   });
 
   const selectedPriority = watch("priority");
-  const visibleToGroupTypes = watch("visible_to_group_types") || ['family', 'friends', 'work', 'custom'];
-  const restrictToGroup = watch("restrict_to_group") || null;
+  // The form holds the stored two-axis shape; the selector speaks in three
+  // plain choices. An item saved before the group-type toggles were removed
+  // reads back as `legacyTypes`, which the selector shows as its own row so
+  // editing the title cannot quietly widen who can see it.
+  const privacyChoice = fromStored({
+    visibleToGroupTypes: watch("visible_to_group_types") ?? [],
+    restrictToGroup: watch("restrict_to_group") ?? null,
+  });
+
+  const setPrivacyChoice = (choice: PrivacyChoice) => {
+    const stored = toStored(choice);
+    setValue("visible_to_group_types", stored.visibleToGroupTypes, { shouldDirty: true });
+    setValue("restrict_to_group", stored.restrictToGroup, { shouldDirty: true });
+  };
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -356,10 +373,8 @@ export function WishlistItemSettings({
 
                 {/* Privacy Settings */}
                 <WishlistPrivacySelector
-                  visibleToGroupTypes={visibleToGroupTypes}
-                  restrictToGroup={restrictToGroup}
-                  onVisibleToGroupTypesChange={(groupTypes) => setValue("visible_to_group_types", groupTypes, { shouldDirty: true })}
-                  onRestrictToGroupChange={(groupId) => setValue("restrict_to_group", groupId, { shouldDirty: true })}
+                  choice={privacyChoice}
+                  onChange={setPrivacyChoice}
                 />
 
                 {/* Form actions */}
