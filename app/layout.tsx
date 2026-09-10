@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Quicksand, Lora } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { ClerkProvider } from "@clerk/nextjs";
@@ -23,6 +23,21 @@ const lora = Lora({
   variable: "--font-lora",
   display: "swap",
 });
+
+/**
+ * Declares the page as light-only.
+ *
+ * Without this, a browser treats the page as "works in either scheme" and
+ * renders form controls, placeholder text, scroll areas and the address-bar
+ * tint using the SYSTEM appearance. On a phone set to dark mode that reads as
+ * a half-applied dark theme -- which is exactly what it looked like -- even
+ * though the stylesheet has no dark rules at all.
+ *
+ * Docs: node_modules/next/dist/docs/01-app/03-api-reference/04-functions/generate-viewport.md
+ */
+export const viewport: Viewport = {
+  colorScheme: "light",
+};
 
 export const metadata: Metadata = {
   title: "Rybn - Tied Together",

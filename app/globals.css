@@ -23,6 +23,11 @@
    * design, not a recolour of this one.
    */
   :root {
+    /* Paired with the viewport colorScheme in app/layout.tsx. The meta tag
+       lands before stylesheets load; this also covers the overscroll area
+       the browser paints beyond the body. */
+    color-scheme: light;
+
     --ground: 250 246 239;          /* #FAF6EF page */
     --surface: 255 253 249;         /* #FFFDF9 cards */
     --surface-hover: 245 240 231;   /* #F5F0E7 */
