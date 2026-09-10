@@ -133,7 +133,14 @@ export async function ensureProfile(): Promise<string | null> {
       const { sendWelcomeEmail } = await import("@/lib/resend/send");
       const greeting =
         user.username || user.firstName || email.split("@")[0] || "there";
-      await sendWelcomeEmail(email, greeting);
+      // Resolves to `{ data: null, error }` when the API rejects the send and
+      // throws only on a network fault, so the catch below left a REJECTED
+      // welcome email completely silent -- no log, no trace. Still fail-soft
+      // either way (see the comment on the catch), just no longer invisible.
+      const { error: sendError } = await sendWelcomeEmail(email, greeting);
+      if (sendError) {
+        console.error("ensureProfile: welcome email rejected", sendError);
+      }
     } catch (emailError) {
       // The deleted app/auth/callback/route.ts wrapped this the same way: a
       // mail failure must never break the auth flow.

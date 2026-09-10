@@ -160,28 +160,46 @@ export async function sendGroupInvitation(data: {
     invitation = newInvite;
   }
 
-  // Send invitation email
+  // Send invitation email.
+  //
+  // TWO failure shapes here, and they are not interchangeable. The Resend SDK
+  // RESOLVES to `{ data: null, error }` for everything the API rejects -- an
+  // unverified sending domain, a suspended key, a rate limit -- and throws
+  // only when the underlying fetch does. So a bare try/catch is not the whole
+  // story, and for a long time it was the only story: every rejected send was
+  // recorded as `emailSent = true` and announced to the user as "Invitation
+  // sent!", with `console.log("Email sent successfully:", result)` printing
+  // the 403 body underneath. Check the resolved value FIRST, then keep the
+  // catch for the network.
   let emailSent = false;
   let emailError = null;
 
   try {
-    const result = await sendGroupInviteEmail({
+    const { error: sendError } = await sendGroupInviteEmail({
       toEmail: data.email,
       groupName: data.groupName,
       inviterName,
       inviteToken: token,
     });
-    console.log("Email sent successfully:", result);
-    emailSent = true;
+
+    if (sendError) {
+      console.error("Resend rejected the invite email:", sendError);
+      emailError = sendError.message || "Unknown error";
+    } else {
+      emailSent = true;
+    }
   } catch (error) {
     console.error("Failed to send invite email:", error);
-    console.error("Email details:", {
+    emailError = error instanceof Error ? error.message : "Unknown error";
+    // Don't fail the invitation creation if email fails
+  }
+
+  if (!emailSent) {
+    console.error("Invite email details:", {
       toEmail: data.email,
       groupName: data.groupName,
       inviterName,
     });
-    emailError = error instanceof Error ? error.message : "Unknown error";
-    // Don't fail the invitation creation if email fails
   }
 
   return {

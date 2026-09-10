@@ -124,9 +124,16 @@ export async function checkAndSendDateReminders(
         continue;
       }
 
-      // Send email
+      // Send email.
+      //
+      // See the note in lib/actions/invitations.ts: the Resend SDK resolves to
+      // `{ data: null, error }` for API-level rejections and throws only on a
+      // network fault. With just the catch, this loop counted every rejected
+      // send as delivered -- reporting `sent: N` for mail that never left, and
+      // writing email_sent = true behind it, so the row said the reminder had
+      // gone out and no retry would ever pick it up.
       try {
-        await sendDateReminderEmail({
+        const { error: sendError } = await sendDateReminderEmail({
           toEmail: dateInfo.notified_user_email,
           recipientName: dateInfo.notified_user_email.split('@')[0], // Fallback, could be improved
           celebrantName: dateInfo.celebrant_username,
@@ -137,6 +144,17 @@ export async function checkAndSendDateReminders(
           groupName: dateInfo.group_name,
           groupType: dateInfo.group_type,
         });
+
+        if (sendError) {
+          console.error('Resend rejected the reminder email:', sendError);
+          errors.push({
+            email: dateInfo.notified_user_email,
+            error: sendError.message || 'Failed to send email',
+          });
+          // Leaves email_sent = false on the row just inserted, which is the
+          // point: the reminder is still outstanding.
+          continue;
+        }
 
         // Update notification record to mark email as sent
         await supabase
