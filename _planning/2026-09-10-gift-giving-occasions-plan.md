@@ -299,7 +299,10 @@ git commit -m "feat(occasions): add occasions table with per-viewer RLS"
 ### Task 2: Date helper and the derived-occasions function
 
 **Files:**
-- Create: `supabase/migrations/20260910100001_occasions_derivation.sql`
+- Create: `supabase/migrations/20260910100002_occasions_derivation.sql`
+  (renumbered from ...100001: Task 1's review turned up a Critical RLS
+  defect in the plan's UPDATE policy, and its fix took ...100001. See the
+  ledger's Task 1 rulings.)
 - Create: `supabase/tests/rls/12_occasion_derivation.sql`
 - Modify: `supabase/tests/rls/MANIFEST`
 
@@ -323,7 +326,7 @@ This is the exact expression `get_upcoming_dates_for_notifications` evaluates in
 
 - [ ] **Step 2: Write the migration**
 
-Create `supabase/migrations/20260910100001_occasions_derivation.sql`:
+Create `supabase/migrations/20260910100002_occasions_derivation.sql`:
 
 ```sql
 -- =============================================================================
@@ -543,7 +546,7 @@ Expected: all pass, including both new files.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add supabase/migrations/20260910100001_occasions_derivation.sql \
+git add supabase/migrations/20260910100002_occasions_derivation.sql \
         supabase/tests/rls/12_occasion_derivation.sql \
         supabase/tests/rls/MANIFEST
 git commit -m "feat(occasions): derive upcoming occasions, fix Feb-29 reminder crash"
