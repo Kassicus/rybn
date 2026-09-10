@@ -42,6 +42,22 @@ export function useSupabase() {
     sessionRef.current = session;
   });
 
+  // The disable below is deliberate, and "fixing" the rule breaks realtime
+  // chat. exhaustive-deps calls `session?.id` unnecessary because the factory
+  // never references it. It is the opposite: it is the key deciding when a NEW
+  // client is built. Remove it and the client is pinned to the first session
+  // forever; depend on `session` instead and it is rebuilt several times a
+  // minute, tearing down the WebSocket under ChatWindow -- and postgres_changes
+  // has no replay, so messages inserted during that gap are lost.
+  //
+  // react-hooks/refs also flags this line, claiming the ref may be read during
+  // render. It is not: `.current` is read inside `accessToken`, which Supabase
+  // invokes later (per REST request, and every 25s from the realtime
+  // heartbeat). That rule currently stops firing once the directive below is
+  // present -- these React Compiler rules bail out on a component carrying a
+  // disable -- so it needs no directive of its own. If a future version
+  // reports it again, it is a false positive for the same reason.
+  //
   return useMemo(
     () =>
       createClient<Database>(
@@ -49,6 +65,7 @@ export function useSupabase() {
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         { accessToken: async () => (await sessionRef.current?.getToken()) ?? null }
       ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the key, see above
     [session?.id]
   );
 }
