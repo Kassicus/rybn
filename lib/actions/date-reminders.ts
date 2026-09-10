@@ -191,15 +191,42 @@ export async function getActiveDateReminders() {
       .rpc('get_dates_today_for_user', { p_user_id: userId });
 
     if (remindersError) {
-      // Check if this is a "function does not exist" error (migration not run)
-      const errorMessage = remindersError.message || '';
+      // Pull the fields out by hand rather than logging the object. An Error
+      // instance carries message/stack as NON-ENUMERABLE properties, so
+      // `console.error(msg, err)` renders it as `{}` in the Next overlay and
+      // the actual cause is lost -- which is exactly how this failure
+      // presented before.
+      const detail = {
+        message: remindersError.message ?? null,
+        code: (remindersError as { code?: string }).code ?? null,
+        details: (remindersError as { details?: string }).details ?? null,
+        hint: (remindersError as { hint?: string }).hint ?? null,
+      };
+      const errorMessage = detail.message ?? '';
 
       if (errorMessage.includes('function') && errorMessage.includes('does not exist')) {
         console.warn('Date reminders feature not yet set up. Please run the database migration.');
         return { data: [] }; // Return empty array silently
       }
 
-      console.error('Error fetching date reminders:', remindersError);
+      // 42501 on a function granted to `authenticated` means the request
+      // arrived as `anon` -- the Clerk token was not accepted. Supabase trusts
+      // a fixed set of Clerk issuers, so this is what a local environment
+      // pointed at a Clerk instance Supabase does not know looks like. Worth
+      // naming: RLS *tables* fail the same way but silently, returning zero
+      // rows that are indistinguishable from an empty account.
+      if (detail.code === '42501') {
+        console.error(
+          'Date reminders: permission denied, so the request reached Postgres as `anon` ' +
+            'rather than `authenticated`. The Clerk token was rejected -- check that this ' +
+            "environment's Clerk domain is registered under Supabase -> Authentication -> " +
+            'Third Party Auth.',
+          detail
+        );
+        return { data: [] };
+      }
+
+      console.error('Error fetching date reminders:', detail);
       return { data: [] }; // Return empty array to prevent UI crash
     }
 
