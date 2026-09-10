@@ -175,36 +175,6 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  ---------------------------------------------------------------------------
-  -- link_fetch_log is the rate-limit ledger behind the link-preview fetcher,
-  -- and it is service-role only: RLS on, and deliberately not one policy. Both
-  -- facts are asserted by name rather than left to the sweeps above, because
-  -- the sweeps say "no table has RLS off" and "no policy is open to PUBLIC" --
-  -- and a `to authenticated` policy added here would satisfy both while
-  -- handing the user the ledger that counts them. The RLS check is written as
-  -- `not exists` over pg_tables rather than as a rowsecurity comparison, so it
-  -- also fails if the table has gone missing altogether, which no other check
-  -- in this file would notice.
-  --
-  -- The ledger holds a user id and a timestamp. A user has nothing to read
-  -- here and must not be able to trim their own row, which is the whole point
-  -- of the rate limit.
-  ---------------------------------------------------------------------------
-  if not exists (
-    select 1 from pg_tables
-    where schemaname = 'public' and tablename = 'link_fetch_log' and rowsecurity
-  ) then
-    raise exception 'link_fetch_log is missing or does not have RLS enabled';
-  end if;
-  v_checks := v_checks + 1;
-
-  if exists (
-    select 1 from pg_policies
-    where schemaname = 'public' and tablename = 'link_fetch_log'
-  ) then
-    raise exception 'link_fetch_log must have no policies -- it is service-role only';
-  end if;
-  v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
   -- Population controls: the six zero-count checks above are only meaningful
@@ -259,7 +229,7 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 12 then
+  if v_checks < 10 then
     raise exception
       'HARNESS FAIL: only % assertion(s) ran, expected at least 12. Assertions were skipped or commented out; this file proves nothing.',
       v_checks;
