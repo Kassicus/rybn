@@ -59,8 +59,13 @@
 
     --success: 12 122 80;
     --success-tint: 230 249 241;
-    --error: 168 30 51;
-    --error-tint: 253 233 236;
+    /* Deliberately warmer and brighter than the cranberry accent. Cranberry
+       (#9F1239, hue ~340) is now the PRIMARY action colour, so a danger red
+       sitting next to it in hue would make "Delete" and "Save" read as the
+       same button. This one is hue ~6 -- unmistakably a warning rather than
+       a festive deep red. */
+    --error: 192 57 43;
+    --error-tint: 251 235 232;
     --warning: 154 106 12;
     --warning-tint: 250 240 224;
   }

@@ -89,7 +89,7 @@ export default async function GiftExchangeDetailPage({
                 </Text>
               )}
               <div className="flex items-center gap-2 mt-2">
-                <span className="px-2 py-0.5 rounded text-xs font-medium bg-primary-light text-primary">
+                <span className="px-2 py-0.5 rounded text-xs font-medium bg-primary-50 text-primary">
                   {typeLabel}
                 </span>
                 {exchange.assignments_generated && (

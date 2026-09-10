@@ -8,8 +8,12 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        // Cranberry, not evergreen. In this palette evergreen is the brand
+        // surface -- the hero, the icon wells, the avatar -- and cranberry is
+        // what you press. text-accent-ink rather than text-white so the pair
+        // stays legible if the accent is ever retuned.
         primary:
-          "bg-primary text-white hover:bg-primary-hover active:bg-primary-selected shadow-sm",
+          "bg-accent text-accent-ink hover:bg-accent-hover active:bg-accent-hover shadow-sm",
         secondary:
           "bg-light-background border border-light-border text-light-text-primary hover:bg-light-background-hover",
         tertiary:

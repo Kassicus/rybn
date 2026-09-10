@@ -197,7 +197,7 @@ export function MemberManager({
                         onClick={() => handleToggleUser(user.id)}
                         className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-colors ${
                           isSelected
-                            ? "border-primary bg-primary-light"
+                            ? "border-primary bg-primary-50"
                             : "border-light-border hover:bg-light-background-hover"
                         }`}
                       >
