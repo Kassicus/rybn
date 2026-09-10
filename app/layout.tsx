@@ -5,7 +5,6 @@ import { ClerkProvider } from "@clerk/nextjs";
 import "@fontsource/playwrite-de-sas/400.css";
 import "./globals.css";
 import { QueryProvider } from "@/components/providers/QueryProvider";
-import { RybnThemeProvider } from "@/components/vibe/ThemeProvider";
 
 // Rybn brand font: Quicksand for body text
 const quicksand = Quicksand({
@@ -36,22 +35,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    // suppressHydrationWarning: next-themes sets the theme class on <html> from a
-    // blocking script before React hydrates, so the server and client markup
-    // differ here by design.
-    <html
-      lang="en"
-      className={`${quicksand.variable} ${lora.variable}`}
-      suppressHydrationWarning
-    >
+    <html lang="en" className={`${quicksand.variable} ${lora.variable}`}>
       <body className={`${quicksand.className} overflow-x-hidden`}>
         <ClerkProvider>
-          <RybnThemeProvider>
-            <QueryProvider>
-              {children}
-              <Analytics />
-            </QueryProvider>
-          </RybnThemeProvider>
+          <QueryProvider>
+            {children}
+            <Analytics />
+          </QueryProvider>
         </ClerkProvider>
       </body>
     </html>

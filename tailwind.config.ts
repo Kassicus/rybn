@@ -1,14 +1,13 @@
 import type { Config } from "tailwindcss";
 
-// Every colour resolves through a CSS variable defined in app/globals.css, so
-// light and dark are the same class names with different values. The
+// Every colour resolves through a CSS variable defined in app/globals.css.
+// The
 // `rgb(var(--x) / <alpha-value>)` wrapper is what preserves opacity modifiers
 // (bg-primary/10, bg-light-background/95) -- a bare var() holding hex breaks
 // them silently.
 const c = (name: string) => `rgb(var(--${name}) / <alpha-value>)`;
 
 const config: Config = {
-  darkMode: "class",
   content: [
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",

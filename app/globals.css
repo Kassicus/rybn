@@ -13,10 +13,14 @@
    * plain `var(--token)` holding a hex string silently breaks every one of
    * them.
    *
-   * Dark is not light dimmed: both accents LIFT (evergreen -> sage, cranberry
-   * -> a lighter rose) so they stay legible on a dark ground, and the ground
-   * stays warm green-black rather than neutral grey, which is what keeps it
-   * recognisably the same brand.
+   * Light only. A dark theme was built and removed: the palette leans on a
+   * deep evergreen hero reading dark-on-cream, and dark has no equivalent
+   * move -- the same block on a dark ground is just a slab. Rather than ship
+   * a weaker second theme, this one gets the attention.
+   *
+   * Re-adding it later is a `.dark { }` block here plus a provider; the token
+   * architecture already supports it. What it would need first is a dark
+   * design, not a recolour of this one.
    */
   :root {
     --ground: 250 246 239;          /* #FAF6EF page */
@@ -59,73 +63,6 @@
     --error-tint: 253 233 236;
     --warning: 154 106 12;
     --warning-tint: 250 240 224;
-  }
-
-  .dark {
-    /*
-     * Warm neutrals carry the dark theme; evergreen appears as a RAISED PANEL
-     * rather than as the ground.
-     *
-     * The first attempt made ground, surface and hero three near-identical
-     * greens (#101A14 / #17241C / #16281E). As swatches they looked distinct.
-     * As a full page they collapsed into one murky green, and the hero -- the
-     * anchor of the layout in light mode -- became indistinguishable from a
-     * card. Large areas need far wider value separation than a swatch grid
-     * suggests, and warmth in the dark has to come from the NEUTRALS, not from
-     * the accents fighting a cold ground.
-     */
-    --ground: 22 19 15;             /* #16130F warm near-black */
-    --surface: 52 46 38;            /* #221E18 */
-    --surface-hover: 66 58 48;      /* #2D2720 */
-    --line: 74 65 53;               /* #3A3228 */
-    --ink: 240 233 222;             /* #F0E9DE */
-    --ink-soft: 181 169 150;        /* #B5A996 -- 7.3:1 on surface */
-    --ink-muted: 165 153 135;       /* #8E8474 -- 4.6:1 on surface */
-
-    --primary: 127 190 156;         /* #7FBE9C sage */
-    --primary-hover: 154 208 178;
-    --primary-50: 28 46 36;
-    --primary-100: 36 58 45;
-    --primary-200: 48 76 60;
-    --primary-500: 127 190 156;
-    --primary-600: 154 208 178;
-    --primary-700: 180 224 199;
-
-    /* Pulled back from #E4728C, which read as candy pink against green. On a
-       warm ground a deeper rose stays cranberry and still clears 4.5:1. */
-    --accent: 226 120 142;          /* #E2788E -- 4.9:1 on the raised surface */
-    --accent-hover: 230 133 154;
-    --accent-ink: 42 13 22;
-    --tint-accent: 58 32 38;
-
-    --gold: 232 192 106;            /* #E8C06A */
-    --gold-ink: 232 192 106;
-    --tint-gold: 56 46 28;
-
-    /* The hero is NOT a filled block here -- these resolve to the page
-       colour, and HeroBanner drops its padding and washes under `dark:`.
-       In light, a deep evergreen panel works because it is dark on cream:
-       high contrast, and the block earns its size. Dark has no equivalent
-       move. A green slab on a dark page is just a slab, and with an empty
-       account it is a slab containing two lines of text. So in dark the
-       greeting sits directly on the page and carries itself as type, which
-       is how dark interfaces actually hold together -- through typography
-       and restraint rather than large fields of colour. Only the figures
-       keep an accent, in gold. */
-    --hero: 22 19 15;               /* #174A2E */
-    --hero-line: 22 19 15;
-    --hero-ink: 240 233 222;
-    --hero-ink-soft: 181 169 150;
-    --hero-stat: 232 192 106;       /* gold figures */
-
-    --control-line: 134 121 101; /* #867965 -- 3.1:1 on the raised surface */
-
-    --success: 106 205 154;
-    --success-tint: 22 42 33;
-    --error: 240 138 152;
-    --error-tint: 50 26 30;
-    --warning: 232 180 96;
-    --warning-tint: 52 40 22;
   }
 
   * {

@@ -7,7 +7,6 @@ import { MobileDrawer } from "@/components/layout/MobileDrawer";
 import { Logo } from "@/components/vibe/Logo";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { SearchBar } from "@/components/search/SearchBar";
-import { ThemeToggle } from "@/components/vibe/ThemeToggle";
 import { useClerk } from "@clerk/nextjs";
 
 interface TopBarProps {
@@ -93,9 +92,6 @@ export function TopBar({ user, profile }: TopBarProps) {
             {/* Notification badge */}
             <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
           </button>
-
-          {/* Theme: follows the OS until the user picks otherwise */}
-          <ThemeToggle />
 
           {/* Profile Avatar with Dropdown */}
           <div className="relative" ref={dropdownRef}>

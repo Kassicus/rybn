@@ -108,8 +108,7 @@ npm run build
 - **React Hook Form** - Form management
 - **Zod** - Schema validation
 - **TanStack Query** - Server state management
-- **next-themes** - installed, but not currently wired up: `RybnThemeProvider`
-  is never mounted and `ThemeToggle` is never rendered, so there is no dark mode
+- **Lora + Quicksand** - display and body faces
 - **Tailwind CSS** - Styling
 
 ## Project Structure
@@ -141,13 +140,20 @@ rybn/
 
 ## What's next
 
-A UI/UX overhaul is the current focus. The feature surface above is largely in
+A UI/UX overhaul is the current focus. The palette is Evergreen & Cranberry,
+defined once in `app/globals.css` as CSS variables and consumed through
+`tailwind.config.ts`; every colour pair in it is checked against WCAG rather
+than chosen by eye.
+
+**Light only, deliberately.** A dark theme was built and removed: the design
+leans on a deep evergreen hero that works because it reads dark-on-cream, and
+dark has no equivalent move -- the same block on a dark ground is just a slab.
+Re-adding it later means a `.dark { }` block and a provider, but it needs a
+dark *design* first, not a recolour of this one. The feature surface above is largely in
 place; the interface is what needs work.
 
 Known outstanding items:
 
-- `next-themes` is installed but unwired, so there is no dark mode (see Tech
-  Stack above)
 - ~66 ESLint findings remain, mostly `@typescript-eslint/no-explicit-any`,
   plus five `<img>` tags that should become `next/image`
 - `getPrivacyDescription()` in `lib/utils/privacy.ts` ignores per-group
