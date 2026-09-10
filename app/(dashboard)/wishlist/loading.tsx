@@ -1,32 +1,31 @@
+// Mirrors app/(dashboard)/wishlist/page.tsx: a max-w-4xl column of full-width
+// item cards, not the max-w-6xl three-column grid this used to describe.
 export default function WishlistLoading() {
   return (
-    <div className="max-w-6xl mx-auto space-y-8 animate-pulse">
-      {/* Header Skeleton */}
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="h-9 bg-muted rounded w-40 mb-2" />
-          <div className="h-4 bg-muted rounded w-64" />
+    <div className="mx-auto flex max-w-4xl animate-pulse flex-col gap-6 p-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <div className="h-9 w-44 rounded bg-muted" />
+          <div className="h-5 w-64 max-w-full rounded bg-muted" />
         </div>
-        <div className="h-10 bg-muted rounded w-36" />
+        <div className="h-10 w-32 rounded bg-muted" />
       </div>
 
-      {/* Wishlist Items Grid Skeleton */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {[1, 2, 3, 4, 5, 6].map((i) => (
-          <div key={i} className="p-4 rounded-lg border border-light-border bg-white">
+      <div className="flex flex-col gap-4">
+        {[1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className="rounded-lg border border-light-border bg-light-background p-4"
+          >
             <div className="flex gap-4">
-              {/* Image skeleton */}
-              <div className="w-24 h-24 bg-muted rounded-md flex-shrink-0" />
-
-              {/* Content skeleton */}
-              <div className="flex-1 min-w-0 space-y-2">
-                <div className="h-5 bg-muted rounded w-full" />
-                <div className="h-4 bg-muted rounded w-3/4" />
-                <div className="h-4 bg-muted rounded w-1/2" />
-
-                <div className="flex items-center gap-2">
-                  <div className="h-3 bg-muted rounded w-16" />
-                  <div className="h-3 bg-muted rounded w-12" />
+              <div className="h-24 w-24 shrink-0 rounded-md bg-muted" />
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <div className="h-6 w-1/2 rounded bg-muted" />
+                <div className="h-4 w-3/4 rounded bg-muted" />
+                <div className="flex flex-wrap gap-4 pt-1">
+                  <div className="h-4 w-20 rounded bg-muted" />
+                  <div className="h-4 w-16 rounded bg-muted" />
+                  <div className="h-4 w-28 rounded bg-muted" />
                 </div>
               </div>
             </div>
