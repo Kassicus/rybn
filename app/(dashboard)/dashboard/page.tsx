@@ -69,15 +69,11 @@ export default async function DashboardPage() {
   // Limit to 3 items for preview
   const previewGiftExchanges = exchangesWithData;
 
-  const quickActions = [
-    { href: "/gifts/create", label: "Create group gift", icon: Gift },
-    { href: "/gift-exchange/create", label: "Start gift exchange", icon: Calendar },
-    { href: "/wishlist/add", label: "Add to wishlist", icon: ListPlus },
-  ];
-
   const navTiles = [
     {
       href: "/groups",
+      createHref: "/groups/create",
+      createLabel: "New group",
       title: "Groups",
       icon: Users,
       well: "bg-primary-50",
@@ -86,6 +82,8 @@ export default async function DashboardPage() {
     },
     {
       href: "/gifts",
+      createHref: "/gifts/create",
+      createLabel: "New gift",
       title: "Group Gifts",
       icon: Gift,
       well: "bg-accent-tint",
@@ -94,6 +92,8 @@ export default async function DashboardPage() {
     },
     {
       href: "/gift-tracker",
+      createHref: "/gift-tracker/add-recipient",
+      createLabel: "Add recipient",
       title: "Gift Tracker",
       icon: Package,
       well: "bg-gold-tint",
@@ -104,6 +104,8 @@ export default async function DashboardPage() {
     },
     {
       href: "/gift-exchange",
+      createHref: "/gift-exchange/create",
+      createLabel: "New exchange",
       title: "Exchanges",
       icon: Calendar,
       well: "bg-accent-tint",
@@ -112,6 +114,8 @@ export default async function DashboardPage() {
     },
     {
       href: "/wishlist",
+      createHref: "/wishlist/add",
+      createLabel: "Add item",
       title: "My Wishlist",
       icon: ListPlus,
       well: "bg-primary-50",
@@ -135,52 +139,49 @@ export default async function DashboardPage() {
         }}
       />
 
-      {/* Quick actions. Compact and filled rather than 96px outlined boxes:
-          they sit above a five-card grid, so they have to read as a denser
-          row of verbs, not compete with it. */}
-      <div className="flex flex-col gap-4">
-        <Heading level="h3" className="font-display">
-          Quick Actions
-        </Heading>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {quickActions.map((action) => (
-            <Link
-              key={action.href}
-              href={action.href}
-              className="group flex items-center gap-3 rounded-md border border-light-border bg-light-background p-4 transition-colors hover:border-primary hover:bg-light-background-hover"
-            >
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm bg-primary-50">
-                <action.icon className="h-5 w-5 text-primary" />
-              </span>
-              <Text className="font-semibold">{action.label}</Text>
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      {/* Navigation grid. Wells are limited to the three palette families --
-          evergreen, cranberry, gold -- rather than one hue per tile: the old
-          grid ran success/warning/purple/error/primary, and purple was not in
-          the palette at all. */}
+      {/* One navigation block, not two. Each card IS the destination and
+          carries its own create action, so the old "Quick Actions" row --
+          which offered three of these same five destinations a second time --
+          is gone. */}
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
         {navTiles.map((tile) => (
-          <Link key={tile.href} href={tile.href} className="group">
-            <div className="flex h-full flex-col items-start gap-5 rounded-lg border border-light-border bg-light-background p-6 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary hover:shadow-md">
-              <div className={cn("flex h-12 w-12 items-center justify-center rounded-md", tile.well)}>
-                <tile.icon className={cn("h-6 w-6", tile.stroke)} />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Heading as="h2" level="h4" className="font-display">
-                  {tile.title}
-                </Heading>
-                <Text variant="secondary">{tile.detail}</Text>
-              </div>
-              <div className="mt-auto flex items-center gap-1.5">
-                <Text className="font-semibold text-accent">View all</Text>
-                <ArrowRight className="h-4 w-4 text-accent" />
-              </div>
+          <div
+            key={tile.href}
+            className="group relative flex h-full flex-col items-start gap-5 rounded-lg border border-light-border bg-light-background p-6 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus-within:border-primary"
+          >
+            <div className={cn("flex h-12 w-12 items-center justify-center rounded-md", tile.well)}>
+              <tile.icon className={cn("h-6 w-6", tile.stroke)} />
             </div>
-          </Link>
+
+            <div className="flex flex-col gap-1.5">
+              <Heading as="h2" level="h4" className="font-display">
+                {/* Stretched link: the pseudo-element covers the whole card so
+                    it stays one big target, while the create action below sits
+                    above it on z-index and remains separately clickable. */}
+                <Link
+                  href={tile.href}
+                  className="rounded-sm after:absolute after:inset-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  {tile.title}
+                </Link>
+              </Heading>
+              <Text variant="secondary">{tile.detail}</Text>
+            </div>
+
+            <div className="mt-auto flex w-full items-center justify-between gap-3">
+              <span className="flex items-center gap-1.5 text-accent">
+                <Text className="font-semibold text-accent">View all</Text>
+                <ArrowRight className="h-4 w-4" />
+              </span>
+              <Link
+                href={tile.createHref}
+                className="relative z-10 flex items-center gap-1 rounded-sm px-2 py-1 text-sm font-semibold text-ink-soft transition-colors hover:bg-light-background-hover hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                <Plus className="h-4 w-4" />
+                {tile.createLabel}
+              </Link>
+            </div>
+          </div>
         ))}
       </div>
 
