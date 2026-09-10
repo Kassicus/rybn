@@ -97,6 +97,19 @@ export async function ensureProfile(): Promise<string | null> {
   // DO NOTHING does not cover that arbiter. Without this retry the user would
   // be left with no profile row at all, which breaks every page.
   if (error?.code === "23505") {
+    // Nothing else records this. The user silently ends up with a generated
+    // name and the interface never tells them why, so without this line the
+    // only evidence is a user_xxxxxxxx username -- with no way to tell whether
+    // Clerk's username was taken or simply absent when this ran.
+    //
+    // Worth knowing when reading it: the colliding row is not necessarily
+    // another live user. An abandoned profile still holds its username, so a
+    // person can collide with an account they themselves no longer use.
+    console.warn(
+      `ensureProfile: username "${row.username}" is already taken, using ` +
+        `"${fallbackUsername(userId)}" for ${userId} instead`
+    );
+
     ({ data: created, error } = await admin
       .from("user_profiles")
       .upsert(
