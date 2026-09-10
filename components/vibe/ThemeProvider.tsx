@@ -1,19 +1,16 @@
 "use client";
 
 import { ThemeProvider as NextThemesProvider } from "next-themes";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode } from "react";
+import { useHydrated } from "@/hooks/useHydrated";
 
 interface RybnThemeProviderProps {
   children: ReactNode;
 }
 
 export function RybnThemeProvider({ children }: RybnThemeProviderProps) {
-  const [mounted, setMounted] = useState(false);
-
   // Prevent hydration mismatch
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useHydrated();
 
   if (!mounted) {
     return <div suppressHydrationWarning>{children}</div>;

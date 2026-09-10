@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { Search, X, Loader2 } from "lucide-react";
 import { useSearch } from "@/hooks/useSearch";
 import { SearchResults } from "./SearchResults";
@@ -28,15 +28,6 @@ export function SearchBar({
     isEmpty,
   } = useSearch();
 
-  // Open dropdown when there's a query and results or loading
-  useEffect(() => {
-    if (query.length >= 2) {
-      setIsOpen(true);
-    } else {
-      setIsOpen(false);
-    }
-  }, [query, results]);
-
   const handleClear = () => {
     setQuery("");
     setIsOpen(false);
@@ -44,7 +35,12 @@ export function SearchBar({
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setQuery(e.target.value);
+    const value = e.target.value;
+    setQuery(value);
+    // Deciding this here rather than in an effect makes dismissal stick. The
+    // effect also reran when `results` arrived, so a dropdown the user had
+    // just closed reopened underneath them the moment the search resolved.
+    setIsOpen(value.length >= 2);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { UserPlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -55,12 +55,6 @@ export function MemberManager({
     }
   }, [groupGiftId]);
 
-  useEffect(() => {
-    if (showAddModal && isCreator) {
-      loadAvailableUsers();
-    }
-  }, [showAddModal, isCreator, loadAvailableUsers]);
-
   const handleToggleUser = (userId: string) => {
     setSelectedUserIds((prev) =>
       prev.includes(userId)
@@ -97,7 +91,14 @@ export function MemberManager({
           <Button
             variant="secondary"
             size="small"
-            onClick={() => setShowAddModal(true)}
+            onClick={() => {
+              setShowAddModal(true);
+              // Opening the modal is an event, and this button is the only
+              // thing that opens it, so the load belongs here. This button is
+              // already inside `isCreator &&`, which is why the guard the
+              // effect carried is not repeated.
+              loadAvailableUsers();
+            }}
           >
             <UserPlus className="w-4 h-4" />
             Add Members

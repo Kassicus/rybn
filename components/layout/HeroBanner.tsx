@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useHydrated } from "@/hooks/useHydrated";
 import { Heading, Text } from "@/components/ui/text";
 import { Gift, Calendar, Users } from "lucide-react";
 
@@ -14,11 +14,9 @@ interface HeroBannerProps {
 }
 
 export function HeroBanner({ userName, stats }: HeroBannerProps) {
-  const [greeting, setGreeting] = useState("Hello");
-
-  useEffect(() => {
-    setGreeting(getGreeting());
-  }, []);
+  // getGreeting() reads the clock, so it cannot run while rendering on the
+  // server: the two sides can straddle a boundary like noon and disagree.
+  const greeting = useHydrated() ? getGreeting() : "Hello";
 
   return (
     <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-8 mb-8 border border-primary/20">

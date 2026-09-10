@@ -2,16 +2,14 @@
 
 import { useTheme } from "next-themes";
 import { Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useHydrated } from "@/hooks/useHydrated";
 
 export function ThemeToggle() {
-  const [mounted, setMounted] = useState(false);
+  // Rendering nothing until hydration keeps the server markup (which cannot
+  // know the theme) from disagreeing with the client.
+  const mounted = useHydrated();
   const { theme, setTheme } = useTheme();
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   if (!mounted) {
     return null;

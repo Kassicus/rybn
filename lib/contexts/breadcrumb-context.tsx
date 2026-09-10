@@ -5,8 +5,6 @@ import {
   useContext,
   useState,
   useCallback,
-  useEffect,
-  useRef,
   ReactNode,
 } from "react";
 import { usePathname } from "next/navigation";
@@ -31,7 +29,16 @@ export function BreadcrumbProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<BreadcrumbItem[]>([]);
   const [history, setHistory] = useState<BreadcrumbItem[]>([]);
   const pathname = usePathname();
-  const lastPathRef = useRef<string | null>(null);
+  // Reset the trail when the user lands back on the dashboard. Adjusting
+  // during render rather than from an effect: React re-runs this component
+  // before committing, so children never paint a frame of stale history.
+  const [lastPath, setLastPath] = useState(pathname);
+  if (pathname !== lastPath) {
+    setLastPath(pathname);
+    if (pathname === "/dashboard") {
+      setHistory([]);
+    }
+  }
 
   // Track navigation history based on actual route changes
   const registerPage = useCallback((item: BreadcrumbItem) => {
@@ -53,14 +60,6 @@ export function BreadcrumbProvider({ children }: { children: ReactNode }) {
       return [...prev, item];
     });
   }, []);
-
-  // Clear history when navigating to dashboard (root)
-  useEffect(() => {
-    if (pathname === "/dashboard" && lastPathRef.current !== "/dashboard") {
-      setHistory([]);
-    }
-    lastPathRef.current = pathname;
-  }, [pathname]);
 
   const setBreadcrumbs = useCallback((newItems: BreadcrumbItem[]) => {
     setItems(newItems);
