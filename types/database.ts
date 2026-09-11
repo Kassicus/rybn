@@ -995,6 +995,29 @@ export type Database = {
         }
         Returns: string
       }
+      // Every occasion the CALLER may see within p_days_ahead days. Takes NO
+      // viewer parameter -- pins to requesting_user_id() internally, the same
+      // defence join_group_with_code/accept_group_invitation use. See
+      // supabase/migrations/20260910100002_occasions_derivation.sql. Missed
+      // when that migration landed; added here so lib/actions/occasions.ts's
+      // supabase.rpc() call type-checks against an actual declared function
+      // instead of silently widening to `any`.
+      get_upcoming_occasions: {
+        Args: {
+          p_days_ahead?: number
+        }
+        Returns: {
+          occasion_id: string | null
+          kind: "birthday" | "anniversary" | "group_date"
+          name: string | null
+          occasion_date: string
+          celebrant_id: string | null
+          celebrant_username: string | null
+          celebrant_display_name: string | null
+          group_id: string | null
+          group_name: string | null
+        }[]
+      }
     }
     Enums: {
       group_type: "family" | "friends" | "work" | "custom"
