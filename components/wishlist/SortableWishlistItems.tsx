@@ -16,13 +16,6 @@ import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import type { GroupType } from "@/types/privacy";
 import { partitionByOccasion } from "@/lib/occasions/order";
 
-interface ClaimerInfo {
-  id: string;
-  username: string;
-  display_name?: string | null;
-  avatar_url?: string | null;
-}
-
 interface WishlistItem {
   id: string;
   title: string;
@@ -39,14 +32,33 @@ interface WishlistItem {
     visibleToGroupTypes: GroupType[];
     restrictToGroup?: string | null;
   };
-  claimed_by?: string | null;
   purchased?: boolean;
+}
+
+/** Per-item claim state, from getActiveClaims() (lib/actions/claims.ts) plus
+ *  a display label the page resolves separately -- getActiveClaims itself
+ *  returns { claimedBy, occasionId }, not a name or a label. Keyed by item
+ *  id, same convention as getActiveClaims's own return shape. */
+interface ItemClaim {
+  claimedBy: string;
+  /** e.g. "Mom's Birthday", resolved by the page via occasionLabel().
+   *  Null for an unscoped claim. */
+  occasionLabel: string | null;
 }
 
 interface SortableWishlistItemsProps {
   items: WishlistItem[];
   currentUserId?: string;
-  claimerProfiles?: Record<string, ClaimerInfo>;
+  /** Every ACTIVE claim among `items`, keyed by item id. Never supplied on
+   *  the owner's own list -- this component is only ever used on
+   *  /wishlist/user/[userId], a viewer's page. */
+  claims?: Record<string, ItemClaim>;
+  /** The wishlist OWNER's id and the birthday/anniversary currently in
+   *  view -- the occasion a NEW claim would be scoped to. occasionKind:
+   *  null means claim unscoped (no occasion in view). Forwarded to every
+   *  card's ClaimActions. */
+  celebrantId?: string | null;
+  occasionKind?: "birthday" | "anniversary" | null;
   /**
    * Item ids tagged for the ONE occasion currently in view -- already run
    * through itemsTaggedFor() (lib/occasions/order.ts) at the page level, so
@@ -82,7 +94,9 @@ const PRIORITY_ORDER: Record<string, number> = {
 export function SortableWishlistItems({
   items,
   currentUserId,
-  claimerProfiles = {},
+  claims = {},
+  celebrantId = null,
+  occasionKind = null,
   occasionTaggedIds = new Set<string>(),
   occasionLabel,
   occasionId = null,
@@ -161,22 +175,28 @@ export function SortableWishlistItems({
     [sortedItems, hasOccasionGrouping, occasionTaggedIds]
   );
 
-  const renderCard = (item: WishlistItem) => (
-    <WishlistItemCard
-      key={item.id}
-      item={item as any}
-      isOwnWishlist={false}
-      currentUserId={currentUserId}
-      claimerInfo={item.claimed_by ? claimerProfiles[item.claimed_by] : null}
-      viewedOccasionId={occasionId}
-      viewedOccasionLabel={occasionLabel ?? null}
-      // The same membership test partitionByOccasion used to place this item
-      // in taggedForOccasion vs. everythingElse above -- reused here rather
-      // than shipping the item's full tag-id array down to the card just so
-      // it can check membership in one of them itself (Minor 9).
-      taggedForViewedOccasion={occasionTaggedIds.has(item.id)}
-    />
-  );
+  const renderCard = (item: WishlistItem) => {
+    const claim = claims[item.id];
+    return (
+      <WishlistItemCard
+        key={item.id}
+        item={item as any}
+        isOwnWishlist={false}
+        currentUserId={currentUserId}
+        claimedBy={claim?.claimedBy ?? null}
+        claimedOccasionLabel={claim?.occasionLabel ?? null}
+        celebrantId={celebrantId}
+        occasionKind={occasionKind}
+        viewedOccasionId={occasionId}
+        viewedOccasionLabel={occasionLabel ?? null}
+        // The same membership test partitionByOccasion used to place this item
+        // in taggedForOccasion vs. everythingElse above -- reused here rather
+        // than shipping the item's full tag-id array down to the card just so
+        // it can check membership in one of them itself (Minor 9).
+        taggedForViewedOccasion={occasionTaggedIds.has(item.id)}
+      />
+    );
+  };
 
   // Shared by every list this component renders (the flat/no-occasion case,
   // and both occasion partitions): category grouping is a presentation

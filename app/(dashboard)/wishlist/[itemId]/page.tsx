@@ -9,19 +9,15 @@ import { Separator } from "@/components/ui/separator";
 import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { WishlistItemSettings } from "@/components/wishlist/WishlistItemSettings";
 import { ClaimActions } from "@/components/wishlist/ClaimActions";
-import { getWishlistItem, getClaimerProfile } from "@/lib/actions/wishlist";
+import { getWishlistItem } from "@/lib/actions/wishlist";
+import { getActiveClaims } from "@/lib/actions/claims";
+import { getUpcomingOccasions } from "@/lib/actions/occasions";
+import { occasionLabel } from "@/lib/occasions/display";
 import { PRIORITY_INFO } from "@/lib/schemas/wishlist";
 import { cn } from "@/lib/utils";
 import { SIGNED_IMAGE_REFRESH_MS } from "@/lib/storage/image-value";
 import { GROUP_TYPES } from "@/types/privacy";
 import type { GroupType } from "@/types/privacy";
-
-interface ClaimerInfo {
-  id: string;
-  username: string;
-  display_name?: string | null;
-  avatar_url?: string | null;
-}
 
 interface WishlistItem {
   id: string;
@@ -40,7 +36,6 @@ interface WishlistItem {
     visibleToGroupTypes: GroupType[];
     restrictToGroup?: string | null;
   };
-  claimed_by?: string | null;
   purchased?: boolean;
   out_of_stock_marked_by?: string | null;
 }
@@ -68,7 +63,15 @@ export default function WishlistItemDetailPage({
   const [loading, setLoading] = useState(true);
   const [isOwnWishlist, setIsOwnWishlist] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [claimerInfo, setClaimerInfo] = useState<ClaimerInfo | null>(null);
+  // Claim state lives on public.wishlist_claims now (Task 4 dropped
+  // wishlist_items.claimed_by/claimed_at); getActiveClaims() is the
+  // replacement read path. claimedOccasionLabel is resolved separately --
+  // getActiveClaims returns { claimedBy, occasionId }, not a label -- and is
+  // null both for an unscoped claim and for "no claim active."
+  const [claimedBy, setClaimedBy] = useState<string | null>(null);
+  const [claimedOccasionLabel, setClaimedOccasionLabel] = useState<
+    string | null
+  >(null);
   const router = useRouter();
 
   // When the data on screen was last successfully replaced, and whether a load
@@ -127,16 +130,49 @@ export default function WishlistItemDetailPage({
         lastLoadRef.current = Date.now();
         setItem(itemData as any);
         setCurrentUserId(userId);
-        setIsOwnWishlist(itemData.user_id === userId);
+        const ownItem = itemData.user_id === userId;
+        setIsOwnWishlist(ownItem);
 
-        // Fetch claimer info if claimed and not own item
-        if (itemData.claimed_by && itemData.user_id !== userId) {
-          const { data: claimer } = await getClaimerProfile(itemData.claimed_by);
-          if (claimer) {
-            setClaimerInfo(claimer);
-          }
+        // Never even ask when the viewer IS the owner: RLS returns no
+        // claims on your own items anyway, but a call that always comes
+        // back {} is a call somebody later "fixes" by widening the policy
+        // (same reasoning as the user-wishlist page's own getActiveClaims
+        // call).
+        if (ownItem) {
+          setClaimedBy(null);
+          setClaimedOccasionLabel(null);
         } else {
-          setClaimerInfo(null);
+          const claimsResult = await getActiveClaims([itemData.id]);
+          const claim =
+            "data" in claimsResult ? claimsResult.data[itemData.id] : undefined;
+
+          if (!claim) {
+            setClaimedBy(null);
+            setClaimedOccasionLabel(null);
+          } else {
+            setClaimedBy(claim.claimedBy);
+
+            if (!claim.occasionId) {
+              setClaimedOccasionLabel(null);
+            } else {
+              // Same 60-day horizon and justification as
+              // /wishlist/user/[userId]/page.tsx's own getUpcomingOccasions
+              // call: this reader is a GIVER looking at somebody else's
+              // item. An active (non-lapsed) claim's occasion date only
+              // ever gets closer over time from whenever it was scoped, and
+              // scoping only ever happens through that same 60-day-wide
+              // view, so the occasion is still inside this window here.
+              const { data: occasions = [] } = await getUpcomingOccasions(60);
+              const claimedOccasion = occasions.find(
+                (occasion) =>
+                  occasion.occasionId === claim.occasionId &&
+                  occasion.celebrantId === itemData.user_id
+              );
+              setClaimedOccasionLabel(
+                claimedOccasion ? occasionLabel(claimedOccasion) : null
+              );
+            }
+          }
         }
 
         setLoading(false);
@@ -225,9 +261,11 @@ export default function WishlistItemDetailPage({
           <div className="flex-1">
             <div className="flex items-center gap-3 mb-2">
               <Heading level="h1">{item.title}</Heading>
-              {item.claimed_by && !isOwnWishlist && (
+              {claimedBy && !isOwnWishlist && (
                 <span className="px-2 py-1 rounded text-sm bg-success-light text-success">
-                  Claimed
+                  {claimedOccasionLabel
+                    ? `Claimed for ${claimedOccasionLabel}`
+                    : "Claimed"}
                 </span>
               )}
               {item.purchased && !isOwnWishlist && (
@@ -315,11 +353,18 @@ export default function WishlistItemDetailPage({
         {!isOwnWishlist && currentUserId && (
           <ClaimActions
             itemId={item.id}
-            claimedBy={item.claimed_by || null}
+            claimedBy={claimedBy}
             purchased={item.purchased || false}
             outOfStockMarkedBy={item.out_of_stock_marked_by || null}
             currentUserId={currentUserId}
-            claimerInfo={claimerInfo}
+            // This standalone item page has no "occasion in view" concept
+            // (no occasion selector the way the user-wishlist page has) --
+            // a claim made from here is always UNSCOPED. celebrantId is
+            // inert whenever kind is null, but claimItem() still requires a
+            // value, so the item's real owner is passed for clarity.
+            celebrantId={item.user_id}
+            kind={null}
+            claimedOccasionLabel={claimedOccasionLabel}
             variant="detail"
             itemData={{
               title: item.title,

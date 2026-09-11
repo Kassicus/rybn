@@ -1,6 +1,7 @@
 import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getUserWishlist, getClaimerProfiles } from "@/lib/actions/wishlist";
+import { getUserWishlist } from "@/lib/actions/wishlist";
+import { getActiveClaims } from "@/lib/actions/claims";
 import { getSharedGroups } from "@/lib/actions/profile";
 import { getUpcomingOccasions } from "@/lib/actions/occasions";
 import { getTagsForItems } from "@/lib/actions/item-occasions";
@@ -111,8 +112,11 @@ export default async function UserWishlistPage({
     occasions.find((occasion) => occasion.celebrantId === userId) ?? null;
   // theirOccasion, when set, is always "birthday" | "anniversary" -- see the
   // OCCASION_ICON comment above.
-  const TheirOccasionIcon = theirOccasion
-    ? OCCASION_ICON[theirOccasion.kind as "birthday" | "anniversary"]
+  const theirOccasionKind = theirOccasion
+    ? (theirOccasion.kind as "birthday" | "anniversary")
+    : null;
+  const TheirOccasionIcon = theirOccasionKind
+    ? OCCASION_ICON[theirOccasionKind]
     : null;
 
   // Get the user's wishlist (RLS will filter based on privacy)
@@ -126,12 +130,63 @@ export default async function UserWishlistPage({
     );
   }
 
-  // Fetch claimer profiles for all claimed items
-  const claimedByIds = items
-    ?.filter((item: any) => item.claimed_by)
-    .map((item: any) => item.claimed_by as string) || [];
-  const uniqueClaimerIds = [...new Set(claimedByIds)];
-  const { data: claimerProfiles } = await getClaimerProfiles(uniqueClaimerIds);
+  const itemIds = (items ?? []).map((item) => item.id as string);
+
+  // Every ACTIVE claim among this list's items, keyed by item id. Task 4
+  // dropped wishlist_items.claimed_by/claimed_at; Task 5's getClaimerProfile(s)
+  // went with them. getActiveClaims() is their replacement -- it returns
+  // { claimedBy, occasionId } per item rather than a claimer id -> profile
+  // map, and does NOT bundle the claimer's profile the way
+  // getClaimerProfiles() used to (see itemClaims below for the deliberate
+  // decision that follows from that).
+  //
+  // This is the one call on this page it would be a bug to make on the
+  // OWNER's own list: RLS already returns nothing there, but calling it
+  // anyway is the kind of call somebody later "fixes" by widening the
+  // policy. This page only ever renders another user's wishlist (the
+  // viewerId === userId redirect above sends an owner back to /wishlist
+  // before this point), so that case cannot reach here.
+  const claimsResult = await getActiveClaims(itemIds);
+  const activeClaims = "data" in claimsResult ? claimsResult.data : {};
+
+  // Every occasion belonging to THIS celebrant that the viewer can see
+  // within the 60-day window above, keyed by occasion id -- both birthday
+  // and anniversary, not just theirOccasion (the sooner of the two, if both
+  // are upcoming). A claim's occasion is created via
+  // get_or_create_celebrated_occasion(celebrantId: userId, kind), so its
+  // celebrant is always this page's userId; its date only ever gets closer
+  // over time (or the claim self-heals as lapsed and getActiveClaims drops
+  // it), so an occasion scoped while inside this 60-day window stays inside
+  // it for as long as the claim stays active.
+  const theirOccasionsById = new Map(
+    occasions
+      .filter(
+        (occasion): occasion is typeof occasion & { occasionId: string } =>
+          occasion.celebrantId === userId && occasion.occasionId !== null
+      )
+      .map((occasion) => [occasion.occasionId, occasion] as const)
+  );
+
+  // Decision (see task-6-report.md): getActiveClaims does not bundle the
+  // claimer's profile the way getClaimerProfiles() used to, and this app
+  // shows "Claimed for Mom's Birthday" rather than "Jane is getting this" --
+  // the claimer's identity is dropped rather than resolved through a second
+  // profile lookup. What IS resolved here is the occasion label, from data
+  // this page already has in hand (occasions, fetched above) rather than a
+  // new round trip.
+  const itemClaims: Record<
+    string,
+    { claimedBy: string; occasionLabel: string | null }
+  > = {};
+  for (const [itemId, claim] of Object.entries(activeClaims)) {
+    const occasion = claim.occasionId
+      ? theirOccasionsById.get(claim.occasionId)
+      : undefined;
+    itemClaims[itemId] = {
+      claimedBy: claim.claimedBy,
+      occasionLabel: occasion ? occasionLabel(occasion) : null,
+    };
+  }
 
   // Task 5: which items are tagged for the ONE occasion in view
   // (theirOccasion, found above) -- never "which items have any tag at
@@ -157,8 +212,8 @@ export default async function UserWishlistPage({
   // every item's full occasion-id array to the browser would be more than a
   // viewer's card needs: each card only ever asks "am I tagged for the ONE
   // occasion in view", which occasionTaggedIds (a Set of item ids) already
-  // answers per item (Minor 9 of the final review).
-  const itemIds = (items ?? []).map((item) => item.id as string);
+  // answers per item (Minor 9 of the final review). itemIds is computed
+  // above, alongside getActiveClaims.
   const tagsResult = await getTagsForItems(itemIds);
   const tagsByItemId: Record<string, string[]> =
     "data" in tagsResult ? tagsResult.data : {};
@@ -256,7 +311,9 @@ export default async function UserWishlistPage({
         <SortableWishlistItems
           items={items as any}
           currentUserId={currentUserId}
-          claimerProfiles={claimerProfiles || {}}
+          claims={itemClaims}
+          celebrantId={userId}
+          occasionKind={theirOccasionKind}
           occasionTaggedIds={occasionTaggedIds}
           occasionLabel={theirOccasion ? occasionLabel(theirOccasion) : undefined}
           occasionId={theirOccasion?.occasionId ?? null}

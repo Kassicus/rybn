@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Select,
   SelectContent,
@@ -13,23 +12,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  claimWishlistItem,
-  unclaimWishlistItem,
   markAsPurchased,
   markOutOfStock,
   unmarkOutOfStock,
 } from "@/lib/actions/wishlist";
+import { claimItem, releaseClaim } from "@/lib/actions/claims";
 import { getMyRecipients } from "@/lib/actions/gift-tracking";
 import { createGift } from "@/lib/actions/gift-tracking";
 import { isExternalImageUrl } from "@/lib/storage/image-value";
 import { Gift, Check, X, ShoppingBag, ClipboardList, Plus, AlertTriangle } from "lucide-react";
-
-interface ClaimerInfo {
-  id: string;
-  username: string;
-  display_name?: string | null;
-  avatar_url?: string | null;
-}
 
 interface WishlistItemData {
   title: string;
@@ -102,7 +93,28 @@ interface ClaimActionsProps {
   purchased: boolean;
   outOfStockMarkedBy: string | null;
   currentUserId: string;
-  claimerInfo?: ClaimerInfo | null;
+  /**
+   * The occasion this claim ACTION would be scoped to if the viewer claims
+   * this item right now -- the wishlist owner's id and the birthday/
+   * anniversary currently in view, computed by the page (see
+   * app/(dashboard)/wishlist/user/[userId]/page.tsx's `theirOccasion`).
+   * `kind: null` means no occasion is in view -- the standalone item detail
+   * page has no "occasion in view" concept at all, so it always passes null
+   * here. claimItem() then claims UNSCOPED, which never auto-releases: the
+   * honest behaviour when nobody can say what occasion it is for.
+   * celebrantId is unused by claimItem() whenever kind is null, but is
+   * still a required value -- callers with no real occasion in view may
+   * pass any string, since it is inert in that case.
+   */
+  celebrantId: string;
+  kind: "birthday" | "anniversary" | null;
+  /**
+   * Label for the occasion an EXISTING claim (by someone else, or by the
+   * current viewer) was made for -- e.g. "Mom's Birthday" -- resolved by the
+   * caller via occasionLabel(), independently of `kind`/`celebrantId` above.
+   * Null for an unscoped claim, or when no claim is active.
+   */
+  claimedOccasionLabel?: string | null;
   variant?: "card" | "detail";
   itemData?: WishlistItemData;
 }
@@ -113,7 +125,9 @@ export function ClaimActions({
   purchased,
   outOfStockMarkedBy,
   currentUserId,
-  claimerInfo,
+  celebrantId,
+  kind,
+  claimedOccasionLabel = null,
   variant = "card",
   itemData,
 }: ClaimActionsProps) {
@@ -149,8 +163,11 @@ export function ClaimActions({
   const handleClaim = async () => {
     setIsLoading(true);
     setError(null);
-    const result = await claimWishlistItem(itemId);
-    if (result.error) {
+    // The RPC's own error message is surfaced verbatim -- it is already
+    // written for the person reading it ("somebody has already claimed
+    // that item", "that item has already been purchased").
+    const result = await claimItem(itemId, celebrantId, kind);
+    if ("error" in result) {
       setError(result.error);
     } else {
       // Show gift tracker option after successful claim
@@ -191,8 +208,11 @@ export function ClaimActions({
   const handleUnclaim = async () => {
     setIsLoading(true);
     setError(null);
-    const result = await unclaimWishlistItem(itemId);
-    if (result.error) {
+    const result = await releaseClaim(itemId);
+    // { ok: false } (nothing of the caller's left to release) is not
+    // exceptional -- see releaseClaim's own doc comment -- so only
+    // `error` surfaces here.
+    if ("error" in result) {
       setError(result.error);
     }
     setIsLoading(false);
@@ -221,16 +241,6 @@ export function ClaimActions({
     }
     setIsStockLoading(false);
     router.refresh();
-  };
-
-  const getClaimerDisplayName = () => {
-    if (!claimerInfo) return "Someone";
-    return claimerInfo.display_name || claimerInfo.username || "Someone";
-  };
-
-  const getClaimerInitial = () => {
-    const name = getClaimerDisplayName();
-    return name.charAt(0).toUpperCase();
   };
 
   // Compact variant for card view
@@ -432,17 +442,13 @@ export function ClaimActions({
 
         {isClaimedByOther && (
           <div className="flex items-center gap-1.5 text-sm text-light-text-secondary">
-            <Avatar className="w-5 h-5">
-              {claimerInfo?.avatar_url && (
-                <AvatarImage src={claimerInfo.avatar_url} />
-              )}
-              <AvatarFallback className="text-xs">
-                {getClaimerInitial()}
-              </AvatarFallback>
-            </Avatar>
+            <Gift className="w-4 h-4" />
             <span>
-              {getClaimerDisplayName()}{" "}
-              {purchased ? "purchased this" : "is getting this"}
+              {purchased
+                ? "Purchased"
+                : claimedOccasionLabel
+                ? `Claimed for ${claimedOccasionLabel}`
+                : "Claimed"}
             </span>
           </div>
         )}
@@ -592,18 +598,17 @@ export function ClaimActions({
 
       {isClaimedByOther && (
         <div className="flex items-center gap-3">
-          <Avatar className="w-8 h-8">
-            {claimerInfo?.avatar_url && (
-              <AvatarImage src={claimerInfo.avatar_url} />
-            )}
-            <AvatarFallback>{getClaimerInitial()}</AvatarFallback>
-          </Avatar>
+          <Gift className="w-5 h-5 text-light-text-secondary" />
           <div>
             <Text size="sm" className="font-medium">
-              {getClaimerDisplayName()}
+              {claimedOccasionLabel
+                ? `Claimed for ${claimedOccasionLabel}`
+                : "Claimed"}
             </Text>
             <Text variant="secondary" size="sm">
-              {purchased ? "has purchased this item" : "is getting this gift"}
+              {purchased
+                ? "has been purchased"
+                : "someone else is getting this gift"}
             </Text>
           </div>
         </div>

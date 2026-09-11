@@ -11,13 +11,6 @@ import { ItemOccasionTags } from "./ItemOccasionTags";
 import type { UpcomingOccasion } from "@/lib/occasions/display";
 import { cn } from "@/lib/utils";
 
-interface ClaimerInfo {
-  id: string;
-  username: string;
-  display_name?: string | null;
-  avatar_url?: string | null;
-}
-
 interface WishlistItem {
   id: string;
   title: string;
@@ -35,7 +28,6 @@ interface WishlistItem {
     visibleToGroupTypes: GroupType[];
     restrictToGroup?: string | null;
   };
-  claimed_by?: string | null;
   purchased?: boolean;
   out_of_stock_marked_by?: string | null;
 }
@@ -44,7 +36,33 @@ interface WishlistItemCardProps {
   item: WishlistItem;
   isOwnWishlist?: boolean;
   currentUserId?: string;
-  claimerInfo?: ClaimerInfo | null;
+  /**
+   * The id of whoever holds the active claim on this item, from
+   * getActiveClaims() -- never supplied on the owner's own list (RLS
+   * returns no claims there, and this card must not assume that rather
+   * than being handed it explicitly). Task 5 dropped
+   * wishlist_items.claimed_by; this is its replacement, resolved by the
+   * page/SortableWishlistItems rather than read off the item row.
+   */
+  claimedBy?: string | null;
+  /**
+   * Label for the occasion the active claim was made for (e.g. "Mom's
+   * Birthday"), resolved by the caller via occasionLabel() against
+   * getActiveClaims()'s occasionId -- getActiveClaims itself does not
+   * bundle this. Null for an unscoped claim, or when there is no active
+   * claim.
+   */
+  claimedOccasionLabel?: string | null;
+  /**
+   * The wishlist OWNER's id and the birthday/anniversary currently in view
+   * (see viewedOccasionId/Label below for the display counterpart) -- the
+   * occasion a NEW claim on this item would be scoped to. Forwarded
+   * straight through to ClaimActions; occasionKind: null means claim
+   * unscoped. Never supplied on the owner's own list, where claiming does
+   * not apply.
+   */
+  celebrantId?: string | null;
+  occasionKind?: "birthday" | "anniversary" | null;
   /** Occasion ids this item is tagged for. Empty array, never undefined, so
       the card never has to distinguish "no tags" from "tags not loaded".
       Only ever consumed by ItemOccasionTags on the OWNER's own list (chip
@@ -80,7 +98,10 @@ export function WishlistItemCard({
   item,
   isOwnWishlist = false,
   currentUserId,
-  claimerInfo,
+  claimedBy = null,
+  claimedOccasionLabel = null,
+  celebrantId = null,
+  occasionKind = null,
   taggedOccasionIds = [],
   availableOccasions,
   viewedOccasionId = null,
@@ -162,9 +183,11 @@ export function WishlistItemCard({
                     <Text className="font-display font-semibold text-lg truncate">
                       {item.title}
                     </Text>
-                    {item.claimed_by && !isOwnWishlist && (
+                    {claimedBy && !isOwnWishlist && (
                       <span className="px-2 py-0.5 rounded-sm text-xs font-semibold bg-primary-50 text-primary">
-                        Claimed
+                        {claimedOccasionLabel
+                          ? `Claimed for ${claimedOccasionLabel}`
+                          : "Claimed"}
                       </span>
                     )}
                     {item.purchased && !isOwnWishlist && (
@@ -258,11 +281,17 @@ export function WishlistItemCard({
         <div className="px-4 pb-4 pt-2 border-t border-light-border">
           <ClaimActions
             itemId={item.id}
-            claimedBy={item.claimed_by || null}
+            claimedBy={claimedBy}
             purchased={item.purchased || false}
             outOfStockMarkedBy={item.out_of_stock_marked_by || null}
             currentUserId={currentUserId}
-            claimerInfo={claimerInfo}
+            // Inert fallback: ClaimActions only renders when
+            // showClaimActions is true, which only ever happens on a
+            // viewer's list -- the one caller (SortableWishlistItems) that
+            // always supplies a real celebrantId/occasionKind alongside it.
+            celebrantId={celebrantId ?? ""}
+            kind={occasionKind}
+            claimedOccasionLabel={claimedOccasionLabel}
             variant="card"
             itemData={{
               title: item.title,
