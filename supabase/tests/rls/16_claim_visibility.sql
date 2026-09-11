@@ -72,15 +72,24 @@
 -- 1 also proves the claim is visible to a co-member who did NOT make it, not
 -- merely to the claimer viewing their own row -- the real product behaviour
 -- (every giver in the group sees who has claimed what) and, incidentally, the
--- shape that would catch an inverted can_view_wishlist_item() argument order:
--- that function self-pins its `viewer_id` argument against
--- requesting_user_id() (clerk_native_baseline.sql:766-771) and returns false
--- outright when they differ, so swapping (item_owner_id, viewer_id) to
--- (viewer_id, item_owner_id) would pin the co-member's own id against
--- requesting_user_id() = the co-member -- that part still matches -- but then
--- test the OWNER's group membership against the co-member's visibility
--- settings instead of the reverse, which is not the fixture's shape and would
--- flip assertion 1 to zero.
+-- shape that would catch an inverted can_view_wishlist_item() argument order.
+--
+-- Be exact about WHY, because the intuitive reading of this is wrong. The
+-- policy calls can_view_wishlist_item(wi.user_id, requesting_user_id(), ...)
+-- -- that is (owner, viewer). Swapping the first two arguments makes
+-- `viewer_id` the ITEM OWNER, and the function self-pins `viewer_id` against
+-- requesting_user_id() (clerk_native_baseline.sql:774-776), returning false
+-- outright when they differ. In assertion 1 the caller is the co-member and
+-- the owner is somebody else, so the swapped call returns false immediately
+-- and assertion 1 flips to zero.
+--
+-- The self-pin is the ONLY thing catching the inversion. Everything past it is
+-- symmetric in the two ids: the self-view early return compares them for
+-- equality (:779-781), and get_shared_groups() joins group_members to itself
+-- (:667-670), which yields the same groups whichever way round they go. So if
+-- the self-pin is ever relaxed -- admitting a service context, say -- this
+-- file silently STOPS covering argument inversion, and no assertion here will
+-- announce that.
 --
 -- Assertion 3 (a stranger sees zero) is proven on the SAME item as
 -- assertions 1-2, sharing the same defence-in-depth caveat
@@ -292,7 +301,11 @@ begin
     from pg_policies
    where schemaname = 'public'
      and tablename = 'wishlist_claims'
-     and cmd = 'SELECT';
+     and cmd = 'SELECT'
+     -- PERMISSIVE only. A RESTRICTIVE SELECT policy narrows rather than
+     -- widens, so it cannot reopen owner visibility; counting it here would
+     -- fail this assertion for a change that is safe.
+     and permissive = 'PERMISSIVE';
 
   if v_select_policies <> 1 then
     raise exception
