@@ -120,7 +120,39 @@ Also in F2:
   mechanism — and precisely the sentence a future author reads as "no need to
   handle the empty case."
 
-## F3 — `09_privacy_pins.sql` assertion 5 has no independent falsifying power
+## F3 — DONE (2026-09-11)
+
+Removed, floor 21 -> 20. The premise was verified independently before deleting
+a test: `reject_non_owner_column_change()` compares every changed column in one
+set-based pass (`20260822000000_pin_privacy_columns.sql:125-128`) with no
+per-column branching, so a one-column write and a four-column write execute
+identical code. Assertion 5 wrote `purchased` alone against the same row, as
+the same role, in the same statement shape as assertion 6, which writes
+`purchased` plus three more -- nothing could fail 5 and pass 6.
+
+Not repointed. The only permitted column assertion 6 never writes is
+`updated_at`, and a dedicated assertion for it would have falsifying power but
+no value: `pin_wishlist_item_owner_fields` sorts before
+`update_wishlist_items_updated_at`, so the pin never sees that trigger's write,
+and the app never sets `updated_at` explicitly. Dropping it from the permitted
+list would break nothing in production.
+
+Assertion 6 now carries a note that it is the SOLE cover for `purchased`, so a
+future narrowing of its column list is recognised as removing coverage rather
+than tidying.
+
+That sole-cover claim was proved rather than asserted, in a rolled-back
+transaction: with the shipped permitted list assertion 6's write is allowed;
+with `purchased` removed from the list it is REJECTED.
+
+**Worth knowing for anyone writing a proof against this trigger:** it flags only
+columns whose value actually CHANGED. The first attempt at the proof above
+reused one item for both the baseline and the mutation, so the mutation's write
+set `purchased = true` on a row where it was already true -- no change, nothing
+flagged, and the mutation looked harmless. It needed a second, untouched item.
+A proof that reuses a row it has already written is measuring nothing.
+
+### Original finding
 
 `supabase/tests/rls/09_privacy_pins.sql:365-378`. The trigger takes its five
 permitted columns as one argument list with no per-column branching, so

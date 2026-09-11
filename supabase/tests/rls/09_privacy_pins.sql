@@ -346,16 +346,7 @@ begin
                      "33333333-3333-3333-3333-333333333333": ["work"]}}');
 
   ---------------------------------------------------------------------------
-  -- 5. POSITIVE CONTROL: a non-owner can still record purchase state.
-  --
-  --    Used to exercise claimed_by/claimed_at directly -- claiming was a
-  --    write to this table. As of 20260911100003_drop_item_claim_columns.sql
-  --    those columns are gone: claiming now goes through wishlist_claims via
-  --    claim_wishlist_item(), a SECURITY DEFINER RPC that this trigger never
-  --    sees at all (it fires on wishlist_items, not wishlist_claims). So this
-  --    assertion no longer has a claim column to exercise, and is rewritten
-  --    to `purchased`, the nearest surviving write a non-owner still makes
-  --    directly on the item (markAsPurchased() in lib/actions/wishlist.ts).
+  -- Impersonate a non-owning co-member for the positive controls below.
   --
   -- The role switch is what makes policies apply at all: the CLI connects as
   -- a role with rolbypassrls, so claims alone would leave every assertion
@@ -366,23 +357,22 @@ begin
     '{"sub":"user_pp_peer","role":"authenticated"}', true);
   perform set_config('role', 'authenticated', true);
 
-  update wishlist_items
-     set purchased = true
-   where id = '22222222-2222-2222-2222-222222222222'
-  returning purchased::text into v_text;
-
-  if v_text is distinct from 'true' then
-    raise exception
-      'PRIVACY PIN: a co-member could not record purchase state on a visible wishlist item (purchased is %). The pin is too tight -- marking a gift purchased is a feature a non-owner must still be able to do now that claiming itself has moved to wishlist_claims.',
-      coalesce(v_text, '<no row updated>');
-  end if;
-  v_checks := v_checks + 1;
-
   ---------------------------------------------------------------------------
-  -- 6. POSITIVE CONTROL: the rest of the claim columns, in one write.
+  -- 6. POSITIVE CONTROL: every column a non-owner may write, in one write.
   --    markAsPurchased() and markOutOfStock() are separate actions in
   --    lib/actions/wishlist.ts; a permitted list that covered claiming but
   --    not these would break them without breaking assertion 1.
+  --
+  --    THIS IS NOW THE SOLE COVER FOR `purchased`. A separate single-column
+  --    assertion used to precede this one, writing `purchased` alone. It was
+  --    removed because it had no independent falsifying power:
+  --    reject_non_owner_column_change() compares every changed column in one
+  --    set-based pass (20260822000000_pin_privacy_columns.sql:125-128) with no
+  --    per-column branching, so a one-column write and a four-column write run
+  --    identical code -- nothing could fail the narrower assertion and pass
+  --    this one. If this write is ever narrowed, `purchased` loses its cover
+  --    entirely; widen it or add back a dedicated assertion rather than
+  --    trimming the column list.
   ---------------------------------------------------------------------------
   update wishlist_items
      set purchased = true,
@@ -720,7 +710,7 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 21 then
+  if v_checks < 20 then
     raise exception
       'HARNESS FAIL: only % assertion(s) ran, expected at least 21. Assertions were skipped or commented out; this file proves nothing.',
       v_checks;
