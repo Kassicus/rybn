@@ -31,7 +31,7 @@ Branch `worktree-occasions-phase-2`, worktree at
 | Task | State |
 |---|---|
 | 1. `get_or_create_occasion()` | **complete**, review clean — `c50f8d1`, `f9c9b8f` |
-| 2. `wishlist_item_occasions` table | implemented `edce36f`; **fix round 1 was in flight when the session ended** |
+| 2. `wishlist_item_occasions` table | implemented `edce36f`; fix round 1 **PARTIAL and UN-REVIEWED** — `997a129`, see the incident below |
 | 3. Tag actions and tag-carrying reads | not started |
 | 4. Owner tagging UI on `/wishlist` | not started |
 | 5. Occasion-aware ordering for viewers | not started |
@@ -39,7 +39,41 @@ Branch `worktree-occasions-phase-2`, worktree at
 Migrations applied to production by phase 2 so far:
 `20260911000000_get_or_create_occasion.sql`,
 `20260911000001_get_or_create_occasion_returning.sql`,
-`20260911000002_wishlist_item_occasions.sql`.
+`20260911000002_wishlist_item_occasions.sql`,
+`20260911000003_tag_created_at_not_null.sql`.
+
+## Incident: the Task 2 fix-round agent stalled and left a live hole
+
+It was killed by the watchdog after 600s without progress, during the
+not-vacuous *proof* phase — after most of the implementation. On resume the
+controller found it had left a deliberately-permissive attack-scenario policy
+**live on production**:
+
+    INSERT | "Anyone who can see an item may also tag it (bug)" | {authenticated}
+
+RLS policies for one command OR together, so while it existed any authenticated
+user who could see an item could tag it — asserting another person's intent on
+their own wishlist. It was dropped, production verified back to the schema's
+three policies, and the full suite run: **15/15 green**. It appeared in no
+migration file.
+
+It had also left `20260911000003` applied to production with its file
+uncommitted. That is the drift direction that matters — a clean checkout would
+have made the schema unreproducible. Committed in `997a129`, which is
+**controller-made and has not been reviewed**; its message names exactly what is
+done and what is still open.
+
+**Still open on Task 2**, from the round 1 review: pinning assertion 4's pattern
+against a disjunctive weakening and against a dropped join correlation, and the
+UPDATE-policy absence guard. Resume by dispatching a fresh implementer with
+those two findings plus `task-2-report.md`, then run the scoped re-review.
+
+**The lesson, and it is not about this agent.** Every not-vacuous proof in this
+project works by deliberately breaking something and restoring it. If the agent
+dies between break and restore, *the break is what survives*. Phase 1's Task 5
+got this right by doing the break inside a **rolled-back transaction**, so a
+crash undoes it automatically. Make that the required form for every proof from
+here on, and say so in the dispatch.
 
 **The ledger is the source of truth**, at
 `.superpowers/sdd/2026-09-10-gift-giving-occasions-phase-2-plan/progress.md`
