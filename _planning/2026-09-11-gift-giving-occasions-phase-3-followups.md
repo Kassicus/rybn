@@ -1,0 +1,173 @@
+# Phase 3 follow-ups — occasion-scoped claiming
+
+Open items at merge of `worktree-occasions-phase-3` (14 commits, 9af27b3..80832ba).
+Recorded from the final whole-branch review, which returned **no Critical
+findings** and **MERGE WITH FOLLOW-UPS**. None of the Importants below can
+manifest while production holds 0 claims; all become reachable once claims exist
+and an occasion passes.
+
+Merged and deployed on 2026-09-11. The migrations were already applied to the
+linked production project before the merge, so the merge itself was code-only —
+a repair of production, which until then ran code writing columns that no longer
+existed.
+
+## F1 — the two claim surfaces disagree (Important)
+
+`app/(dashboard)/wishlist/[itemId]/page.tsx:366` passes `kind={null}`
+unconditionally, so claiming from the item-detail page is always **unscoped** and
+never auto-releases, while claiming the same item from its list card is
+occasion-scoped. Two buttons, same item, same user, same day, different
+semantics.
+
+The plan sanctioned this because the detail page "has no occasion in view
+concept at all". **That stopped being true in Task 6**, which added
+`getUpcomingOccasions(60)` to that page at `:165`. With `item.user_id` already in
+hand, `occasions.find(o => o.celebrantId === item.user_id)` is available at
+`:169`.
+
+Do this first: it is the machine that manufactures unscoped claims, and fixing it
+shrinks F1b's blast radius before the policy is touched.
+
+**F1b — claimer self-visibility.** The `wishlist_claims` SELECT policy has no
+`claimed_by = (select requesting_user_id())` disjunct, so a claimer who later
+loses visibility of the item (leaves the group, or the owner narrows
+`privacy_settings`) goes blind to their own claim. For an occasion-scoped claim
+this self-heals when the occasion passes; for an **unscoped** claim, which never
+auto-releases, the item stays locked by somebody who can neither see nor release
+it from the UI. The RPC path is fine — `release_wishlist_claim` is definer and
+does no visibility check — it is only the UI that goes blind, because
+`isClaimedByMe` derives from `getActiveClaims`.
+
+Required shape, keeping owner-blindness as the OUTER conjunct so self-visibility
+can never reopen the owner's view:
+
+```sql
+wi.user_id <> (select public.requesting_user_id())
+AND ( public.can_view_wishlist_item(...) OR claimed_by = (select public.requesting_user_id()) )
+```
+
+Note this changes the policy that `supabase/tests/rls/16_claim_visibility.sql`
+asserts on; both move together.
+
+## F2 — `getActiveClaims` lapses claims on purchased items (Important)
+
+`lib/actions/claims.ts:224` excludes any claim whose occasion has passed, with no
+regard for `purchased`. `supabase/migrations/20260911100002_claim_rpcs.sql:50-52`
+treats purchase as terminal **before** reaching the lapse-release at `:97-104`, so
+such a claim correctly stays `released_at is null` forever — it is the record of
+who bought it.
+
+They disagree, and the disagreement is the normal end state of every fulfilled
+gift. For claim -> purchase -> birthday passes:
+
+- every viewer sees a "Purchased" badge (`WishlistItemCard.tsx:193`) **and** an
+  "I'll get this" button (`ClaimActions.tsx:259`), because `claimedBy` is now
+  null. Clicking always errors with "that item has already been purchased".
+- the purchaser loses their own "You purchased this" / Undo / Unclaim controls
+  (`ClaimActions.tsx:361`).
+
+`lib/actions/claims.test.ts:368-486` covers past / today-or-future / unscoped and
+has **no purchased case** — a test suite green while the behaviour is wrong.
+
+Also in F2:
+
+- **`markAsPurchased` is a fourth expression of "active"** and omits the lapse
+  half (`lib/actions/wishlist.ts:324-330`), so a claim the read path has told
+  every viewer does not exist still authorizes a purchase. Low reachability (the
+  button is hidden), but it is a directly callable server action.
+- **Correct the false invariant at `lib/actions/wishlist.ts:311-313`**, which
+  claims "a caller holding an active claim on an item can, by construction, see
+  it." F1b is the counterexample. Right conclusion for the normal case, wrong
+  mechanism — and precisely the sentence a future author reads as "no need to
+  handle the empty case."
+
+## F3 — `09_privacy_pins.sql` assertion 5 has no independent falsifying power
+
+`supabase/tests/rls/09_privacy_pins.sql:365-378`. The trigger takes its five
+permitted columns as one argument list with no per-column branching, so
+assertion 5's `{purchased}` is a strict subset of assertion 6's four columns
+under the same role, row and statement shape. Nothing can fail 5 and pass 6.
+
+Remove it and drop the floor 21 -> 20. Repointing has exactly one viable target
+(`updated_at` alone, the only permitted column assertion 6 never writes), and
+that tests a write shape the app never makes.
+
+## F4 — two test-hardening gaps
+
+- **The block-comment floor did not propagate.** Task 3 ruled
+  `position('/*' in definition) = 0` "the total fix, not a per-pattern one"; it
+  landed at `17_claim_lifecycle.sql:762-770` but was never back-ported to
+  `15_celebrated_materialization.sql`, which still documents the residue at
+  `:68` while guarding `get_or_create_celebrated_occasion` — the other definer
+  function with a subject parameter. One line.
+  (`13_occasion_materialization.sql:194` also still carries the unanchored
+  `[^;]*22023` pattern fixed in 15. Phase 2's, pre-existing.)
+- **The lapse boundary is pinned in TypeScript and unpinned in SQL.**
+  `claim_rpcs.sql:102` is `o.occasion_date < current_date`, but `17`'s only lapse
+  fixture is dated `2000-01-01`, so mutating `<` to `<=` ships green — and that
+  mutation releases a live claim on the **morning of the birthday**. Add a
+  fixture occasion dated `current_date` with a pre-existing claim, asserted
+  untouched after a claim attempt on a different item.
+
+## F5 — the detail page does not refresh after claim/unclaim
+
+`ClaimActions.handleClaim` calls `router.refresh()`, which does not re-run that
+page's client effect, and `loadData("refresh")` short-circuits for
+`SIGNED_IMAGE_REFRESH_MS` (`[itemId]/page.tsx:98-103`). Pre-existing and
+unchanged by phase 3 — verified byte-identical pre- and post-task — but phase 3
+makes the claim badge the whole point of that page. A callback prop invoking
+`loadData("saved")` covers it.
+
+## Outstanding and owned by the project owner
+
+**The two-account owner-blindness check has never been run, in any phase.**
+Two accounts: A claims an item on B's list for B's birthday; confirm A sees
+"Claimed for ..." and B's own `/wishlist` shows no claim indication of any kind.
+
+Everything verified so far is the data layer and the render paths. Three
+independent structural guarantees were traced — the owner's page never imports
+`getActiveClaims`, `user/[userId]/page.tsx:39-41` redirects before the call is
+reached, and `[itemId]/page.tsx` branches on `ownItem` and skips it — plus
+belt-and-braces gating in the component. But that is a genuinely different
+mechanism from two real browsers, and it is exactly the gap the plan's Step 5
+named. Worth more now than in phase 1: owner-blindness moved from a strip list in
+application code to an RLS policy.
+
+## Accepted, deliberately not fixed
+
+- **`getActiveClaims` fails open when a claim's occasion exists but its date is
+  hidden from the viewer** by the celebrant's privacy. The claim renders as
+  active. Verified reachable: `occasions`' celebrated policy gates on
+  `can_view_field` against the celebrant's date privacy, independent of the
+  `wishlist_items.privacy_settings` that admitted the claim row. Failing open
+  prevents a double purchase; excluding would show an item as available while
+  somebody holds it, which is the exact failure claiming exists to prevent.
+  Consequence to know: nothing ever lapses the claim for that viewer, and the
+  RPC's lapse-release only fires when somebody who *can* see the date attempts a
+  claim — so a celebrant hiding their date from everyone leaves the item
+  displayed as claimed indefinitely.
+- **The occasion gate does not require the occasion to relate to the item's
+  owner**, so a caller may label Alice's item with Bob's visible birthday. No
+  escalation exists: `p_occasion_id = null` is accepted unconditionally and
+  already yields a claim that never releases, so mislabelling buys strictly less
+  than null does. Residual is cosmetic — a mislabelled occasion is filtered out
+  by `user/[userId]/page.tsx:161-168` and renders plain "Claimed".
+- **Assertions 2, 4 and 7 in `17_claim_lifecycle.sql` are shape checks, not
+  behavioural**, because a denied call raises and `scripts/test-rls.sh:276-279`
+  bans exception handlers while shipping each file as one batch. Mitigated: every
+  pattern is `(?n)`-per-regex and line-anchored, all `pg_proc` lookups are
+  `::regprocedure`-scoped, a no-block-comment floor sits beneath them, the
+  `o.id = p_occasion_id` occurrence count of exactly 2 distinguishes both-arms
+  from one-arm, and both arms have live positive paths.
+- **UTC agreement is load-bearing and undocumented.** `claims.ts:211` uses
+  `toISOString().slice(0,10)` (UTC); Postgres `current_date` uses session
+  TimeZone, verified live as `UTC`. They agree by configuration, not by
+  construction.
+- **A celebrant editing their date silently shifts existing claims' release
+  date**, because `on conflict ... do update set occasion_date = excluded.
+  occasion_date` rewrites the shared occasion row. Same family as the year-bucket
+  question, still open as a product decision.
+- **"Terminal" is terminal only while `purchased` is true** —
+  `markAsPurchased(itemId, false)` re-opens claiming. Pre-existing and probably
+  intended; stated so nobody reads the design doc's "purchase is terminal" as
+  absolute.
