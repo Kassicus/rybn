@@ -224,7 +224,23 @@ phase 2's and pre-existing.
   fixture occasion dated `current_date` with a pre-existing claim, asserted
   untouched after a claim attempt on a different item.
 
-## F5 — the detail page does not refresh after claim/unclaim
+## F5 — DONE (2026-09-11)
+
+`ClaimActions` gained an optional `onChanged` callback, invoked after all FOUR
+state-changing handlers -- claim, unclaim, mark-purchased and out-of-stock --
+not just claim. Every one of them changes state the detail page renders, and
+every one had the same problem.
+
+The detail page passes `onChanged={() => loadData("saved")}`. `"saved"` rather
+than `"refresh"` matters: `refresh` is dropped outright when another load is in
+flight, and short-circuits inside `SIGNED_IMAGE_REFRESH_MS` -- which is exactly
+the window a user is in immediately after clicking. `saved` waits its turn and
+bypasses the age check.
+
+Server-rendered callers (the list page) pass nothing and keep relying on
+`router.refresh()`, which is sufficient there.
+
+### Original finding
 
 `ClaimActions.handleClaim` calls `router.refresh()`, which does not re-run that
 page's client effect, and `loadData("refresh")` short-circuits for

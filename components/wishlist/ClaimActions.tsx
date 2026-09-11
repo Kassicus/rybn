@@ -124,6 +124,19 @@ interface ClaimActionsProps {
   claimedOccasionLabel?: string | null;
   variant?: "card" | "detail";
   itemData?: WishlistItemData;
+  /**
+   * Called after any action that changes claim, purchase or stock state.
+   *
+   * router.refresh() is enough for a SERVER-rendered caller (the list page
+   * re-renders and picks the new state up), but the item detail page is a
+   * client component that loads through its own effect -- refresh() does not
+   * re-run that effect, and its loadData("refresh") path additionally
+   * short-circuits inside SIGNED_IMAGE_REFRESH_MS. So on that page the button
+   * appeared to do nothing: the claim landed, the badge did not move.
+   *
+   * Optional: callers that render on the server need nothing here.
+   */
+  onChanged?: () => void;
 }
 
 export function ClaimActions({
@@ -137,6 +150,7 @@ export function ClaimActions({
   claimedOccasionLabel = null,
   variant = "card",
   itemData,
+  onChanged,
 }: ClaimActionsProps) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
@@ -182,6 +196,7 @@ export function ClaimActions({
     }
     setIsLoading(false);
     router.refresh();
+    onChanged?.();
   };
 
   const handleAddToGiftTracker = async () => {
@@ -224,6 +239,7 @@ export function ClaimActions({
     }
     setIsLoading(false);
     router.refresh();
+    onChanged?.();
   };
 
   const handleMarkPurchased = async () => {
@@ -235,6 +251,7 @@ export function ClaimActions({
     }
     setIsLoading(false);
     router.refresh();
+    onChanged?.();
   };
 
   const handleToggleOutOfStock = async () => {
@@ -248,6 +265,7 @@ export function ClaimActions({
     }
     setIsStockLoading(false);
     router.refresh();
+    onChanged?.();
   };
 
   // Compact variant for card view

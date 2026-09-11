@@ -390,6 +390,12 @@ export default function WishlistItemDetailPage({
             celebrantId={item.user_id}
             kind={claimOccasionKind}
             claimedOccasionLabel={claimedOccasionLabel}
+            // This page loads through its own effect, so router.refresh()
+            // inside ClaimActions does not bring the new state back. "saved"
+            // rather than "refresh": the latter is dropped when another load
+            // is in flight and short-circuits inside SIGNED_IMAGE_REFRESH_MS,
+            // which is exactly the window a user is in right after clicking.
+            onChanged={() => loadData("saved")}
             variant="detail"
             itemData={{
               title: item.title,
