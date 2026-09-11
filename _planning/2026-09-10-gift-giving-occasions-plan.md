@@ -1061,11 +1061,8 @@ import Link from "next/link";
 import { Cake, Heart, Calendar } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
 import { formatMonthDay } from "@/lib/utils/dates";
-import {
-  occasionLabel,
-  daysUntil,
-  type UpcomingOccasion,
-} from "@/lib/occasions/display";
+import { occasionLabel, type UpcomingOccasion } from "@/lib/occasions/display";
+import { RelativeWhen } from "./RelativeWhen";
 
 // Same icon vocabulary DateReminderBanner.tsx already established, so the two
 // surfaces do not disagree about what a birthday looks like.
@@ -1139,8 +1136,16 @@ export function UpcomingOccasions({
                 <span className="min-w-0 flex-1">
                   <Text className="font-medium">{occasionLabel(o)}</Text>
                   <Text variant="secondary" size="sm">
+                    {/* The absolute date renders here on the server. The
+                        relative fragment MUST NOT -- see the doc comment
+                        above and the Global Constraint. Put it in a small
+                        "use client" child that receives occasionDate and
+                        reads the browser's own clock. Do NOT pass it a
+                        server-computed day count: that bakes in the
+                        server's clock before it reaches the client, which
+                        relocates the bug rather than fixing it. */}
                     {formatMonthDay(o.occasionDate)} &middot;{" "}
-                    {whenLabel(daysUntil(o.occasionDate))}
+                    <RelativeWhen occasionDate={o.occasionDate} />
                     {o.groupName ? ` · ${o.groupName}` : ""}
                   </Text>
                 </span>
