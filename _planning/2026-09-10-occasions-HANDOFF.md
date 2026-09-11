@@ -3,16 +3,31 @@
 Written 2026-09-10, at the end of the session that built phase 1 and started
 phase 2. Read this first if you are picking the work up.
 
+**UPDATE, same day, end of the final whole-branch review's fix wave:** phase 2
+is now complete — all 5 tasks implemented, reviewed, and (per this update) the
+final whole-branch review's findings addressed. The sections below are kept
+largely as originally written, since the incident, the review-model
+calibration, and the two closing windows are all still accurate history; the
+status lines that were live facts when this doc was written (task counts,
+"how to resume") are corrected in place rather than deleted, so this remains
+one true record rather than two documents that disagree.
+
 ## Where things stand
 
 **Phase 1 (occasions, derivation, UI) — DONE, merged, deployed.**
 Merged to `main` at `733e072`, pushed, and confirmed good in production by the
 user. Four migrations are live on the linked project `xomvbdvvrlbxoyqdsstt`.
 
-**Phase 2 (item tagging) — IN PROGRESS.** Tasks 1 and 2 of 5 are implemented
-on branch `worktree-occasions-phase-2`. Nothing from phase 2 is merged.
+**Phase 2 (item tagging) — DONE.** All 5 tasks are implemented and committed
+on branch `worktree-occasions-phase-2`, and the final whole-branch review's
+fix wave (three Importants plus several Minors — see `.superpowers/sdd/
+2026-09-10-gift-giving-occasions-phase-2-plan/final-fix-report.md`) has been
+applied on top. Nothing from phase 2 is merged to `main` yet — that is a
+human decision, not a blocked one.
 
-**Phase 3 (occasion-scoped claiming) — NOT STARTED.** Specced only.
+**Phase 3 (occasion-scoped claiming) — NOT STARTED.** Specced only. Also now
+where two known gaps this branch shipped with are slated to resolve — see
+"Known gaps" in the phase 2 plan and the summary below.
 
 ## The two documents that matter
 
@@ -32,9 +47,38 @@ Branch `worktree-occasions-phase-2`, worktree at
 |---|---|
 | 1. `get_or_create_occasion()` | **complete**, review clean — `c50f8d1`, `f9c9b8f` |
 | 2. `wishlist_item_occasions` table | **complete**, review clean — `edce36f`, `997a129`; see the incident below for how it got there |
-| 3. Tag actions and tag-carrying reads | not started |
-| 4. Owner tagging UI on `/wishlist` | not started |
-| 5. Occasion-aware ordering for viewers | not started |
+| 3. Tag actions and tag-carrying reads | **complete** — `c6b75d1` |
+| 4. Owner tagging UI on `/wishlist` | **complete** — `b9aff50` (plus `aa7fbaf`, a fix for `tagItemForGroupDate`'s occasion verification) |
+| 5. Occasion-aware ordering for viewers | **complete** — `bddb99d` |
+
+**What shipped in Tasks 3-5, briefly:** `lib/actions/item-occasions.ts` adds
+the four tagging actions (`tagItemForMyOccasion`, `tagItemForGroupDate`,
+`untagItem`, `getTagsForItems`), all user-scoped so Task 2's RLS policies
+apply. `ItemOccasionTags` (rendered from `WishlistItemCard`) gives an owner
+removable chips on their own `/wishlist` cards, restricted to their own
+birthday/anniversary plus visible group dates (`taggableOccasions()` in
+`lib/occasions/taggable.ts` — now enforced INSIDE the component itself, not
+just by a doc comment on its caller, per the final review's fix wave).
+`SortableWishlistItems` partitions a viewer's list into "tagged for the
+occasion in view" and "everything else" (`lib/occasions/order.ts`), with an
+opt-in filter that defaults off so untagged items are never hidden, and
+`WishlistItemCard` carries a matching badge.
+
+**Two known gaps shipped with this** — declared, not silent, both written up
+in `_planning/2026-09-10-gift-giving-occasions-phase-2-plan.md` under "Known
+gaps" by the final review's fix wave:
+
+1. **Group-date tags are owner-visible only.** An owner can tag an item for a
+   group date, but no viewer surface groups by it — the only ordering surface
+   keys off `celebrantId`, which a group_date never has. Deliberately not
+   built (it is a group roster, not a single wishlist — a design question) and
+   deliberately not removed from the picker either (it is a capability the
+   spec grants and the tag already means something to its owner). Phase 3's
+   claiming is where this gets a read path.
+2. **Two spec Surfacing rows were never built:** item detail showing which
+   occasions an item is tagged for, and the dashboard's per-occasion "N items
+   tagged" for viewers. Neither was ever asked for by a task in this plan, so
+   this only surfaced in the final whole-branch review.
 
 Migrations applied to production by phase 2 so far:
 `20260911000000_get_or_create_occasion.sql`,
@@ -86,7 +130,13 @@ here on, and say so in the dispatch.
 inside the worktree. It is git-ignored, so it is also copied to the session
 scratchpad. It records every ruling with what it costs if wrong.
 
-## How to resume
+## How to resume — superseded, kept for history
+
+The four steps below were live instructions when this doc was written, with
+only Tasks 1-2 complete. They no longer apply: all 5 tasks are done, the final
+whole-branch review has run, and its fix wave is applied. Kept rather than
+deleted so the "resume the loop" instruction that Task 2's incident (below)
+refers to stays legible in context.
 
 1. `EnterWorktree` with `path: .claude/worktrees/occasions-phase-2` — the
    worktree already has `node_modules`, `.env.local`, `supabase/.temp` and an
@@ -96,6 +146,10 @@ scratchpad. It records every ruling with what it costs if wrong.
    re-dispatch it. Task 2's last line is a fix round, so **resume that loop at
    the next round** rather than starting the task over.
 4. Task 2's open findings are recorded in the ledger under its review entry.
+
+**What actually happens next from here** is a human decision: merge
+`worktree-occasions-phase-2` to `main`, per "Decide about `bc42d7c`" and the
+rest of "Things only a human can do" below.
 
 ## Things only a human can do
 
@@ -124,20 +178,36 @@ Both are cheap now and stop being cheap once the family starts using the app.
    no longer crash anything (the date helper is total now), but the data is
    still wrong. Its own small change; not part of phase 2 or 3.
 
-## Deferred minors, for whoever does the final whole-branch review
+## Deferred minors — triaged by the final whole-branch review
 
-Phase 2 so far:
+This section's heading used to say "for whoever does the final whole-branch
+review" — that review has now happened. Outcome for each item raised while
+Tasks 1-2 were in flight:
+
 - `set search_path = public` omits `pg_temp` in `get_or_create_occasion` and in
   all 21 migrations that declare it. Not reachable through PostgREST (no DDL).
-  Codebase-wide follow-up.
+  **Still deferred** — ruled explicitly out of scope for the final review's fix
+  wave too (codebase-wide follow-up, not a phase 2 change).
 - Task 1's fix report elides the scratch function used for its commented-guard
   experiment, so "a faithful copy" cannot be confirmed from the report alone.
   The controller independently validated the anchored regex against sample
-  strings.
+  strings. **No further action** — historical note about report completeness,
+  not an open risk.
 - Nothing constrains which `occasion_id` a tag may reference; the FK check runs
   RLS-suspended. Harmless today because rendering still requires passing
-  `occasions`' own RLS — but that is an assumption about Task 3, not an
-  invariant Task 2 establishes.
+  `occasions`' own RLS. **Still deferred, explicitly** — the final review ruled
+  this a phase 3 change, since `occasion_id` constraints are where phase 3's
+  auto-release semantics on `occasion_date` live too; folding it in now would
+  mean touching the same surface twice.
+
+The final review also found three Importants that no single task's reviewer
+could see from inside its own diff — see "Known gaps" in the phase 2 plan for
+two of them (group-date tags have no read path; two spec Surfacing rows were
+never built) and this document's own "Where things stand" update above for
+the third (this document itself was stale). All Minors it raised alongside
+those are fixed in the same wave; see `.superpowers/sdd/
+2026-09-10-gift-giving-occasions-phase-2-plan/final-fix-report.md` for the
+full list.
 
 Phase 1's deferred minors were triaged by its final review and are recorded in
 that phase's ledger, copied to the scratchpad.

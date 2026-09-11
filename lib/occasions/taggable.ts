@@ -30,6 +30,21 @@ import { formatMonthDay } from "@/lib/utils/dates";
  * A group_date carries no celebrant at all -- it is a shared occasion any
  * member of the group may tag toward -- so every group_date the caller can
  * see passes through unfiltered.
+ *
+ * KNOWN GAP, deliberate -- do not "fix" by removing group_date from this
+ * filter: tagging an item for a group_date currently has no read path. The
+ * only viewer surface (app/(dashboard)/wishlist/user/[userId]/page.tsx)
+ * picks the occasion in view with `occasions.find(o => o.celebrantId ===
+ * userId)`, and a group_date always has celebrantId: null, so it can never
+ * match there -- the tag is stored and renders back to the owner on their
+ * own card, but no giver's list ever groups by it. Left in on purpose: this
+ * is a design question (a group_date applies to everyone, so "see what
+ * people want for Christmas" is a group roster, not one person's wishlist),
+ * not a wire to route, and removing the option would take away something
+ * the spec grants and that already means something to the owner today.
+ * Phase 3's claiming is where this gets a read path. See "Known gap:
+ * group-date tags are owner-visible only" in
+ * _planning/2026-09-10-gift-giving-occasions-phase-2-plan.md.
  */
 export function taggableOccasions(
   occasions: UpcomingOccasion[],

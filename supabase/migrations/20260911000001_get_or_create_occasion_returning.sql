@@ -8,7 +8,7 @@
 -- problems with that shape:
 --
 --   - If the readback found nothing, v_id stayed NULL and the function
---     silently returned a NULL occasion id -- which a phase 3 tag would then
+--     silently returned a NULL occasion id -- which a phase 2 tag would then
 --     insert as its foreign key. Under READ COMMITTED (Postgres' default,
 --     and what this project runs) an INSERT that hits a live unique-index
 --     conflict always sees the already-committed conflicting row, so this

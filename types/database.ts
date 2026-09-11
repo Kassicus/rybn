@@ -582,10 +582,12 @@ export type Database = {
       // Gift-giving events. Two shapes share this table (see
       // 20260910100000_occasions_schema.sql): birthday/anniversary rows key on
       // celebrant_id with group_id null, and group_date rows key on group_id
-      // (with name required) and celebrant_id null. Phase 1 only ever writes
-      // group_date rows here -- birthdays/anniversaries derive at read time
-      // via get_upcoming_occasions() and materialize into this table in
-      // phase 2. occasion_year is a generated column (extract(year from
+      // (with name required) and celebrant_id null. Phase 1 only ever wrote
+      // group_date rows here, by hand -- birthdays/anniversaries derived at
+      // read time via get_upcoming_occasions() and, as of phase 2, also
+      // materialize into this table via get_or_create_occasion() (see the
+      // Functions block below) the first time an owner tags an item for one.
+      // occasion_year is a generated column (extract(year from
       // occasion_date)), so it cannot be written directly.
       //
       // NAME COLLISION: tracked_gifts.occasion below is unrelated free text
