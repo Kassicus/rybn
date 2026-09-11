@@ -579,6 +579,79 @@ export type Database = {
           }
         ]
       }
+      // Gift-giving events. Two shapes share this table (see
+      // 20260910100000_occasions_schema.sql): birthday/anniversary rows key on
+      // celebrant_id with group_id null, and group_date rows key on group_id
+      // (with name required) and celebrant_id null. Phase 1 only ever writes
+      // group_date rows here -- birthdays/anniversaries derive at read time
+      // via get_upcoming_occasions() and materialize into this table in
+      // phase 2. occasion_year is a generated column (extract(year from
+      // occasion_date)), so it cannot be written directly.
+      //
+      // NAME COLLISION: tracked_gifts.occasion below is unrelated free text
+      // in the private gift tracker -- not a foreign key, nothing to do with
+      // this table.
+      occasions: {
+        Row: {
+          id: string
+          group_id: string | null
+          kind: "birthday" | "anniversary" | "group_date"
+          name: string | null
+          occasion_date: string
+          occasion_year: number
+          celebrant_id: string | null
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          group_id?: string | null
+          kind: "birthday" | "anniversary" | "group_date"
+          name?: string | null
+          occasion_date: string
+          occasion_year?: never
+          celebrant_id?: string | null
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          group_id?: string | null
+          kind?: "birthday" | "anniversary" | "group_date"
+          name?: string | null
+          occasion_date?: string
+          occasion_year?: never
+          celebrant_id?: string | null
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "occasions_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "occasions_celebrant_id_fkey"
+            columns: ["celebrant_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "occasions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       // The rate-limit ledger behind the link-preview fetcher. RLS is on with no
       // policies at all, so only the service-role client (lib/supabase/admin.ts)
       // can see or write these rows -- a user must not be able to read, and
@@ -928,6 +1001,7 @@ export type Database = {
       member_role: "owner" | "admin" | "member"
       privacy_level: "private" | "group" | "friends" | "family" | "public"
       gift_status: "planned" | "ordered" | "arrived" | "wrapped" | "given"
+      occasion_kind: "birthday" | "anniversary" | "group_date"
     }
     CompositeTypes: {
       [_ in never]: never
