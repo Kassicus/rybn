@@ -32,9 +32,15 @@ comment on table public.anniversary_links is
 create unique index anniversary_links_pair
   on public.anniversary_links (user_a, user_b);
 
--- One CONFIRMED link per person, from either side. Pending requests are
--- deliberately unconstrained: a pending row is an invitation, not a claim, and
--- refusing a second one would let the first requester block everybody else.
+-- CORRECTED (20260912000001): this pair of indexes covers the SAME-side case
+-- only -- a second CONFIRMED row naming the same person as user_a (or,
+-- separately, as user_b) is rejected here, and gives a clear error at the
+-- point of insert. It does NOT, on its own, enforce "one confirmed link per
+-- person, from either side": two single-column partial indexes cannot see
+-- across columns, so a person confirmed as user_b in one link and as user_a
+-- in another satisfies both indexes simultaneously and ends up in two
+-- confirmed links at once. That either-side invariant is enforced instead by
+-- anniversary_link_members's primary key, added in 20260912000001.
 create unique index anniversary_links_one_confirmed_a
   on public.anniversary_links (user_a) where status = 'confirmed';
 create unique index anniversary_links_one_confirmed_b

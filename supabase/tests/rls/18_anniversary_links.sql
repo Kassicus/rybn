@@ -33,6 +33,28 @@
 --      ORed in and invisible to any check that inspects only the one policy's
 --      expression text -- this is the exact shape of phase 2's live incident
 --      on wishlist_item_occasions, restated for this table.
+--   6. public.anniversary_link_members (added by the corrective migration
+--      20260912000001, thirteen checks) is shaped to actually enforce "one
+--      CONFIRMED anniversary link per person, either side" -- the invariant
+--      20260912000000's own header comment claimed for its two partial
+--      unique indexes but does not deliver, since each of those indexes
+--      watches only one column and cannot see a person who is user_b in one
+--      confirmed link and user_a in another. A duplicate insert into
+--      anniversary_link_members is what would actually prove the PRIMARY KEY
+--      rejects that case, but it RAISES (a unique_violation), so -- same
+--      limitation as the has_table_privilege reasoning below -- it cannot be
+--      attempted live inside this file without aborting the whole batch.
+--      What is asserted instead is the STRUCTURE that makes such a raise
+--      inevitable: a single PRIMARY KEY constraint whose column list is
+--      EXACTLY {user_id}, not {user_id, link_id} -- a composite key on both
+--      columns would satisfy "the table has a primary key" while permitting
+--      precisely the duplicate this table exists to stop, so the column list
+--      is checked explicitly, not just the presence of a constraint. Also
+--      checked: RLS is enabled, there is exactly one PERMISSIVE SELECT
+--      policy and zero write policies (same population-control reasoning as
+--      assertion 5), `authenticated` holds SELECT and none of
+--      INSERT/UPDATE/DELETE, and `anon` holds none of
+--      SELECT/INSERT/UPDATE/DELETE.
 --
 -- A direct INSERT is not attempted here at all, by the same reasoning
 -- 16_claim_visibility.sql's header gives in detail: with no INSERT policy on
@@ -69,6 +91,20 @@ declare
   v_priv_delete     boolean;
   v_write_policies  int;
   v_select_policies int;
+  -- anniversary_link_members structural checks (assertion 6).
+  v_pk_count            int;
+  v_pk_columns          text[];
+  v_members_rls         boolean;
+  v_members_select_pols int;
+  v_members_write_pols  int;
+  v_members_priv_select boolean;
+  v_members_priv_insert boolean;
+  v_members_priv_update boolean;
+  v_members_priv_delete boolean;
+  v_anon_priv_select    boolean;
+  v_anon_priv_insert    boolean;
+  v_anon_priv_update    boolean;
+  v_anon_priv_delete    boolean;
 begin
   select current_user into v_orig_role;
 
@@ -223,8 +259,165 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 8 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 8', v_checks;
+  ---------------------------------------------------------------------------
+  -- Assertion 6 (thirteen checks): anniversary_link_members is shaped to
+  -- actually deliver "one confirmed link per person, either side". See the
+  -- file header for why a live duplicate-insert attempt is not possible here
+  -- and what the structural checks below stand in for.
+  ---------------------------------------------------------------------------
+
+  -- (a) Exactly one PRIMARY KEY constraint on the table at all.
+  select count(*) into v_pk_count
+    from pg_constraint
+   where conrelid = 'public.anniversary_link_members'::regclass
+     and contype = 'p';
+
+  if v_pk_count <> 1 then
+    raise exception
+      'GUARD FAIL: anniversary_link_members has % primary key constraint(s), expected exactly 1 -- the either-side invariant has no structural enforcement without one',
+      v_pk_count;
+  end if;
+  v_checks := v_checks + 1;
+
+  -- (b) That PRIMARY KEY's column list is EXACTLY {user_id}, not
+  -- {user_id, link_id} or anything else. A composite key on both columns
+  -- would satisfy check (a) while permitting exactly the duplicate
+  -- (same user_id, different link_id) this table exists to reject.
+  select array_agg(a.attname order by k.ord) into v_pk_columns
+    from pg_constraint con
+    cross join lateral unnest(con.conkey) with ordinality as k(attnum, ord)
+    join pg_attribute a on a.attrelid = con.conrelid and a.attnum = k.attnum
+   where con.conrelid = 'public.anniversary_link_members'::regclass
+     and con.contype = 'p';
+
+  if v_pk_columns is distinct from array['user_id'] then
+    raise exception
+      'GUARD FAIL: anniversary_link_members''s primary key covers column(s) %, expected exactly {user_id} -- a composite key including link_id would allow the same person into two confirmed links at once',
+      v_pk_columns;
+  end if;
+  v_checks := v_checks + 1;
+
+  -- (c) RLS is enabled on the table.
+  select relrowsecurity into v_members_rls
+    from pg_class where oid = 'public.anniversary_link_members'::regclass;
+
+  if v_members_rls is distinct from true then
+    raise exception
+      'RLS OFF: anniversary_link_members has row level security disabled';
+  end if;
+  v_checks := v_checks + 1;
+
+  -- (d) Exactly one PERMISSIVE SELECT policy, and (e) zero write policies --
+  -- same population-control reasoning as assertion 5.
+  select count(*) into v_members_select_pols
+    from pg_policies
+   where schemaname = 'public'
+     and tablename = 'anniversary_link_members'
+     and cmd = 'SELECT'
+     and permissive = 'PERMISSIVE';
+
+  if v_members_select_pols <> 1 then
+    raise exception
+      'WRITE PATH: % SELECT polic(y/ies) exist on anniversary_link_members, expected exactly 1',
+      v_members_select_pols;
+  end if;
+  v_checks := v_checks + 1;
+
+  select count(*) into v_members_write_pols
+    from pg_policies
+   where schemaname = 'public'
+     and tablename = 'anniversary_link_members'
+     and cmd in ('INSERT', 'UPDATE', 'DELETE', 'ALL');
+
+  if v_members_write_pols <> 0 then
+    raise exception
+      'WRITE PATH: % write polic(y/ies) (INSERT/UPDATE/DELETE/ALL) exist on anniversary_link_members, expected 0. All writes must go through the SECURITY DEFINER confirm/unlink RPCs.',
+      v_members_write_pols;
+  end if;
+  v_checks := v_checks + 1;
+
+  -- (f) `authenticated` holds SELECT and none of INSERT/UPDATE/DELETE, at the
+  -- PRIVILEGE layer -- same reasoning as assertion 4.
+  select has_table_privilege('authenticated', 'public.anniversary_link_members', 'SELECT')
+    into v_members_priv_select;
+
+  if v_members_priv_select is distinct from true then
+    raise exception
+      'WRITE PATH: authenticated does not hold SELECT privilege on anniversary_link_members, expected it to (the SELECT policy above would be unreachable without it)';
+  end if;
+  v_checks := v_checks + 1;
+
+  select has_table_privilege('authenticated', 'public.anniversary_link_members', 'INSERT')
+    into v_members_priv_insert;
+
+  if v_members_priv_insert is distinct from false then
+    raise exception
+      'WRITE PATH: authenticated holds INSERT privilege on anniversary_link_members, expected none.';
+  end if;
+  v_checks := v_checks + 1;
+
+  select has_table_privilege('authenticated', 'public.anniversary_link_members', 'UPDATE')
+    into v_members_priv_update;
+
+  if v_members_priv_update is distinct from false then
+    raise exception
+      'WRITE PATH: authenticated holds UPDATE privilege on anniversary_link_members, expected none.';
+  end if;
+  v_checks := v_checks + 1;
+
+  select has_table_privilege('authenticated', 'public.anniversary_link_members', 'DELETE')
+    into v_members_priv_delete;
+
+  if v_members_priv_delete is distinct from false then
+    raise exception
+      'WRITE PATH: authenticated holds DELETE privilege on anniversary_link_members, expected none.';
+  end if;
+  v_checks := v_checks + 1;
+
+  -- (g) `anon` holds none of SELECT/INSERT/UPDATE/DELETE. Default privileges
+  -- already revoke this schema-wide (clerk_native_baseline.sql), and
+  -- 06_anon_has_no_reach.sql asserts it across every table in public -- this
+  -- repeats it here, scoped to the one table this assertion is about, so a
+  -- reader of this file does not have to trust a different file for the
+  -- either-side invariant's full privilege picture.
+  select has_table_privilege('anon', 'public.anniversary_link_members', 'SELECT')
+    into v_anon_priv_select;
+
+  if v_anon_priv_select is distinct from false then
+    raise exception
+      'ANON REACH: anon holds SELECT privilege on anniversary_link_members, expected none.';
+  end if;
+  v_checks := v_checks + 1;
+
+  select has_table_privilege('anon', 'public.anniversary_link_members', 'INSERT')
+    into v_anon_priv_insert;
+
+  if v_anon_priv_insert is distinct from false then
+    raise exception
+      'ANON REACH: anon holds INSERT privilege on anniversary_link_members, expected none.';
+  end if;
+  v_checks := v_checks + 1;
+
+  select has_table_privilege('anon', 'public.anniversary_link_members', 'UPDATE')
+    into v_anon_priv_update;
+
+  if v_anon_priv_update is distinct from false then
+    raise exception
+      'ANON REACH: anon holds UPDATE privilege on anniversary_link_members, expected none.';
+  end if;
+  v_checks := v_checks + 1;
+
+  select has_table_privilege('anon', 'public.anniversary_link_members', 'DELETE')
+    into v_anon_priv_delete;
+
+  if v_anon_priv_delete is distinct from false then
+    raise exception
+      'ANON REACH: anon holds DELETE privilege on anniversary_link_members, expected none.';
+  end if;
+  v_checks := v_checks + 1;
+
+  if v_checks < 21 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 21', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_18_anniversary_links');
