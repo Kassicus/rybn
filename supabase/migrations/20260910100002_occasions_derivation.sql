@@ -146,7 +146,7 @@ grant execute on function public.get_upcoming_occasions(integer)
 -- Refactor the existing reminder function to use the helper above.
 --
 -- Copied verbatim from
--- supabase/migrations/20260821000000_clerk_native_baseline.sql:985-1046, with
+-- supabase/migrations/20260821000000_clerk_native_baseline.sql:985-1043, with
 -- ONLY two substitutions: the inline
 -- (target_year || '-' || substring(pi.field_value from 6 for 5))::date
 -- expression -- the exact expression confirmed above to raise on a Feb-29
