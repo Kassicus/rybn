@@ -3,7 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserWishlist, getClaimerProfiles } from "@/lib/actions/wishlist";
 import { getSharedGroups } from "@/lib/actions/profile";
 import { getUpcomingOccasions } from "@/lib/actions/occasions";
+import { getTagsForItems } from "@/lib/actions/item-occasions";
 import { occasionLabel, daysUntil } from "@/lib/occasions/display";
+import { itemsTaggedFor } from "@/lib/occasions/order";
 import { RelativeWhen } from "@/components/occasions/RelativeWhen";
 import { whenLabel } from "@/components/occasions/whenLabel";
 import { formatMonthDay } from "@/lib/utils/dates";
@@ -131,6 +133,40 @@ export default async function UserWishlistPage({
   const uniqueClaimerIds = [...new Set(claimedByIds)];
   const { data: claimerProfiles } = await getClaimerProfiles(uniqueClaimerIds);
 
+  // Task 5: which items are tagged for the ONE occasion in view
+  // (theirOccasion, found above) -- never "which items have any tag at
+  // all." itemsTaggedFor() exists specifically so that distinction is a
+  // named, tested function rather than an inline Object.keys() someone
+  // reimplements incorrectly from memory (see its own doc comment).
+  //
+  // Read access to wishlist_item_occasions is gated by the ITEM's
+  // visibility, not by tag ownership (getTagsForItems's own doc comment),
+  // so this is safe to call for another person's items -- and nothing it
+  // returns is claim-derived: that table has no claimed_by/purchased/
+  // out_of_stock_marked_by columns to begin with.
+  //
+  // theirOccasion is null whenever this celebrant has no birthday or
+  // anniversary within the 60-day window above; theirOccasion.occasionId is
+  // null when it does but was never materialized. Either way
+  // itemsTaggedFor(_, null) returns an empty Set, and
+  // SortableWishlistItems's own hasOccasionGrouping falls through to
+  // rendering the list exactly as it did before this feature existed --
+  // not a case special-cased here.
+  // tagsByItemId is an intermediate value ONLY -- it feeds itemsTaggedFor()
+  // below and is not itself forwarded to SortableWishlistItems. Shipping
+  // every item's full occasion-id array to the browser would be more than a
+  // viewer's card needs: each card only ever asks "am I tagged for the ONE
+  // occasion in view", which occasionTaggedIds (a Set of item ids) already
+  // answers per item (Minor 9 of the final review).
+  const itemIds = (items ?? []).map((item) => item.id as string);
+  const tagsResult = await getTagsForItems(itemIds);
+  const tagsByItemId: Record<string, string[]> =
+    "data" in tagsResult ? tagsResult.data : {};
+  const occasionTaggedIds = itemsTaggedFor(
+    tagsByItemId,
+    theirOccasion?.occasionId ?? null
+  );
+
   const displayName = targetUser.display_name || targetUser.username || "User";
 
   return (
@@ -221,6 +257,9 @@ export default async function UserWishlistPage({
           items={items as any}
           currentUserId={currentUserId}
           claimerProfiles={claimerProfiles || {}}
+          occasionTaggedIds={occasionTaggedIds}
+          occasionLabel={theirOccasion ? occasionLabel(theirOccasion) : undefined}
+          occasionId={theirOccasion?.occasionId ?? null}
         />
       )}
     </div>

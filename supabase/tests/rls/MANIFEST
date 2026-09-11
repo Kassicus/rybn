@@ -30,3 +30,5 @@
 10_private_storage.sql
 11_occasion_visibility.sql
 12_occasion_derivation.sql
+13_occasion_materialization.sql
+14_tag_visibility.sql

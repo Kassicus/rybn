@@ -7,6 +7,8 @@ import { PRIORITY_INFO } from "@/lib/schemas/wishlist";
 import type { GroupType } from "@/types/privacy";
 import { GROUP_TYPES } from "@/types/privacy";
 import { ClaimActions } from "./ClaimActions";
+import { ItemOccasionTags } from "./ItemOccasionTags";
+import type { UpcomingOccasion } from "@/lib/occasions/display";
 import { cn } from "@/lib/utils";
 
 interface ClaimerInfo {
@@ -43,6 +45,34 @@ interface WishlistItemCardProps {
   isOwnWishlist?: boolean;
   currentUserId?: string;
   claimerInfo?: ClaimerInfo | null;
+  /** Occasion ids this item is tagged for. Empty array, never undefined, so
+      the card never has to distinguish "no tags" from "tags not loaded".
+      Only ever consumed by ItemOccasionTags on the OWNER's own list (chip
+      labels and removal need the real ids) -- never supplied, and never
+      read, on a viewer's list. See taggedForViewedOccasion below for what
+      the viewer-side badge uses instead. */
+  taggedOccasionIds?: string[];
+  /** Only supplied on the owner's own list, where tagging is permitted. */
+  availableOccasions?: UpcomingOccasion[];
+  /** The occasion a VIEWER currently has in view (SortableWishlistItems'
+      occasionId), for the "tagged for this occasion" badge below. Never
+      supplied on the owner's own list -- see showOccasionBadge. */
+  viewedOccasionId?: string | null;
+  /** Display label for viewedOccasionId, e.g. "Jane's Birthday" -- the
+      badge's text. Supplied together with viewedOccasionId; either both are
+      present or neither is. */
+  viewedOccasionLabel?: string | null;
+  /**
+   * Whether THIS item is tagged for viewedOccasionId -- a single boolean,
+   * not the item's full tag list. SortableWishlistItems already computes
+   * exactly this membership test once per item (occasionTaggedIds, the Set
+   * partitionByOccasion groups by) to decide which section an item renders
+   * in; this prop reuses that same computation rather than shipping every
+   * item's complete occasion-id array to the browser just so the card can
+   * check membership in one of them itself. Never supplied on the owner's
+   * own list, alongside viewedOccasionId/Label above.
+   */
+  taggedForViewedOccasion?: boolean;
 }
 
 
@@ -51,6 +81,11 @@ export function WishlistItemCard({
   isOwnWishlist = false,
   currentUserId,
   claimerInfo,
+  taggedOccasionIds = [],
+  availableOccasions,
+  viewedOccasionId = null,
+  viewedOccasionLabel = null,
+  taggedForViewedOccasion = false,
 }: WishlistItemCardProps) {
   const priorityInfo = PRIORITY_INFO[item.priority];
 
@@ -61,6 +96,39 @@ export function WishlistItemCard({
   // Gray out purchased items for non-owners
   const isPurchasedForViewer = !isOwnWishlist && item.purchased;
   const showClaimActions = !isOwnWishlist && currentUserId;
+  // A viewer must never see a tag control on somebody else's item -- the
+  // RLS policy on wishlist_item_occasions would refuse the write anyway
+  // (it gates on the ITEM's ownership), but offering a control that always
+  // fails is worse than not offering it. Gated on isOwnWishlist, the prop
+  // the page already passes for exactly this purpose -- not on
+  // currentUserId === item.user_id, which this shared card cannot compute
+  // reliably (item.user_id is not even part of the WishlistItem shape
+  // above) and which isOwnWishlist already exists to answer.
+  // currentUserId is required in addition to the two checks above because
+  // ItemOccasionTags now needs it (Minor 8: it filters availableOccasions
+  // itself via taggableOccasions() rather than trusting a caller to have
+  // pre-filtered). On the owner's own list this is always the caller's own
+  // id -- see the page, which passes currentUserId alongside
+  // availableOccasions for exactly this.
+  const showOccasionTags =
+    isOwnWishlist && availableOccasions !== undefined && !!currentUserId;
+  // A viewer-side badge, never an owner-side one: viewedOccasionId/Label are
+  // only ever supplied by SortableWishlistItems, which is only ever used on
+  // /wishlist/user/[userId] (a viewer's page). The isOwnWishlist guard is
+  // belt-and-braces against this shared card being reused somewhere that
+  // passes both isOwnWishlist and a viewedOccasionId by mistake -- the same
+  // defensive posture showOccasionTags takes above, in the other direction.
+  //
+  // taggedForViewedOccasion IS the occasionTaggedIds.has(item.id) membership
+  // test -- computed once by SortableWishlistItems (the same Set
+  // partitionByOccasion groups by) and handed down as a plain boolean,
+  // rather than this card re-deriving it from a full per-item tag array
+  // that would otherwise have to ship to the browser just for this check.
+  const showOccasionBadge =
+    !isOwnWishlist &&
+    !!viewedOccasionId &&
+    !!viewedOccasionLabel &&
+    taggedForViewedOccasion;
 
   return (
     <div
@@ -107,6 +175,21 @@ export function WishlistItemCard({
                     {item.out_of_stock_marked_by && !isOwnWishlist && (
                       <span className="px-2 py-0.5 rounded-sm text-xs font-semibold bg-error-light text-error">
                         Out of Stock
+                      </span>
+                    )}
+                    {/* Occasion badge: same bg-primary-50/text-primary tokens
+                        already used for the "Claimed" pill above and for
+                        priority's own "medium" tone (PRIORITY_INFO.medium.
+                        toneClass), and for the tag chips ItemOccasionTags
+                        renders on the owner's list -- so this reads as the
+                        same "occasion" vocabulary Task 4 already
+                        established, not a new color introduced here.
+                        Renders nothing when the item is untagged: an
+                        "untagged" badge would turn the absence of an
+                        owner's statement into a visible label about them. */}
+                    {showOccasionBadge && (
+                      <span className="px-2 py-0.5 rounded-sm text-xs font-semibold bg-primary-50 text-primary">
+                        {viewedOccasionLabel}
                       </span>
                     )}
                   </div>
@@ -191,6 +274,21 @@ export function WishlistItemCard({
               // owner mask -- so this pair says "has an image we cannot hand on".
               image_is_private_upload: !!item.image_url && !item.image_path,
             }}
+          />
+        </div>
+      )}
+
+      {/* Occasion tags - only on the owner's own list; see showOccasionTags
+          above for the gate this depends on. The `availableOccasions &&` /
+          `currentUserId &&` repeat that gate so TypeScript can narrow both
+          from optional to required within this block. */}
+      {showOccasionTags && availableOccasions && currentUserId && (
+        <div className="px-4 pb-4 pt-2 border-t border-light-border">
+          <ItemOccasionTags
+            itemId={item.id}
+            userId={currentUserId}
+            taggedOccasionIds={taggedOccasionIds}
+            availableOccasions={availableOccasions}
           />
         </div>
       )}

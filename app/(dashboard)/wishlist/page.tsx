@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import { getMyWishlist } from "@/lib/actions/wishlist";
 import { getUpcomingOccasions } from "@/lib/actions/occasions";
+import { getTagsForItems } from "@/lib/actions/item-occasions";
 import { daysUntil } from "@/lib/occasions/display";
+import { taggableOccasions } from "@/lib/occasions/taggable";
 import { RelativeWhen } from "@/components/occasions/RelativeWhen";
 import { whenLabel } from "@/components/occasions/whenLabel";
 import { formatMonthDay } from "@/lib/utils/dates";
@@ -21,6 +23,18 @@ export default async function WishlistPage() {
   }
 
   const { data: items, error } = await getMyWishlist();
+
+  // Checked before either getUpcomingOccasions() call below (and before
+  // taggableOccasions() filters their result): both calls are discarded
+  // decoration for a list that failed to load, so a failed getMyWishlist()
+  // must not pay for two RPC round trips it will never render.
+  if (error) {
+    return (
+      <div className="max-w-4xl mx-auto p-6">
+        <p className="text-error">Error loading wishlist: {error}</p>
+      </div>
+    );
+  }
 
   // getUpcomingOccasions() carries no claim fields at all (see
   // UpcomingOccasion in lib/occasions/display.ts) -- there is nothing here to
@@ -42,13 +56,37 @@ export default async function WishlistPage() {
   const myOccasion =
     occasions.find((occasion) => occasion.celebrantId === userId) ?? null;
 
-  if (error) {
-    return (
-      <div className="max-w-4xl mx-auto p-6">
-        <p className="text-error">Error loading wishlist: {error}</p>
-      </div>
-    );
-  }
+  // A SEPARATE call from the context line above, at a SEPARATE horizon, on
+  // purpose -- these two ask different questions. The context line above
+  // asks "is this soon?" (30 days: only worth surfacing when close enough to
+  // act on). Tagging asks "what could this be for?": a birthday eleven
+  // months out is still a legitimate thing to tag an item for while curating
+  // a list well ahead of time, and Phase 1 already shipped one bug from a
+  // too-narrow default hiding an occasion that had just been created
+  // (106 days out). 365 covers a full year, so every derived birthday or
+  // anniversary is always inside the window (celebration_date_in_year always
+  // resolves to the NEXT occurrence, at most 365 days out) -- see
+  // taggableOccasions()'s own doc comment for why this raw list is further
+  // filtered before anything renders it as a tag target.
+  const { data: occasionsForTagging = [] } = await getUpcomingOccasions(365);
+  const taggableForItem = taggableOccasions(occasionsForTagging, userId);
+
+  // item id -> occasion ids this item is tagged for. getTagsForItems reads
+  // wishlist_item_occasions, a table with no claim columns at all -- see
+  // ItemOccasionTags.tsx's doc comment for the full owner-blindness
+  // argument. Short-circuits to {} without a DB call for an empty item list
+  // (see that function's own doc comment), so this is free on the empty
+  // wishlist below.
+  //
+  // getTagsForItems's two branches don't share a companion `data?: never` /
+  // `error?: never` field (unlike getUpcomingOccasions above), so a
+  // destructured default can't be used here -- `in` narrows it instead. A
+  // failure here is swallowed to {} for the same reason the occasions fetch
+  // above swallows its own: this decorates the list, it is not the list.
+  const tagsResult = await getTagsForItems(
+    (items ?? []).map((item) => item.id)
+  );
+  const tagsByItemId = "data" in tagsResult ? tagsResult.data : {};
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-6">
@@ -75,12 +113,13 @@ export default async function WishlistPage() {
         </Link>
       </div>
 
-      {/* Context only -- phase 1 has no tagging, so this line does not link
-          anywhere or invite an action. Renders the occasion and its date and
-          nothing else: no counts, no claim state. See getMyWishlist() above,
-          which already stripped every claim field from `items` before this
-          component ever saw them -- there is nothing claim-shaped left to
-          leak, from either fetch on this page. */}
+      {/* Context only -- this line does not link anywhere or invite an
+          action; tagging (Phase 2) lives on each item card below instead.
+          Renders the occasion and its date and nothing else: no counts, no
+          claim state. See getMyWishlist() above, which already stripped
+          every claim field from `items` before this component ever saw
+          them -- there is nothing claim-shaped left to leak, from any fetch
+          on this page. */}
       {myOccasion && (
         <Text variant="secondary">
           {myOccasion.kind === "birthday" ? "Your birthday" : "Your anniversary"}{" "}
@@ -124,6 +163,9 @@ export default async function WishlistPage() {
               key={item.id}
               item={item as any}
               isOwnWishlist={true}
+              currentUserId={userId}
+              taggedOccasionIds={tagsByItemId[item.id] ?? []}
+              availableOccasions={taggableForItem}
             />
           ))}
         </div>
