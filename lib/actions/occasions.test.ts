@@ -278,11 +278,13 @@ describe("getUpcomingOccasions", () => {
  * occasions table directly -- so what these tests pin is the action's own
  * logic: the schema gate ahead of every database call, the explicit
  * created_by claim the INSERT policy requires, the 42501 -> membership
- * message translation, the single not-found-or-not-yours message shared by a
- * zero-row update and a zero-row delete (never distinguished, or this would
- * be an oracle for which occasion ids exist -- the same reasoning
- * acceptInvitation() documents), and that every writer revalidates both the
- * dashboard and the group page.
+ * message translation, and the not-found-or-not-yours message each of
+ * updateGroupDate and deleteGroupDate returns on a zero-row result -- worded
+ * differently per action ("...to edit" vs "...to delete"), but each one
+ * never distinguishes a missing occasion from one that is not the caller's
+ * (that would make the action an oracle for which occasion ids exist -- the
+ * same reasoning acceptInvitation() documents), and that every writer
+ * revalidates both the dashboard and the group page.
  */
 describe("createGroupDate", () => {
   it("sets created_by to the caller's id explicitly, not a value the INSERT policy would have to trust unverified", async () => {
@@ -389,7 +391,7 @@ describe("updateGroupDate", () => {
     expect(eqSpy).toHaveBeenCalledWith("occasions", "kind", "group_date");
   });
 
-  it("returns the same not-found-or-not-yours message on a zero-row result as deleteGroupDate does", async () => {
+  it("returns a not-found-or-not-yours message on a zero-row result, without revealing which", async () => {
     supabase = createSupabaseMock({
       occasions: [{ data: null, error: null }],
     });
@@ -444,7 +446,7 @@ describe("deleteGroupDate", () => {
     expect(eqSpy).toHaveBeenCalledWith("occasions", "kind", "group_date");
   });
 
-  it("returns the same not-found-or-not-yours message on a zero-row result as updateGroupDate does", async () => {
+  it("returns a not-found-or-not-yours message on a zero-row result, without revealing which", async () => {
     supabase = createSupabaseMock({
       occasions: [{ data: null, error: null }],
     });

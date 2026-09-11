@@ -36,10 +36,20 @@ export default async function GroupDetailPage({
   // Get current user to check if viewing own profile
   const userId = await getUserId();
 
+  // This IS the group's calendar, not a "coming up soon" widget -- a date
+  // created for any time in the next year belongs on it the moment it
+  // exists, per the plan's own done-when criterion ("Someone creates
+  // 'Christmas 2026' on the family group and it appears for every member").
+  // The old bare default of 30 days made that literal example (106 days out
+  // from today) invisible even immediately after creation (Important 1).
+  // Widening this is safe: every row is still gated by can_view_field() /
+  // is_group_member() INSIDE get_upcoming_occasions() itself, so a longer
+  // window grants no additional visibility, only reach.
+  //
   // getUpcomingOccasions() already applies visibility -- everything below is
   // presentation-only filtering of an already-authorized list, never a
   // second authorization check.
-  const { data: allOccasions = [] } = await getUpcomingOccasions();
+  const { data: allOccasions = [] } = await getUpcomingOccasions(365);
   const memberIds = new Set(
     (group.group_members ?? []).map((member) => member.user_id)
   );
@@ -144,7 +154,11 @@ export default async function GroupDetailPage({
           <NewGroupDateButton groupId={group.id} />
         </div>
         {groupOccasions.length > 0 ? (
-          <UpcomingOccasions occasions={groupOccasions} />
+          <UpcomingOccasions
+            occasions={groupOccasions}
+            viewerId={userId}
+            manageGroupDates
+          />
         ) : (
           <Text variant="secondary" size="sm">
             Nothing on the calendar for this group yet.

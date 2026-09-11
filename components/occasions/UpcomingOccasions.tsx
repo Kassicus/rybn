@@ -9,6 +9,7 @@ import {
 } from "@/lib/occasions/display";
 import { RelativeWhen } from "./RelativeWhen";
 import { whenLabel } from "./whenLabel";
+import { GroupDateActions } from "./GroupDateActions";
 
 // Same icon vocabulary DateReminderBanner.tsx already established, so the two
 // surfaces do not disagree about what a birthday looks like.
@@ -20,15 +21,40 @@ const ICON = {
 
 // A giver needs the list, not the group. Celebrated occasions therefore link
 // to the celebrant's wishlist; only a group date has nowhere better to go.
-function hrefFor(o: UpcomingOccasion): string {
+//
+// The viewer's OWN celebrated occasion is the one exception:
+// /wishlist/user/<self> only ever redirects straight back to /wishlist (see
+// wishlist/user/[userId]/page.tsx's "Don't allow viewing your own wishlist
+// through this route" guard), so this links there directly and skips the
+// redirect hop. `viewerId` is optional and defaults to never matching,
+// because not every caller of this component knows the viewer (there is
+// none to know from a logged-out render), and skipping the special case
+// then just falls back to the redirect, not a broken link.
+function hrefFor(o: UpcomingOccasion, viewerId: string | null): string {
   if (o.kind === "group_date" && o.groupId) return `/groups/${o.groupId}`;
-  if (o.celebrantId) return `/wishlist/user/${o.celebrantId}`;
+  if (o.celebrantId) {
+    return o.celebrantId === viewerId
+      ? "/wishlist"
+      : `/wishlist/user/${o.celebrantId}`;
+  }
   return "/dashboard";
 }
 
 interface UpcomingOccasionsProps {
   occasions: UpcomingOccasion[];
   limit?: number;
+  /** The signed-in viewer, used only to route their own occasion straight to
+   *  /wishlist instead of through the self-redirect. Never used for
+   *  filtering or authorization -- `occasions` already arrived pre-filtered
+   *  by getUpcomingOccasions(). */
+  viewerId?: string | null;
+  /**
+   * Offers edit/delete on each group-date row via GroupDateActions. Off by
+   * default: only the group page's own occasions list should show it, not
+   * the dashboard's "Coming up" widget or any wishlist context line, even
+   * though they render the same occasion rows.
+   */
+  manageGroupDates?: boolean;
 }
 
 /**
@@ -57,10 +83,16 @@ interface UpcomingOccasionsProps {
  * purchase state. This component also renders for list owners, and
  * getMyWishlist strips claim state from owners everywhere else in the app
  * on purpose; a count here would leak it back through the side door.
+ *
+ * `manageGroupDates` opts a row into GroupDateActions, its own small
+ * "use client" child (same pattern as RelativeWhen) -- this component
+ * itself stays a server component either way.
  */
 export function UpcomingOccasions({
   occasions,
   limit = 5,
+  viewerId = null,
+  manageGroupDates = false,
 }: UpcomingOccasionsProps) {
   // No empty state. An empty card would compete with the dashboard tiles for
   // attention while saying nothing.
@@ -72,34 +104,48 @@ export function UpcomingOccasions({
       <ul className="space-y-2">
         {occasions.slice(0, limit).map((o) => {
           const Icon = ICON[o.kind];
+          // Only a group_date row has anything to edit or delete -- a
+          // derived birthday/anniversary has occasionId: null and no row
+          // behind it at all.
+          const showActions =
+            manageGroupDates && o.kind === "group_date" && o.occasionId;
           return (
             <li
               // Derived occasions have no id until phase 2 materializes one,
               // so the key is composed rather than taken from occasionId.
               key={`${o.kind}-${o.occasionId ?? o.celebrantId}-${o.occasionDate}`}
             >
-              <Link
-                href={hrefFor(o)}
-                className="flex items-center gap-3 rounded-lg border border-light-border bg-light-background p-3 hover:border-primary"
-              >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-50">
-                  <Icon className="h-4 w-4 text-primary" />
-                </span>
-                {/* A div, not a span: Text renders a <p>, and a <span> --
-                    phrasing content -- may not contain a <p> -- flow
-                    content. */}
-                <div className="min-w-0 flex-1">
-                  <Text className="font-medium">{occasionLabel(o)}</Text>
-                  <Text variant="secondary" size="sm">
-                    {formatMonthDay(o.occasionDate)} ·{" "}
-                    <RelativeWhen
-                      occasionDate={o.occasionDate}
-                      serverLabel={whenLabel(daysUntil(o.occasionDate))}
-                    />
-                    {o.groupName ? ` · ${o.groupName}` : ""}
-                  </Text>
-                </div>
-              </Link>
+              <div className="flex items-center gap-2 rounded-lg border border-light-border bg-light-background p-3 hover:border-primary">
+                <Link
+                  href={hrefFor(o, viewerId)}
+                  className="flex min-w-0 flex-1 items-center gap-3"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-50">
+                    <Icon className="h-4 w-4 text-primary" />
+                  </span>
+                  {/* A div, not a span: Text renders a <p>, and a <span> --
+                      phrasing content -- may not contain a <p> -- flow
+                      content. */}
+                  <div className="min-w-0 flex-1">
+                    <Text className="font-medium">{occasionLabel(o)}</Text>
+                    <Text variant="secondary" size="sm">
+                      {formatMonthDay(o.occasionDate)} ·{" "}
+                      <RelativeWhen
+                        occasionDate={o.occasionDate}
+                        serverLabel={whenLabel(daysUntil(o.occasionDate))}
+                      />
+                      {o.groupName ? ` · ${o.groupName}` : ""}
+                    </Text>
+                  </div>
+                </Link>
+                {showActions && (
+                  <GroupDateActions
+                    occasionId={o.occasionId as string}
+                    name={o.name ?? ""}
+                    occasionDate={o.occasionDate}
+                  />
+                )}
+              </div>
             </li>
           );
         })}

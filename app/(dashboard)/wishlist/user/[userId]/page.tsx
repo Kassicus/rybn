@@ -97,7 +97,14 @@ export default async function UserWishlistPage({
   // authorization check: the "No Shared Groups" branch above already gated
   // the page, and a stranger's occasion could not appear in this list to
   // begin with.
-  const { data: occasions = [] } = await getUpcomingOccasions();
+  //
+  // 60 days: wider than the viewer's-own-wishlist case (30), because this
+  // reader is a GIVER, who needs more lead time than the celebrant needs for
+  // themselves -- sourcing, shipping, or coordinating with the rest of a
+  // group all take longer than "update your own list." Still well short of
+  // the group page's/dashboard's full-year horizon, because this line is
+  // context for THIS one occasion, not a calendar of everything coming up.
+  const { data: occasions = [] } = await getUpcomingOccasions(60);
   const theirOccasion =
     occasions.find((occasion) => occasion.celebrantId === userId) ?? null;
   // theirOccasion, when set, is always "birthday" | "anniversary" -- see the

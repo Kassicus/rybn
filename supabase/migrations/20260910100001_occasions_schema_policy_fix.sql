@@ -59,8 +59,17 @@
 -- corrected here; logic is otherwise unchanged except where DEFECT 1/1b add
 -- the membership conjunct.
 --
--- ALTER POLICY, not DROP + CREATE: it rewrites USING/WITH CHECK/roles in
--- place with no window where the table has no policy for that command.
+-- ALTER POLICY, not DROP + CREATE: it rewrites USING/WITH CHECK in place
+-- with no window where the table has no policy for that command. Roles are
+-- a separate matter: none of the five ALTER POLICY statements below
+-- supplies a TO clause, and PostgreSQL's rule for an omitted clause is that
+-- the corresponding attribute is left UNCHANGED -- so roles are preserved
+-- here, not rewritten. That is the right outcome only because every one of
+-- these five policies already has the roles it should; it works because the
+-- omission happens to match what we want, not because omitting TO is
+-- generally a safe way to leave roles alone -- a policy that needed its
+-- roles changed would need TO stated explicitly, same as USING or WITH
+-- CHECK would.
 --
 -- This ships as its own migration, per review ruling, rather than editing
 -- 20260910100000_occasions_schema.sql in place: that file already reached

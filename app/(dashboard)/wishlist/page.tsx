@@ -30,7 +30,15 @@ export default async function WishlistPage() {
   // never match here. Failure is swallowed to `[]` rather than surfaced: this
   // is a one-line decoration on the owner's list, not the list itself, and
   // the page must not error out over it.
-  const { data: occasions = [] } = await getUpcomingOccasions();
+  //
+  // 30 days, deliberately narrow: this is a single context line on the
+  // viewer's OWN list, not a calendar, and is only worth showing when it is
+  // close enough to act on -- finish curating the list before people start
+  // shopping for it. A birthday 300 days out would read as noise here, the
+  // exact failure mode a single widened default would produce (Important
+  // 1); it is not noise on the group page or dashboard, where it is one
+  // entry among several rather than the only line on the page.
+  const { data: occasions = [] } = await getUpcomingOccasions(30);
   const myOccasion =
     occasions.find((occasion) => occasion.celebrantId === userId) ?? null;
 

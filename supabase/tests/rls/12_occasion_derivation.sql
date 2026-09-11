@@ -9,7 +9,7 @@
 --
 -- profile_info holds zero rows in production (see the task report), so this
 -- file is the only real exercise of the derived branch of
--- get_upcoming_occasions(). It asserts, in order (8 checks total):
+-- get_upcoming_occasions(). It asserts, in order (10 checks total):
 --
 --   1. a birthday with visibleToGroupTypes: [] (this schema's spelling of
 --      private -- see 01_wishlist_isolation.sql) does NOT appear for a
@@ -40,6 +40,22 @@
 --   6. a birthday/anniversary whose month-day already passed this year
 --      resolves to NEXT year's date, not this year's -- the lateral join's
 --      rollover arm.
+--   7. (two checks) the Feb-29 clamp itself
+--      (20260910100002_occasions_derivation.sql:34-39,
+--      20260910100003_celebration_date_total.sql:60-65), called directly:
+--      celebration_date_in_year('2000-02-29', 2027) -- 2027 being the exact
+--      non-leap year the header comment on that function, and this suite's
+--      own migration, cite as the original 22008 outage -- must clamp to
+--      2027-02-28, and celebration_date_in_year('2000-02-29', 2028), the
+--      very next leap year, must return 2028-02-29 unclamped. The second
+--      check is what makes the first a real clamp rather than
+--      celebration_date_in_year() simply refusing every Feb-29 input. This
+--      function ships live in production and was, until this revision,
+--      asserted nowhere in this repo (grep -rn "02-29|leap|Feb" across
+--      supabase/tests, lib, components returned nothing) -- despite being
+--      the exact latent outage (SQLSTATE 22008, breaking the nightly
+--      reminder cron for every user over a single Feb-29 birthday) this
+--      whole helper exists to eliminate.
 --
 -- Convention: see 00_harness_smoke.sql. All fixture writes happen while
 -- impersonating the connecting (RLS-bypassing) role; only the ASSERTIONS run
@@ -310,11 +326,40 @@ begin
   end if;
   v_checks := v_checks + 1;
 
+  ---------------------------------------------------------------------------
+  -- Assertion 7 (two checks): the Feb-29 clamp itself, called directly --
+  -- no fixture row needed, since celebration_date_in_year() is IMMUTABLE and
+  -- takes no viewer. '2000-02-29' and 2027 are the exact field value and
+  -- non-leap target year 20260910100002_occasions_derivation.sql's own
+  -- header comment (and this file's own header above) cite as the original
+  -- 22008 outage. A common year must clamp to Feb 28, the convention that
+  -- function documents; the very next leap year, 2028, must return Feb 29
+  -- UNclamped, proving the first check is a real clamp and not
+  -- celebration_date_in_year() simply refusing every Feb-29 input.
+  ---------------------------------------------------------------------------
+  select public.celebration_date_in_year('2000-02-29', 2027) into v_null_check;
+
+  if v_null_check <> date '2027-02-28' then
+    raise exception
+      'HARNESS FAIL: celebration_date_in_year(2000-02-29, 2027) returned %, expected 2027-02-28 (the common-year Feb-29 clamp)',
+      v_null_check;
+  end if;
+  v_checks := v_checks + 1;
+
+  select public.celebration_date_in_year('2000-02-29', 2028) into v_null_check;
+
+  if v_null_check <> date '2028-02-29' then
+    raise exception
+      'HARNESS FAIL: celebration_date_in_year(2000-02-29, 2028) returned %, expected 2028-02-29 (a leap year must NOT be clamped)',
+      v_null_check;
+  end if;
+  v_checks := v_checks + 1;
+
   -- Back to the connect role so the token insert below is permitted.
   perform set_config('role', v_orig_role, true);
 
-  if v_checks < 8 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 8', v_checks;
+  if v_checks < 10 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 10', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_12_occasion_derivation');
