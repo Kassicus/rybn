@@ -26,6 +26,20 @@
 --
 -- A general "assert this statement raises" facility belongs in the harness,
 -- not here, and is recorded as a follow-up.
+--
+-- ADDENDUM (Task 5 of the occasions plan) -- assertion 3f below is NOT a
+-- catalog check like its neighbours. It is the POSITIVE counterpart to 3e:
+-- 3e can only confirm the UPDATE policy's WITH CHECK still mentions
+-- is_group_member, which a policy tightened too FAR would still satisfy
+-- while rejecting every legitimate edit. Proving that requires an actual
+-- write that is expected to SUCCEED, which this harness can express just
+-- fine -- the "cannot assert a denial" limitation above is specific to
+-- writes that must raise, not to writes that must go through. 3f performs
+-- the update and checks its outcome the same way files 01-04 check a read.
+--
+-- The deliberately-broken-policy proof for 3f (run and reverted inside a
+-- transaction the CLI itself rolled back, never touching the live policy) is
+-- recorded in the Task 5 report, not here.
 
 create temp table _harness_result (token text);
 
@@ -39,8 +53,16 @@ declare
   v_pin           int;
   v_inv_upd       int;
   v_occ_upd       int;
+  v_orig_role     text;
+  v_occ_group     uuid;
+  v_occ_id        uuid;
+  v_occ_rows      int;
+  v_occ_name      text;
+  v_occ_date      date;
   v_checks        int := 0;
 begin
+  select current_user into v_orig_role;
+
   ---------------------------------------------------------------------------
   -- 1. The immutability triggers. RLS has no access to the OLD row, so "this
   --    column may not be reassigned" is inexpressible in a policy. Each of
@@ -231,6 +253,74 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
+  -- 3f. THE POSITIVE PATH for 3e's guard.
+  --
+  --     3e is a CATALOG check: `with_check like '%is_group_member%'` proves
+  --     the clause is present, not that the policy it sits in still admits a
+  --     legitimate edit. A policy tightened by a well-meant mistake -- say,
+  --     dropping the `created_by = me` branch of the OR and requiring
+  --     is_group_admin() unconditionally -- would still match that LIKE
+  --     pattern (is_group_member is still right there) while blocking every
+  --     ordinary member-author from ever editing their own group date again.
+  --     Nothing above this point could catch that regression: 3e cannot
+  --     execute a write, only read the policy's text.
+  --
+  --     So this performs the write 3e can only infer is still possible: a
+  --     creator who is STILL a member of the group updates their own
+  --     group_date IN PLACE (same group_id, only name/occasion_date change).
+  --
+  --     The fixture deliberately makes the author a plain MEMBER, not the
+  --     group's owner: add_group_creator_as_owner() makes whoever creates a
+  --     group its owner, and is_group_admin() treats 'owner' as admin (role
+  --     in ('owner','admin'), baseline:551-569). An owner-author would pass
+  --     even a wrongly admin-only policy via the OR's other branch, proving
+  --     nothing about the `created_by = me` branch this guard exists to
+  --     protect. A second user, invited into group_members as 'member', is
+  --     the one who authors and then edits the occasion.
+  ---------------------------------------------------------------------------
+  insert into user_profiles (id, username, display_name)
+    values ('user_occ_upd_owner', 'occupdowner', 'Occ Upd Owner'),
+           ('user_occ_upd_member', 'occupdmember', 'Occ Upd Member');
+
+  insert into groups (name, type, invite_code, created_by)
+    values ('Occ Update Family', 'family', 'OCCUPD01', 'user_occ_upd_owner')
+    returning id into v_occ_group;
+
+  -- add_group_creator_as_owner() already made user_occ_upd_owner an 'owner'.
+  -- user_occ_upd_member joins as a plain 'member' -- see the comment above.
+  insert into group_members (group_id, user_id, role)
+    values (v_occ_group, 'user_occ_upd_member', 'member')
+    on conflict do nothing;
+
+  insert into occasions (group_id, kind, name, occasion_date, created_by)
+    values (v_occ_group, 'group_date', 'Christmas 2026', '2026-12-25',
+            'user_occ_upd_member')
+    returning id into v_occ_id;
+
+  perform set_config('request.jwt.claims',
+    '{"sub":"user_occ_upd_member","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  update occasions
+     set name = 'Christmas Party 2026', occasion_date = '2026-12-24'
+   where id = v_occ_id
+     and group_id = v_occ_group
+   returning name, occasion_date into v_occ_name, v_occ_date;
+
+  get diagnostics v_occ_rows = row_count;
+
+  perform set_config('role', v_orig_role, true);
+
+  if v_occ_rows <> 1
+     or v_occ_name is distinct from 'Christmas Party 2026'
+     or v_occ_date is distinct from date '2026-12-24' then
+    raise exception
+      'WRITE PATH: member-author user_occ_upd_member, still a member of the group, could not update their own group date in place (% row(s) updated; name=%, occasion_date=%, expected 1 row / ''Christmas Party 2026'' / 2026-12-24). The UPDATE policy has become too tight for a plain member-author.',
+      v_occ_rows, v_occ_name, v_occ_date;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
   -- 4. group_members must have NO INSERT policy at all.
   --
   --    Membership is the key to nearly everything in this schema --
@@ -258,9 +348,9 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 9 then
+  if v_checks < 10 then
     raise exception
-      'HARNESS FAIL: only % assertion(s) ran, expected at least 9. Assertions were skipped or commented out; this file proves nothing.',
+      'HARNESS FAIL: only % assertion(s) ran, expected at least 10. Assertions were skipped or commented out; this file proves nothing.',
       v_checks;
   end if;
 

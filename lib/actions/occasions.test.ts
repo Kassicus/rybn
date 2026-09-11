@@ -10,12 +10,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * silently without a test pinning the mapping column by column.
  *
  * Follows the mocking pattern established in ./invitations.test.ts: mock
- * @/lib/supabase/server and @/lib/auth/require-auth the same way (next/cache
- * is that file's third mock, but getUpcomingOccasions() never revalidates
- * anything, so there is nothing here to mock it for). This action only ever
- * calls supabase.rpc(), so the stub is simpler than invitations.test.ts's
- * chainable table mock: no .from()/.select() chain needed, just a scripted
- * rpc() resolution.
+ * @/lib/supabase/server and @/lib/auth/require-auth the same way. Task 5's
+ * three writers below DO revalidate, unlike getUpcomingOccasions, so
+ * next/cache is now mocked too -- omitted when this file only had a reader.
+ *
+ * getUpcomingOccasions only ever calls supabase.rpc(), so its own tests keep
+ * the simple rpc-only stub. The writers below call .from(...).insert() /
+ * .update() / .delete(), so the shared supabase mock also grows the
+ * chainable table mock from ./invitations.test.ts, with insert/update/delete
+ * spied so a test can assert on the exact payload sent to Postgres (e.g.
+ * that created_by is the caller's id, not something defaulted).
  */
 
 const getUserId = vi.fn();
@@ -24,17 +28,90 @@ vi.mock("@/lib/auth/require-auth", () => ({
   getUserId: () => getUserId(),
 }));
 
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+
 const rpc = vi.fn();
+const insertSpy = vi.fn();
+const updateSpy = vi.fn();
+const deleteSpy = vi.fn();
+const eqSpy = vi.fn();
+
+/**
+ * Same shape as invitations.test.ts's createSupabaseMock: every chain method
+ * returns the chain, and the chain is thenable so `await from().select().eq()`
+ * resolves without a terminal call while `.maybeSingle()` is its own promise.
+ * Responses are queued per table and consumed in call order.
+ *
+ * insert/update/delete are additionally spied (not just chain-returning) so a
+ * test can assert on exactly what was sent, e.g. that createGroupDate's
+ * insert payload includes `created_by: userId`.
+ */
+function createSupabaseMock(script: Record<string, unknown[]>) {
+  const queues: Record<string, unknown[]> = {};
+  for (const [table, responses] of Object.entries(script)) {
+    queues[table] = [...responses];
+  }
+
+  return {
+    from(table: string) {
+      const next = () => {
+        const queue = queues[table];
+        if (!queue || queue.length === 0) {
+          throw new Error(`No scripted Supabase response left for "${table}"`);
+        }
+        return queue.shift();
+      };
+
+      const chain: Record<string, unknown> = {
+        select: () => chain,
+        eq: (...args: unknown[]) => {
+          eqSpy(table, ...args);
+          return chain;
+        },
+        insert: (payload: unknown) => {
+          insertSpy(table, payload);
+          return chain;
+        },
+        update: (payload: unknown) => {
+          updateSpy(table, payload);
+          return chain;
+        },
+        delete: () => {
+          deleteSpy(table);
+          return chain;
+        },
+      };
+      chain.maybeSingle = async () => next();
+      chain.single = async () => next();
+      chain.then = (resolve: (value: unknown) => unknown) =>
+        Promise.resolve(next()).then(resolve);
+      return chain;
+    },
+  };
+}
+
+let supabase: ReturnType<typeof createSupabaseMock>;
 
 vi.mock("@/lib/supabase/server", () => ({
-  createClient: async () => ({ rpc: (...args: unknown[]) => rpc(...args) }),
+  createClient: async () => ({
+    ...supabase,
+    rpc: (...args: unknown[]) => rpc(...args),
+  }),
 }));
 
-const { getUpcomingOccasions } = await import("./occasions");
+const { revalidatePath } = await import("next/cache");
+const { getUpcomingOccasions, createGroupDate, updateGroupDate, deleteGroupDate } =
+  await import("./occasions");
+
+const GROUP_ID = "11111111-1111-1111-8111-111111111111";
 
 beforeEach(() => {
   vi.clearAllMocks();
   getUserId.mockResolvedValue("user_123");
+  // Reassigned per-test where a writer test needs specific scripted
+  // responses; getUpcomingOccasions's own tests never touch .from(), so an
+  // empty script is fine as the default.
+  supabase = createSupabaseMock({});
 });
 
 describe("getUpcomingOccasions", () => {
@@ -192,5 +269,209 @@ describe("getUpcomingOccasions", () => {
 
     expect(result).toEqual({ error: "Not authenticated" });
     expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * createGroupDate, updateGroupDate and deleteGroupDate are the three writers
+ * Task 5 adds. get_upcoming_occasions() has no analog here -- these hit the
+ * occasions table directly -- so what these tests pin is the action's own
+ * logic: the schema gate ahead of every database call, the explicit
+ * created_by claim the INSERT policy requires, the 42501 -> membership
+ * message translation, the single not-found-or-not-yours message shared by a
+ * zero-row update and a zero-row delete (never distinguished, or this would
+ * be an oracle for which occasion ids exist -- the same reasoning
+ * acceptInvitation() documents), and that every writer revalidates both the
+ * dashboard and the group page.
+ */
+describe("createGroupDate", () => {
+  it("sets created_by to the caller's id explicitly, not a value the INSERT policy would have to trust unverified", async () => {
+    supabase = createSupabaseMock({
+      occasions: [{ data: { id: "occasion-1" }, error: null }],
+    });
+
+    await createGroupDate({
+      groupId: GROUP_ID,
+      name: "Christmas 2026",
+      occasionDate: "2026-12-25",
+    });
+
+    expect(insertSpy).toHaveBeenCalledWith(
+      "occasions",
+      expect.objectContaining({ created_by: "user_123" })
+    );
+  });
+
+  it("rejects invalid input before ever reaching the database", async () => {
+    const result = await createGroupDate({
+      groupId: "not-a-uuid",
+      name: "   ",
+      occasionDate: "12/25/2026",
+    });
+
+    expect(result.error).toBeTruthy();
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it('reports "You are not a member of this group" on a 42501, not the raw policy error', async () => {
+    supabase = createSupabaseMock({
+      occasions: [
+        {
+          data: null,
+          error: {
+            code: "42501",
+            message: 'new row violates row-level security policy for table "occasions"',
+          },
+        },
+      ],
+    });
+
+    const result = await createGroupDate({
+      groupId: GROUP_ID,
+      name: "Christmas 2026",
+      occasionDate: "2026-12-25",
+    });
+
+    expect(result.error).toBe("You are not a member of this group");
+    expect(result.error).not.toContain("row-level security");
+  });
+
+  it("revalidates /dashboard and the group's page", async () => {
+    supabase = createSupabaseMock({
+      occasions: [{ data: { id: "occasion-1" }, error: null }],
+    });
+
+    await createGroupDate({
+      groupId: GROUP_ID,
+      name: "Christmas 2026",
+      occasionDate: "2026-12-25",
+    });
+
+    expect(revalidatePath).toHaveBeenCalledWith("/dashboard");
+    expect(revalidatePath).toHaveBeenCalledWith(`/groups/${GROUP_ID}`);
+  });
+
+  it("returns Not authenticated when signed out, without touching the database", async () => {
+    getUserId.mockResolvedValue(null);
+
+    const result = await createGroupDate({
+      groupId: GROUP_ID,
+      name: "Christmas 2026",
+      occasionDate: "2026-12-25",
+    });
+
+    expect(result).toEqual({ error: "Not authenticated" });
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateGroupDate", () => {
+  it("rejects invalid input before ever reaching the database", async () => {
+    const result = await updateGroupDate("occasion-1", {
+      name: "",
+      occasionDate: "not-a-date",
+    });
+
+    expect(result.error).toBeTruthy();
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("scopes the update to kind = group_date, so it can never reach a celebrated occasion", async () => {
+    supabase = createSupabaseMock({
+      occasions: [{ data: { id: "occasion-1", group_id: GROUP_ID }, error: null }],
+    });
+
+    await updateGroupDate("occasion-1", {
+      name: "Christmas Party",
+      occasionDate: "2026-12-24",
+    });
+
+    expect(eqSpy).toHaveBeenCalledWith("occasions", "kind", "group_date");
+  });
+
+  it("returns the same not-found-or-not-yours message on a zero-row result as deleteGroupDate does", async () => {
+    supabase = createSupabaseMock({
+      occasions: [{ data: null, error: null }],
+    });
+
+    const result = await updateGroupDate("occasion-1", {
+      name: "Christmas Party",
+      occasionDate: "2026-12-24",
+    });
+
+    // A zero-row result means "does not exist" OR "not yours" and this
+    // message must not say which -- distinguishing them would let a caller
+    // enumerate which occasion ids exist.
+    expect(result.error).toBe("That occasion no longer exists, or is not yours to edit");
+    expect(updateSpy).toHaveBeenCalled();
+  });
+
+  it("revalidates /dashboard and the occasion's group page", async () => {
+    supabase = createSupabaseMock({
+      occasions: [{ data: { id: "occasion-1", group_id: GROUP_ID }, error: null }],
+    });
+
+    await updateGroupDate("occasion-1", {
+      name: "Christmas Party",
+      occasionDate: "2026-12-24",
+    });
+
+    expect(revalidatePath).toHaveBeenCalledWith("/dashboard");
+    expect(revalidatePath).toHaveBeenCalledWith(`/groups/${GROUP_ID}`);
+  });
+
+  it("returns Not authenticated when signed out, without touching the database", async () => {
+    getUserId.mockResolvedValue(null);
+
+    const result = await updateGroupDate("occasion-1", {
+      name: "Christmas Party",
+      occasionDate: "2026-12-24",
+    });
+
+    expect(result).toEqual({ error: "Not authenticated" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("deleteGroupDate", () => {
+  it("scopes the delete to kind = group_date, so it can never reach a celebrated occasion", async () => {
+    supabase = createSupabaseMock({
+      occasions: [{ data: { id: "occasion-1", group_id: GROUP_ID }, error: null }],
+    });
+
+    await deleteGroupDate("occasion-1");
+
+    expect(eqSpy).toHaveBeenCalledWith("occasions", "kind", "group_date");
+  });
+
+  it("returns the same not-found-or-not-yours message on a zero-row result as updateGroupDate does", async () => {
+    supabase = createSupabaseMock({
+      occasions: [{ data: null, error: null }],
+    });
+
+    const result = await deleteGroupDate("occasion-1");
+
+    expect(result.error).toBe("That occasion no longer exists, or is not yours to delete");
+    expect(deleteSpy).toHaveBeenCalled();
+  });
+
+  it("revalidates /dashboard and the occasion's group page", async () => {
+    supabase = createSupabaseMock({
+      occasions: [{ data: { id: "occasion-1", group_id: GROUP_ID }, error: null }],
+    });
+
+    await deleteGroupDate("occasion-1");
+
+    expect(revalidatePath).toHaveBeenCalledWith("/dashboard");
+    expect(revalidatePath).toHaveBeenCalledWith(`/groups/${GROUP_ID}`);
+  });
+
+  it("returns Not authenticated when signed out, without touching the database", async () => {
+    getUserId.mockResolvedValue(null);
+
+    const result = await deleteGroupDate("occasion-1");
+
+    expect(result).toEqual({ error: "Not authenticated" });
+    expect(deleteSpy).not.toHaveBeenCalled();
   });
 });
