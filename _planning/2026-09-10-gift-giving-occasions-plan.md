@@ -17,6 +17,7 @@
 - **No function takes a viewer id parameter.** Pin the viewer to `requesting_user_id()` internally. A `p_viewer_id` argument on a `security definer` function granted to `authenticated` is a dump of the user table — which is why `get_upcoming_dates_for_notifications` is granted to `service_role` only.
 - **Birthday occasions key on `(kind, celebrant_id, occasion_year)` — never on group.** Group membership is a visibility dimension. Group dates are the opposite and do carry `group_id`.
 - **Untagged items are never hidden.** Every item in the database today is untagged.
+- **The relative day label must be computed against the VIEWER's clock, not the server's.** `daysUntil` honours whatever `Date` it is handed, but a server-rendered component on Vercel hands it UTC — which is one day ahead of US viewers every evening after roughly 7pm Eastern, so "in 3 days" renders as "in 2 days" during prime usage hours. Found by Task 3's review, reproduced, and NOT fixed by the helper alone. Any component rendering "Today" / "Tomorrow" / "in N days" must compute that fragment on the client, or render an absolute date on the server and enhance it on the client. Absolute dates (`formatMonthDay`) are safe server-side.
 - **New RLS test files must be added to `supabase/tests/rls/MANIFEST`.** The runner fails on undeclared files *and* on declared-but-missing ones, and every file must use the counter-gated `_harness_result` pattern.
 - **Every `create policy` needs an explicit `to authenticated`.** A policy with no `TO` clause applies to `PUBLIC`, which includes `anon` — and the anon key ships to every browser. `supabase/tests/rls/06_anon_has_no_reach.sql` is a standing invariant that fails the whole suite if any `public` policy lacks a named role. Task 1 hit this: the original plan text omitted it on all five policies.
 - **An RLS test's success token is `OK_<filename minus .sql>`, including the numeric prefix.** `scripts/test-rls.sh` derives the expected token from the filename, so `11_occasion_visibility.sql` must emit `OK_11_occasion_visibility`. A mismatched token reports as "did not emit its success token" even when every assertion passed.
@@ -1094,7 +1095,14 @@ interface UpcomingOccasionsProps {
 }
 
 /**
- * Server-rendered: no "use client", no state, nothing here is interactive.
+ * Server-rendered EXCEPT the relative day label. See the Global Constraint:
+ * `daysUntil` honours the clock it is given, and a server render on Vercel
+ * gives it UTC, which is a day ahead of every US viewer each evening. So the
+ * absolute date (`formatMonthDay`) renders on the server, and the
+ * "Today / Tomorrow / in N days" fragment is computed on the client from the
+ * viewer's own clock. Split that fragment into a small "use client" child
+ * rather than making this whole list client-side -- nothing else here is
+ * interactive, and the list should still render without JS.
  *
  * Renders NOTHING claim-derived -- no counts, no "N claimed" badges. This
  * component also renders for list owners, and getMyWishlist strips claim state
