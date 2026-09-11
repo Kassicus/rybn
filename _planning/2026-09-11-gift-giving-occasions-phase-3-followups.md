@@ -203,9 +203,23 @@ boundary_matches_shipped      true
 boundary_matches_lte          false  <- the `<=` mutation is caught
 ```
 
-Still open from the original note: `13_occasion_materialization.sql:194` carries
-the unanchored `[^;]*22023` pattern that Task 1 round 1 fixed in `15`. It is
-phase 2's and pre-existing.
+**Follow-on, also DONE (2026-09-11):** `13_occasion_materialization.sql` had the
+same defect and it turned out to be worse than the note said -- **two**
+unanchored patterns, not one (`:194` and `:233`), both scoped by `proname`
+rather than `::regprocedure`, and no block-comment floor. Verified against the
+live definition before touching the file: BOTH old patterns returned true for a
+guard whose `raise` had been commented out; both anchored replacements reject
+it. Floor 8 -> 9.
+
+This file is where the `(?n)^\s*` technique was borrowed FROM. The borrowed
+copy in `15` was corrected during phase 3 review; the original was not, so the
+defect outlived its own fix.
+
+**Suite swept afterwards.** No live unanchored `[^;]` pattern remains anywhere
+in `supabase/tests/rls/` -- every surviving mention is a comment describing the
+defect. Every file that matches function source (`13`, `15`, `17`) now carries
+a block-comment floor. `14_tag_visibility.sql` needs none: it asserts against
+`pg_policies`, a normalized deparse that cannot contain a comment at all.
 
 ### Original finding
 

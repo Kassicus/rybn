@@ -47,6 +47,7 @@ declare
   v_id2         uuid;
   v_count       int;
   v_guard_defs  int;
+  v_block_comment_pos int;
   v_celebrant   text;
   v_group_id    uuid;
   v_kind        public.occasion_kind;
@@ -184,13 +185,43 @@ begin
   -- exists, so that count could never have been anything but zero and
   -- proved nothing about the guard under test.
   ---------------------------------------------------------------------------
+  ---------------------------------------------------------------------------
+  -- THE FLOOR BENEATH BOTH ANCHORED MATCHES IN THIS FILE.
+  --
+  -- Line-anchoring stops a `--` prefix, which moves where a line starts. It
+  -- does nothing against a `/* ... */` block comment, which leaves every line
+  -- byte-identical and merely brackets them -- and `\s` matches newline in a
+  -- POSIX ARE even under `(?n)`, since `n` constrains only `.` and negated
+  -- bracket expressions. Added here after the same hole was closed in
+  -- 17_claim_lifecycle.sql and back-ported to 15_celebrated_materialization.sql.
+  ---------------------------------------------------------------------------
+  select position('/*' in pg_get_functiondef(p.oid)) into v_block_comment_pos
+    from pg_proc p
+   where p.oid = 'public.get_or_create_occasion(public.occasion_kind)'::regprocedure;
+
+  if v_block_comment_pos <> 0 then
+    raise exception
+      'GUARD FAIL: get_or_create_occasion''s definition contains a /* block comment starting at character % -- every anchored check in this file is unsound while this is true (line-anchoring does not defend against a block comment)',
+      v_block_comment_pos;
+  end if;
+  v_checks := v_checks + 1;
+
+  -- Scoped by exact regprocedure rather than proname alone: an ungated
+  -- overload with an extra parameter would otherwise leave this count at 1.
+  --
+  -- The errcode half was `'group dates ...''[^;]*22023'` -- unanchored, so it
+  -- ran in default mode where `[^;]` matches newlines and NOTHING was
+  -- line-anchored. Verified against the live definition: that pattern returns
+  -- true for a guard whose `raise` has been commented out. Same defect Task 1
+  -- of phase 3 fixed in 15_celebrated_materialization.sql; this file is where
+  -- the technique was borrowed FROM, and the borrowed copy was corrected while
+  -- the original was not.
   select count(*) into v_guard_defs
     from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public'
-      and p.proname = 'get_or_create_occasion'
-      and pg_get_functiondef(p.oid) ~ '(?n)^\s*if p_kind = ''group_date'' then'
-      and pg_get_functiondef(p.oid) ~ 'group dates are created explicitly, not materialized''[^;]*22023';
+   where p.oid = 'public.get_or_create_occasion(public.occasion_kind)'::regprocedure
+      and pg_get_functiondef(p.oid) ~ '(?n)^\s*if p_kind = ''group_date'' then$'
+      and pg_get_functiondef(p.oid) ~
+        '(?n)^\s*raise exception ''group dates are created explicitly, not materialized''\n\s*using errcode = ''22023'';$';
 
   if v_guard_defs <> 1 then
     raise exception
@@ -224,13 +255,15 @@ begin
   end if;
   v_checks := v_checks + 1;
 
+  -- Same two corrections as the group_date guard above: scoped by exact
+  -- regprocedure, and the errcode half anchored line-by-line. The previous
+  -- form here was also satisfied by a commented-out raise.
   select count(*) into v_guard_defs
     from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public'
-      and p.proname = 'get_or_create_occasion'
-      and pg_get_functiondef(p.oid) ~ '(?n)^\s*if v_value is null then'
-      and pg_get_functiondef(p.oid) ~ 'no % on file for this account''[^;]*22023';
+   where p.oid = 'public.get_or_create_occasion(public.occasion_kind)'::regprocedure
+      and pg_get_functiondef(p.oid) ~ '(?n)^\s*if v_value is null then$'
+      and pg_get_functiondef(p.oid) ~
+        '(?n)^\s*raise exception ''no % on file for this account'', p_kind\n\s*using errcode = ''22023'';$';
 
   if v_guard_defs <> 1 then
     raise exception
@@ -242,7 +275,7 @@ begin
   -- Back to the connect role so the token insert below is permitted.
   perform set_config('role', v_orig_role, true);
 
-  if v_checks < 8 then
+  if v_checks < 9 then
     raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 8', v_checks;
   end if;
 
