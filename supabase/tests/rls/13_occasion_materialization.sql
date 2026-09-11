@@ -52,14 +52,27 @@ declare
   v_kind        public.occasion_kind;
   v_occ_year    int;
   v_occ_date    date;
+  v_expected_year int;
 begin
   select current_user into v_orig_role;
 
-  -- Month-day 10 days in the past, so THIS year's occurrence has already
-  -- gone by and get_or_create_occasion() must roll it to NEXT year -- through
-  -- the same celebration_date_in_year() helper the read path uses, so a tag
-  -- and its display cannot disagree about which year the occasion falls in.
+  -- Month-day 10 days in the past, so THIS year's occurrence has USUALLY
+  -- already gone by and get_or_create_occasion() must roll it to NEXT year --
+  -- through the same celebration_date_in_year() helper the read path uses,
+  -- so a tag and its display cannot disagree about which year the occasion
+  -- falls in. "Usually" because in the first ~10 days of January, current_date
+  -- - 10 wraps back into December, and THAT December month-day's this-year
+  -- occurrence is still in the future -- no rollover. Rather than assume +1
+  -- and be wrong for ten days a year (phase 1's 12_occasion_derivation.sql:97-101
+  -- takes that shortcut and documents it as an accepted limitation instead of
+  -- fixing it), compute the expected year from the fixture itself, through
+  -- the same helper the function under test uses.
   v_bday_value := '1990-' || to_char(current_date - 10, 'MM-DD');
+  v_expected_year := case
+    when public.celebration_date_in_year(v_bday_value, extract(year from current_date)::integer) < current_date
+    then extract(year from current_date)::integer + 1
+    else extract(year from current_date)::integer
+  end;
 
   insert into user_profiles (id, username, display_name)
     values (v_celeb,  'occmatcelebrant', 'Occmat Celebrant'),
@@ -74,9 +87,10 @@ begin
 
   ---------------------------------------------------------------------------
   -- Assertion 1 (three checks): a birthday on file materializes exactly one
-  -- row, celebrant_id = caller, group_id NULL -- and the date is rolled to
-  -- NEXT year, since this year's month-day already passed, proving the same
-  -- rollover the read path relies on actually ran.
+  -- row, celebrant_id = caller, group_id NULL -- and the date lands in
+  -- v_expected_year (see above: NEXT year except in the January-wraparound
+  -- window, where it is the current year), proving the same rollover
+  -- resolution the read path relies on actually ran.
   ---------------------------------------------------------------------------
   perform set_config('role', 'authenticated', true);
 
@@ -104,10 +118,10 @@ begin
   select occasion_year, occasion_date into v_occ_year, v_occ_date
     from public.occasions where id = v_id1;
 
-  if v_occ_year <> extract(year from current_date)::integer + 1 or v_occ_date <= current_date then
+  if v_occ_year <> v_expected_year or v_occ_date <= current_date then
     raise exception
-      'RLS FAIL: rollover birthday materialized into year % dated % -- expected year % and a future date, since this year''s month-day already passed',
-      v_occ_year, v_occ_date, extract(year from current_date)::integer + 1;
+      'RLS FAIL: birthday materialized into year % dated % -- expected year % (computed from the fixture date itself, not assumed) and a future date',
+      v_occ_year, v_occ_date, v_expected_year;
   end if;
   v_checks := v_checks + 1;
 
@@ -157,7 +171,13 @@ begin
   -- with `(?n)` (newline-sensitive mode) plus a `^\s*` anchor, so a line
   -- beginning with `--` cannot match; and the errcode is required
   -- immediately after this guard's OWN message, before any `;`, rather than
-  -- anywhere in the function. The row-count companion check this used to
+  -- anywhere in the function. KNOWN RESIDUE, not defeated by this anchor or
+  -- by the companion check below (assertion 4): a `/* ... */` block comment
+  -- wrapped around the guard line leaves that line still beginning with
+  -- whitespace, so `^\s*if ...` still matches it commented-out. Accepted
+  -- rather than chased further -- this is a regression guard against the
+  -- realistic accidental-deletion shape, not a defense against deliberate
+  -- circumvention. The row-count companion check this used to
   -- pair with was deleted -- `group_date_shape`
   -- (20260910100000_occasions_schema.sql:44-46) makes a group_date row with
   -- a non-null celebrant_id unstorable regardless of whether this guard
