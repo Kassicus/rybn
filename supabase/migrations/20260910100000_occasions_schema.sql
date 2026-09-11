@@ -106,10 +106,18 @@ create policy "Group members can create group dates"
 
 -- The WITH CHECK is evaluated against the NEW row, so "you did not change
 -- group_id" is inexpressible here -- the same limitation the
--- pin_privacy_columns migration documents. It is tolerable in this case: the
--- check re-tests membership against the NEW group_id, so a row can only ever
--- land in a group the actor is already an admin of, and celebrated_shape
--- blocks a kind change.
+-- pin_privacy_columns migration documents. CORRECTION (post-review): the
+-- check below is NOT sufficient on its own. The creator branch of the OR
+-- never re-tests membership against the NEW group_id, which lets a creator
+-- move their own row into any group whose UUID they know and keep permanent
+-- write control over it there. See
+-- 20260910100001_occasions_schema_policy_fix.sql, which ANDs an
+-- unconditional membership test against the NEW group_id ahead of this OR.
+--
+-- A kind change is blocked by this WITH CHECK's own `kind = 'group_date'`
+-- conjunct, not by celebrated_shape -- a row admitted past this check is
+-- already guaranteed kind = 'group_date', so celebrated_shape is a secondary
+-- net here, not the mechanism.
 create policy "Creator or group admin can update group dates"
   on public.occasions for update to authenticated
   using (

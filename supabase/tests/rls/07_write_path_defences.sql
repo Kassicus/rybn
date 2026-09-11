@@ -38,6 +38,7 @@ declare
   v_gm_insert     int;
   v_pin           int;
   v_inv_upd       int;
+  v_occ_upd       int;
   v_checks        int := 0;
 begin
   ---------------------------------------------------------------------------
@@ -202,6 +203,34 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
+  -- 3e. The occasions UPDATE policy must require membership in the NEW
+  --     group_id, unconditionally -- not only inside the creator-or-admin OR.
+  --
+  --     The shipped policy's WITH CHECK was `kind = 'group_date' and
+  --     (created_by = me or is_group_admin(group_id, me))`. Because the
+  --     creator branch is an OR, it never re-tested the NEW group_id: a
+  --     creator could `update occasions set group_id = <any group uuid>`
+  --     and the check passed on `created_by = me` alone, is_group_admin()
+  --     never reached. That planted a permanently-owned row, with arbitrary
+  --     name/date, in the occasions feed of any group whose UUID the actor
+  --     knew -- including one they were never a member of. Group UUIDs are
+  --     not secret; they appear in the app's URLs.
+  ---------------------------------------------------------------------------
+  select count(*) into v_occ_upd
+    from pg_policies
+   where schemaname = 'public'
+     and tablename = 'occasions'
+     and cmd = 'UPDATE'
+     and with_check like '%is_group_member%';
+
+  if v_occ_upd <> 1 then
+    raise exception
+      'WRITE PATH: the occasions UPDATE policy no longer requires is_group_member on the NEW group_id (matched % policy/policies, expected 1). A creator could again repoint their row into any group whose UUID they knew and keep permanent write control over it there.',
+      v_occ_upd;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
   -- 4. group_members must have NO INSERT policy at all.
   --
   --    Membership is the key to nearly everything in this schema --
@@ -229,9 +258,9 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 8 then
+  if v_checks < 9 then
     raise exception
-      'HARNESS FAIL: only % assertion(s) ran, expected at least 8. Assertions were skipped or commented out; this file proves nothing.',
+      'HARNESS FAIL: only % assertion(s) ran, expected at least 9. Assertions were skipped or commented out; this file proves nothing.',
       v_checks;
   end if;
 
