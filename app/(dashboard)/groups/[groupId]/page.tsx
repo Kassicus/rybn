@@ -182,10 +182,13 @@ export default async function GroupDetailPage({
             return (
               <div
                 key={member.id}
-                className="flex items-center justify-between p-4 rounded-lg border border-light-border"
+                // Stacks on phones. Side by side, two labelled buttons plus a
+                // role badge cannot share a row with a display name at 375px,
+                // so they used to spill outside the card's border.
+                className="flex flex-col gap-3 p-4 rounded-lg border border-light-border sm:flex-row sm:items-center sm:justify-between"
               >
-                <div className="flex items-center gap-3">
-                  <Avatar>
+                <div className="flex min-w-0 items-center gap-3">
+                  <Avatar className="shrink-0">
                     {member.user_profiles?.avatar_url && (
                       <AvatarImage src={member.user_profiles.avatar_url} />
                     )}
@@ -199,8 +202,8 @@ export default async function GroupDetailPage({
                         .toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
-                  <div>
-                    <Text className="font-medium">
+                  <div className="min-w-0">
+                    <Text className="font-medium truncate">
                       {member.user_profiles?.display_name ||
                         member.user_profiles?.username ||
                         "Unknown User"}
@@ -211,13 +214,13 @@ export default async function GroupDetailPage({
                       )}
                     </Text>
                     {member.user_profiles?.username && member.user_profiles?.display_name && (
-                      <Text variant="secondary" size="sm">
+                      <Text variant="secondary" size="sm" className="truncate">
                         @{member.user_profiles.username}
                       </Text>
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
                   {/* Action buttons for other users */}
                   {!isCurrentUser && (
                     <>

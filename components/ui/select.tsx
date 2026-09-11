@@ -18,7 +18,11 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-10 w-full items-center justify-between rounded border px-3 py-2 text-sm",
+      "flex h-10 w-full items-center justify-between gap-2 rounded border px-3 py-2 text-sm",
+      // min-w-0 + truncate on the value: without it a long selection (a group
+      // name, a privacy label) refuses to shrink -- flex items default to
+      // min-width:auto -- and shoves the chevron past the trigger's edge.
+      "min-w-0 [&>span]:min-w-0 [&>span]:truncate [&>span]:text-left",
       "bg-light-background text-light-text-primary",
       "border-light-border",
       "placeholder:text-light-text-secondary",
@@ -31,7 +35,7 @@ const SelectTrigger = React.forwardRef<
   >
     {children}
     <SelectPrimitive.Icon asChild>
-      <ChevronDown className="h-4 w-4 opacity-50" />
+      <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
     </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
 ));
@@ -46,6 +50,12 @@ const SelectContent = React.forwardRef<
       ref={ref}
       className={cn(
         "relative z-50 min-w-[8rem] overflow-hidden rounded-md border shadow-md",
+        // Never wider than the phone it is on. Radix sizes the popper from its
+        // content, so a long option label (PrivacySelector's descriptions are
+        // full sentences) otherwise pushes the dropdown past the screen edge.
+        "max-w-[calc(100vw-2rem)]",
+        // ...and never taller than the screen either: scroll instead of clip.
+        "max-h-[60vh] overflow-y-auto",
         "bg-light-background text-light-text-primary",
         "border-light-border",
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
@@ -63,8 +73,14 @@ const SelectContent = React.forwardRef<
       <SelectPrimitive.Viewport
         className={cn(
           "p-1",
+          // Deliberately NOT h-[var(--radix-select-trigger-height)], which is
+          // what the upstream template ships. That pins the scrollable area to
+          // the height of the TRIGGER (h-10), so any item taller than one row
+          // is clipped by the content's overflow-hidden -- and PrivacySelector
+          // renders a label plus a description line in every item. Width still
+          // tracks the trigger so the dropdown lines up under it.
           position === "popper" &&
-            "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]"
+            "w-full min-w-[var(--radix-select-trigger-width)]"
         )}
       >
         {children}
@@ -97,6 +113,10 @@ const SelectItem = React.forwardRef<
     ref={ref}
     className={cn(
       "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none",
+      // Wrap long labels instead of widening the popper. min-w-0 lets nested
+      // flex children (PrivacySelector puts a two-line block in each item)
+      // shrink below their content width rather than overflowing.
+      "min-w-0 whitespace-normal break-words [&>*]:min-w-0",
       "hover:bg-light-background-hover focus:bg-light-background-hover",
       "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className

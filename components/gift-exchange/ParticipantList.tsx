@@ -38,10 +38,12 @@ export function ParticipantList({
     return (
       <div
         key={participant.id}
-        className="flex items-center justify-between p-4 rounded-lg border border-light-border"
+        // Same stacking fix as the group members card: at phone width a name
+        // cannot share a row with the status badges beside it.
+        className="flex flex-col gap-3 p-4 rounded-lg border border-light-border sm:flex-row sm:items-center sm:justify-between"
       >
-        <div className="flex items-center gap-3">
-          <Avatar>
+        <div className="flex min-w-0 items-center gap-3">
+          <Avatar className="shrink-0">
             {participant.user_profiles?.avatar_url && (
               <AvatarImage src={participant.user_profiles.avatar_url} />
             )}
@@ -55,8 +57,8 @@ export function ParticipantList({
                 .toUpperCase()}
             </AvatarFallback>
           </Avatar>
-          <div>
-            <Text className="font-medium">
+          <div className="min-w-0">
+            <Text className="font-medium truncate">
               {participant.user_profiles?.display_name ||
                 participant.user_profiles?.username ||
                 "Unknown User"}
@@ -66,7 +68,7 @@ export function ParticipantList({
             </Text>
             {participant.user_profiles?.username &&
               participant.user_profiles?.display_name && (
-                <Text variant="secondary" size="sm">
+                <Text variant="secondary" size="sm" className="truncate">
                   @{participant.user_profiles.username}
                 </Text>
               )}
@@ -74,7 +76,7 @@ export function ParticipantList({
         </div>
 
         {showAssignmentStatus && (
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 sm:shrink-0">
             {participant.wishlist_shared && (
               <div className="flex items-center gap-1">
                 <Gift className="w-4 h-4 text-primary" />
