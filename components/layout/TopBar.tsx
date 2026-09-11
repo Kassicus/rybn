@@ -18,9 +18,16 @@ interface TopBarProps {
     display_name?: string | null;
     avatar_url?: string | null;
   } | null;
+  /**
+   * Unread notifications behind the bell. Defaults to 0 so the badge stays
+   * hidden for any caller that does not supply it -- the safe direction, since
+   * the bug being fixed here was a badge that claimed unread items it did not
+   * have.
+   */
+  notificationCount?: number;
 }
 
-export function TopBar({ user, profile }: TopBarProps) {
+export function TopBar({ user, profile, notificationCount = 0 }: TopBarProps) {
   const router = useRouter();
   const { signOut } = useClerk();
   const [showSearch, setShowSearch] = useState(false);
@@ -88,15 +95,29 @@ export function TopBar({ user, profile }: TopBarProps) {
           <button
             onClick={() => router.push("/notifications")}
             className="relative p-2 rounded-lg hover:bg-light-background-hover transition-colors"
+            aria-label={
+              notificationCount > 0
+                ? `Notifications, ${notificationCount} unread`
+                : "Notifications"
+            }
           >
             <Bell className="w-5 h-5 text-light-text-secondary" />
             {/* Notification badge. Cranberry, not evergreen: this is an alert,
                 and evergreen is the brand surface colour here.
 
-                NOTE: it renders unconditionally -- there is no unread count
-                behind it, so it claims there is something to see whether or
-                not there is. Worth wiring to real state. */}
-            <span className="absolute top-1 right-1 w-2 h-2 bg-accent rounded-full" />
+                Now gated on a real count. It used to render unconditionally,
+                so the bell claimed something to see whether or not anything
+                was there -- and clicking it 404'd, because /notifications did
+                not exist yet. The count comes from the same reminders the
+                dashboard layout already fetches for DateReminderBanner,
+                filtered by lib/notifications/unread.ts so the badge and the
+                page cannot disagree about what "unread" means. */}
+            {notificationCount > 0 && (
+              <span
+                className="absolute top-1 right-1 w-2 h-2 bg-accent rounded-full"
+                aria-hidden="true"
+              />
+            )}
           </button>
 
           {/* Profile Avatar with Dropdown */}

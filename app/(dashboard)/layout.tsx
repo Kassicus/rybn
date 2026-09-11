@@ -7,6 +7,7 @@ import { getUserId } from "@/lib/auth/require-auth";
 import { ensureProfile } from "@/lib/auth/ensure-profile";
 import { redirect } from "next/navigation";
 import { getActiveDateReminders } from "@/lib/actions/date-reminders";
+import { unreadCount } from "@/lib/notifications/unread";
 import { getMyProfile } from "@/lib/actions/profile";
 
 export default async function DashboardLayout({
@@ -50,7 +51,13 @@ export default async function DashboardLayout({
 
   return (
     <div className="min-h-screen flex flex-col bg-light-background overflow-x-hidden">
-      <TopBar user={user} profile={profile} />
+      {/* Same reminders the banner below renders, counted through the one
+          shared filter so the bell's badge and /notifications agree. */}
+      <TopBar
+        user={user}
+        profile={profile}
+        notificationCount={unreadCount(reminders)}
+      />
       <BreadcrumbProvider>
         <main className="flex-1 px-4 py-6 md:px-8 md:py-8 container mx-auto max-w-screen-2xl">
           {reminders && reminders.length > 0 && (
