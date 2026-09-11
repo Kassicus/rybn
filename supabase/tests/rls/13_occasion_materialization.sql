@@ -139,48 +139,59 @@ begin
   perform set_config('role', v_orig_role, true);
 
   ---------------------------------------------------------------------------
-  -- Assertion 3 (two checks): p_kind => 'group_date' must raise, never
+  -- Assertion 3 (one check): p_kind => 'group_date' must raise, never
   -- materialize a row. Per the header, this harness cannot invoke a call
   -- that raises and survive to emit its token, so this is an inventory
-  -- check -- the guard's presence in the live function, plus the row-count
-  -- invariant it (and the table's own group_date_shape constraint, which
-  -- requires celebrant_id IS NULL for kind = 'group_date') exist to
-  -- guarantee.
+  -- check -- the guard's presence in the live function.
+  --
+  -- CORRECTION (post-review): the first cut of this check matched the `if`
+  -- line and its message with `pg_get_functiondef(...) like '%...text...%'`,
+  -- plus an independent `like '%22023%'`. pg_get_functiondef() returns the
+  -- body INCLUDING comments, so commenting out just the guard's
+  -- `if p_kind = 'group_date' then` line -- the likeliest shape of an
+  -- accidental removal -- left every one of those conjuncts satisfied while
+  -- the guard no longer executes; and `22023` is the errcode on three
+  -- separate raises in this function (20260911000000:44,56,66), so checking
+  -- for it independently of which message precedes it proved nothing about
+  -- THIS guard specifically. Fixed two ways: the `if` line is now matched
+  -- with `(?n)` (newline-sensitive mode) plus a `^\s*` anchor, so a line
+  -- beginning with `--` cannot match; and the errcode is required
+  -- immediately after this guard's OWN message, before any `;`, rather than
+  -- anywhere in the function. The row-count companion check this used to
+  -- pair with was deleted -- `group_date_shape`
+  -- (20260910100000_occasions_schema.sql:44-46) makes a group_date row with
+  -- a non-null celebrant_id unstorable regardless of whether this guard
+  -- exists, so that count could never have been anything but zero and
+  -- proved nothing about the guard under test.
   ---------------------------------------------------------------------------
   select count(*) into v_guard_defs
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public'
       and p.proname = 'get_or_create_occasion'
-      and pg_get_functiondef(p.oid) ~ 'p_kind\s*=\s*''group_date'''
-      and pg_get_functiondef(p.oid) like '%group dates are created explicitly, not materialized%'
-      and pg_get_functiondef(p.oid) like '%22023%';
+      and pg_get_functiondef(p.oid) ~ '(?n)^\s*if p_kind = ''group_date'' then'
+      and pg_get_functiondef(p.oid) ~ 'group dates are created explicitly, not materialized''[^;]*22023';
 
   if v_guard_defs <> 1 then
     raise exception
-      'WRITE PATH: get_or_create_occasion no longer contains its group_date guard (matched % definition(s), expected 1) -- kind => group_date would fall through to the insert instead of raising',
+      'GUARD FAIL: get_or_create_occasion no longer contains its group_date guard, uncommented, with its errcode intact (matched % definition(s), expected 1) -- kind => group_date would fall through to the insert instead of raising',
       v_guard_defs;
   end if;
   v_checks := v_checks + 1;
 
-  select count(*) into v_count
-    from public.occasions
-    where kind = 'group_date' and celebrant_id is not null;
-
-  if v_count <> 0 then
-    raise exception
-      'WRITE PATH: found % group_date occasion(s) with a non-null celebrant_id -- both the function guard and the group_date_shape constraint exist to make this impossible',
-      v_count;
-  end if;
-  v_checks := v_checks + 1;
-
   ---------------------------------------------------------------------------
-  -- Assertion 4 (three checks): a caller with no date of that kind on file
-  -- creates no row. Also a raising path (v_value is null -> raise), so also
-  -- an inventory check: v_nodate genuinely has nothing for the function's
-  -- SELECT to find (so this assertion is not vacuous), the guard that would
-  -- refuse it is still present in the function source, and no occasions row
-  -- exists for them.
+  -- Assertion 4 (two checks): a caller with no date of that kind on file
+  -- creates no row -- also a raising path (v_value is null -> raise), so
+  -- also an inventory check, same reasoning and same post-review fix as
+  -- assertion 3 above.
+  --
+  -- The first check below guards the FIXTURE, not the function under test:
+  -- it proves v_nodate genuinely has nothing for the SELECT to find, so the
+  -- guard check that follows is not vacuous. (A third check used to sit
+  -- here, counting occasions rows for v_nodate; it was deleted post-review
+  -- because it could never fail -- v_nodate is created fresh in this
+  -- transaction and the function is never called as them anywhere in this
+  -- file, so that count could never have been anything but zero.)
   ---------------------------------------------------------------------------
   select count(*) into v_count
     from profile_info
@@ -198,32 +209,21 @@ begin
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public'
       and p.proname = 'get_or_create_occasion'
-      and pg_get_functiondef(p.oid) like '%no % on file for this account%'
-      and pg_get_functiondef(p.oid) like '%22023%';
+      and pg_get_functiondef(p.oid) ~ '(?n)^\s*if v_value is null then'
+      and pg_get_functiondef(p.oid) ~ 'no % on file for this account''[^;]*22023';
 
   if v_guard_defs <> 1 then
     raise exception
-      'WRITE PATH: get_or_create_occasion no longer contains its missing-date guard (matched % definition(s), expected 1) -- a caller with nothing on file would silently succeed instead of raising',
+      'GUARD FAIL: get_or_create_occasion no longer contains its missing-date guard, uncommented, with its errcode intact (matched % definition(s), expected 1) -- a caller with nothing on file would silently succeed instead of raising',
       v_guard_defs;
-  end if;
-  v_checks := v_checks + 1;
-
-  select count(*) into v_count
-    from public.occasions
-    where celebrant_id = v_nodate;
-
-  if v_count <> 0 then
-    raise exception
-      'RLS FAIL: found % occasion row(s) for % who has no date on file, expected 0',
-      v_count, v_nodate;
   end if;
   v_checks := v_checks + 1;
 
   -- Back to the connect role so the token insert below is permitted.
   perform set_config('role', v_orig_role, true);
 
-  if v_checks < 10 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 10', v_checks;
+  if v_checks < 8 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 8', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_13_occasion_materialization');
