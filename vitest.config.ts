@@ -18,7 +18,20 @@ export default defineConfig({
     // vendored package -- drops its dependencies' own test files into this
     // run. That is how a 6-file suite briefly became 169.
     exclude: ["**/node_modules/**", "**/.next/**", "**/.claude/**"],
-    env,
+    env: {
+      ...env,
+      // Pin a non-UTC, DST-observing timezone for the whole suite. Any
+      // local-time-sensitive helper (e.g. lib/occasions/display.ts's
+      // daysUntil, which reads a Date's LOCAL calendar fields) is
+      // meaningless to test under TZ=UTC: local accessors
+      // (getFullYear/getMonth/getDate) and their UTC counterparts
+      // (getUTCFullYear/getUTCMonth/getUTCDate) agree on every instant when
+      // the host's own timezone already IS UTC, so a bug that mixes the two
+      // up cannot fail a test. America/New_York exercises that distinction
+      // (a multi-hour offset from UTC, so evenings roll into the next UTC
+      // day well before local midnight).
+      TZ: "America/New_York",
+    },
   },
   resolve: {
     // Must match the "@/*" -> "./*" mapping in tsconfig.json, or every
