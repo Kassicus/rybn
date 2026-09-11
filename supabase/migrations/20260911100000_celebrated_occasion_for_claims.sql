@@ -74,6 +74,11 @@ begin
   do update set occasion_date = excluded.occasion_date
   returning id into v_id;
 
+  -- Should be unreachable: RETURNING on `do update` always produces a row on
+  -- this path -- see 20260911000001_get_or_create_occasion_returning.sql's
+  -- header for the full analysis (same conflict target shape, same
+  -- reasoning). Kept as a backstop because an unreachable check costs
+  -- nothing and a reachable one would mean that analysis was wrong.
   if v_id is null then
     raise exception 'failed to materialize % for %', p_kind, p_celebrant_id
       using errcode = '22023';

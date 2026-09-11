@@ -1,8 +1,10 @@
 -- get_or_create_celebrated_occasion() must materialize SOMEBODY ELSE's
 -- occasion only when the caller can actually see that person's date, must do
 -- so idempotently, must stamp celebrant_id/created_by the right way round,
--- and must never create a row for a caller the privacy model would hide the
--- date from.
+-- must roll a passed date to the following year using the same helper the
+-- read path uses (in both directions -- a date not yet passed must NOT
+-- roll), and must never create a row for a caller the privacy model would
+-- hide the date from.
 --
 -- WHY ASSERTION 3 IS NOT "ATTEMPT THE CALL, THEN COUNT ROWS IN occasions".
 --
@@ -71,6 +73,28 @@
 --       owner first, viewer second, exactly the order the interfaces block
 --       specifies.
 --
+--       CORRECTION (post-review, round 1): the first cut of (c) tied the
+--       errcode to the raise with a THIRD pattern,
+--       `'no visible % for that person''[^;]*22023'`, run in DEFAULT (non
+--       `(?n)`) mode -- `(?n)` scopes to the single regex it appears in, not
+--       to the whole query, and in default mode `[^;]` matches newlines and
+--       nothing is line-anchored. Confirmed directly against this project: a
+--       scratch copy with the guard's raise commented out --
+--         null;  -- raise exception 'no visible % for that person' , p_kind
+--                --   using errcode = '22023';
+--       -- satisfied that pattern (old_pattern_matches_intact = true against
+--       BOTH the intact function and the commented-out one), which would have
+--       let a `raise` downgraded to `null` (or to `raise notice`, which still
+--       accepts `using errcode`) pass every check in this file. Fixed by
+--       replacing it with ONE `(?n)`-mode pattern spanning both lines,
+--       joined by a literal `\n` rather than `[^;]*`, so `^`/`$` anchor each
+--       half to its own line and an intervening `--` comment cannot bridge
+--       them: `^\s*raise exception '...' , p_kind\n\s*using errcode =
+--       '22023';$`. This still ties the errcode to THIS raise specifically
+--       (not just to some `22023` elsewhere in the function -- there are
+--       three others), while refusing anything that does not begin the line
+--       with the literal `raise exception` text.
+--
 -- What this combination does NOT catch, stated plainly: a regression inside
 -- can_view_field()'s OWN logic that (a) does not exercise, because (a) only
 -- covers the empty-visibleToGroupTypes shape this fixture uses -- a
@@ -93,11 +117,13 @@ declare
   v_orig_role      text;
   v_checks         int := 0;
   v_celeb          text := 'user_celebmat_celeb';
+  v_celeb_soon     text := 'user_celebmat_soon';
   v_giver          text := 'user_celebmat_giver';
   v_private        text := 'user_celebmat_private';
   v_group          uuid;
   v_id1            uuid;
   v_id2            uuid;
+  v_id_soon        uuid;
   v_count          int;
   v_can            boolean;
   v_priv_settings  jsonb;
@@ -107,30 +133,70 @@ declare
   v_row_created_by text;
   v_row_kind       public.occasion_kind;
   v_row_group      uuid;
+  v_bday_celeb     text;
+  v_bday_soon      text;
+  v_expected_year_celeb int;
+  v_expected_year_soon  int;
+  v_occ_year       int;
+  v_occ_date       date;
 begin
   select current_user into v_orig_role;
 
+  -- Two birthdays, not one, so the this-year-or-next-year rollover in
+  -- get_or_create_celebrated_occasion is exercised in BOTH directions rather
+  -- than assumed. v_bday_celeb mirrors 13_occasion_materialization.sql's own
+  -- fixture (current_date - 10, "usually" already past this year, so the
+  -- function must roll it to next year); v_bday_soon is its mirror image
+  -- (current_date + 10, "usually" still upcoming this year, so it must NOT
+  -- roll). Neither offset is trusted to land on a particular side of the
+  -- rollover -- the EXPECTED year is computed through
+  -- celebration_date_in_year(), the same helper get_or_create_celebrated_
+  -- occasion itself calls, so the assertions below are correct on every
+  -- calendar day, not just today's. Known residue, same as 13's: within
+  -- roughly the first/last ten days of a calendar year a month-day wraps
+  -- across the year boundary and can land on the OTHER branch than the
+  -- offset's name suggests -- harmless, because the expectation is computed
+  -- from the fixture, never hardcoded.
+  v_bday_celeb := '1990-' || to_char(current_date - 10, 'MM-DD');
+  v_expected_year_celeb := case
+    when public.celebration_date_in_year(v_bday_celeb, extract(year from current_date)::integer) < current_date
+    then extract(year from current_date)::integer + 1
+    else extract(year from current_date)::integer
+  end;
+
+  v_bday_soon := '1990-' || to_char(current_date + 10, 'MM-DD');
+  v_expected_year_soon := case
+    when public.celebration_date_in_year(v_bday_soon, extract(year from current_date)::integer) < current_date
+    then extract(year from current_date)::integer + 1
+    else extract(year from current_date)::integer
+  end;
+
   insert into user_profiles (id, username, display_name)
-    values (v_celeb,   'celebmatceleb',   'Celebmat Celebrant'),
-           (v_giver,   'celebmatgiver',   'Celebmat Giver'),
-           (v_private, 'celebmatprivate', 'Celebmat Private');
+    values (v_celeb,      'celebmatceleb',   'Celebmat Celebrant'),
+           (v_celeb_soon, 'celebmatsoon',    'Celebmat Soon Celebrant'),
+           (v_giver,      'celebmatgiver',   'Celebmat Giver'),
+           (v_private,    'celebmatprivate', 'Celebmat Private');
 
   insert into groups (name, type, invite_code, created_by)
     values ('Celebmat Family', 'family', 'CELEBM01', v_celeb)
     returning id into v_group;
 
-  -- add_group_creator_as_owner() already made v_celeb an 'owner'. v_giver
-  -- joins so can_view_field(v_celeb, v_giver, ...) has a shared "family"
-  -- group to find. v_private shares nothing with anyone -- irrelevant to
-  -- assertion 3 anyway, since an empty visibleToGroupTypes array denies
-  -- regardless of shared groups (can_view_field's own short-circuit).
+  -- add_group_creator_as_owner() already made v_celeb an 'owner'. v_giver and
+  -- v_celeb_soon join so can_view_field(..., v_giver, ...) has a shared
+  -- "family" group to find for both celebrants. v_private shares nothing
+  -- with anyone -- irrelevant to assertion 3 anyway, since an empty
+  -- visibleToGroupTypes array denies regardless of shared groups
+  -- (can_view_field's own short-circuit).
   insert into group_members (group_id, user_id, role)
-    values (v_group, v_giver, 'member')
+    values (v_group, v_giver, 'member'),
+           (v_group, v_celeb_soon, 'member')
     on conflict do nothing;
 
   insert into profile_info (user_id, category, field_name, field_value, privacy_settings)
     values
-      (v_celeb, 'dates', 'birthday', '1990-07-04',
+      (v_celeb, 'dates', 'birthday', v_bday_celeb,
+       '{"visibleToGroupTypes": ["family"], "restrictToGroup": null}'),
+      (v_celeb_soon, 'dates', 'birthday', v_bday_soon,
        '{"visibleToGroupTypes": ["family"], "restrictToGroup": null}'),
       (v_private, 'dates', 'birthday', '1990-11-11',
        '{"visibleToGroupTypes": [], "restrictToGroup": null}');
@@ -152,11 +218,15 @@ begin
   perform set_config('role', 'authenticated', true);
 
   ---------------------------------------------------------------------------
-  -- Assertion 1 (two checks): a caller who CAN see the celebrant's birthday
-  -- materializes exactly one row, of the right shape -- kind='birthday',
-  -- group_id NULL, same as get_or_create_occasion's own assertion 1 in
-  -- 13_occasion_materialization.sql. celebrant_id/created_by get their own
-  -- explicit, separate assertion (4) below, per the task brief.
+  -- Assertion 1 (three checks): a caller who CAN see the celebrant's
+  -- birthday materializes exactly one row, of the right shape --
+  -- kind='birthday', group_id NULL, same as get_or_create_occasion's own
+  -- assertion 1 in 13_occasion_materialization.sql -- landed in the
+  -- EXPECTED year (computed above from v_bday_celeb via the same
+  -- celebration_date_in_year() helper the function itself uses, not
+  -- hardcoded), proving the rollover actually ran rather than being
+  -- unasserted. celebrant_id/created_by get their own explicit, separate
+  -- assertion (4) below, per the task brief.
   ---------------------------------------------------------------------------
   select public.get_or_create_celebrated_occasion(v_celeb, 'birthday') into v_id1;
 
@@ -175,6 +245,16 @@ begin
     raise exception
       'RLS FAIL: materialized row has kind=%, group_id=%, expected kind=birthday, group_id=NULL',
       v_row_kind, v_row_group;
+  end if;
+  v_checks := v_checks + 1;
+
+  select occasion_year, occasion_date into v_occ_year, v_occ_date
+    from public.occasions where id = v_id1;
+
+  if v_occ_year <> v_expected_year_celeb or v_occ_date <= current_date then
+    raise exception
+      'RLS FAIL: celebrated occasion materialized into year % dated % -- expected year % (computed from v_bday_celeb via celebration_date_in_year(), not assumed) and a future date',
+      v_occ_year, v_occ_date, v_expected_year_celeb;
   end if;
   v_checks := v_checks + 1;
 
@@ -239,18 +319,20 @@ begin
 
   -- (c) The guard is present, uncommented, wired to can_view_field() in the
   -- correct (owner, viewer, settings) argument order, and its errcode is
-  -- tied to this specific raise. Anchored per line so a commented-out guard
-  -- line cannot satisfy it (see file header for the accepted block-comment
-  -- residue this does not close).
+  -- tied to this specific raise. Every pattern is anchored per line (see the
+  -- post-review correction in the file header for why the third one has to
+  -- span two anchored lines joined by a literal `\n`, rather than the
+  -- unanchored `[^;]*` the first cut used). Scoped by exact regprocedure, not
+  -- proname alone, so an ungated overload with an extra parameter cannot
+  -- also satisfy this count.
   select count(*) into v_guard_defs
     from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname = 'public'
-     and p.proname = 'get_or_create_celebrated_occasion'
+   where p.oid = 'public.get_or_create_celebrated_occasion(text, public.occasion_kind)'::regprocedure
      and pg_get_functiondef(p.oid) ~ '(?n)^\s*if v_row is null$'
      and pg_get_functiondef(p.oid) ~
        '(?n)^\s*or not public\.can_view_field\(p_celebrant_id, v_caller, v_row\.privacy_settings\)$'
-     and pg_get_functiondef(p.oid) ~ 'no visible % for that person''[^;]*22023';
+     and pg_get_functiondef(p.oid) ~
+       '(?n)^\s*raise exception ''no visible % for that person'' , p_kind\n\s*using errcode = ''22023'';$';
 
   if v_guard_defs <> 1 then
     raise exception
@@ -289,10 +371,43 @@ begin
   end if;
   v_checks := v_checks + 1;
 
+  ---------------------------------------------------------------------------
+  -- Assertion 5 (two checks): the rollover helper's OTHER branch. v_celeb's
+  -- fixture in assertion 1 exercises "this year's date has already passed,
+  -- roll to next year"; v_celeb_soon is its mirror image, exercising "this
+  -- year's date has not happened yet, stay in this year". Both compute their
+  -- expected year through celebration_date_in_year() rather than a hardcoded
+  -- literal (see the declare block), so this is correct on every calendar
+  -- day the suite happens to run on, not just today's -- the concrete
+  -- exploit this closes: deleting migration:67-69's
+  -- `if v_date < current_date then ... end if;` rollover would leave this
+  -- file green every day of the year, because nothing before this assertion
+  -- checked occasion_date/occasion_year at all.
+  ---------------------------------------------------------------------------
+  select public.get_or_create_celebrated_occasion(v_celeb_soon, 'birthday') into v_id_soon;
+
+  select count(*) into v_count from public.occasions where id = v_id_soon;
+  if v_count <> 1 then
+    raise exception
+      'RLS FAIL: get_or_create_celebrated_occasion returned id % which resolves to % row(s) in occasions, expected exactly 1',
+      v_id_soon, v_count;
+  end if;
+  v_checks := v_checks + 1;
+
+  select occasion_year, occasion_date into v_occ_year, v_occ_date
+    from public.occasions where id = v_id_soon;
+
+  if v_occ_year <> v_expected_year_soon or v_occ_date <= current_date then
+    raise exception
+      'RLS FAIL: celebrated occasion (no-rollover fixture) materialized into year % dated % -- expected year % (computed from v_bday_soon via celebration_date_in_year(), not assumed) and a future date',
+      v_occ_year, v_occ_date, v_expected_year_soon;
+  end if;
+  v_checks := v_checks + 1;
+
   perform set_config('role', v_orig_role, true);
 
-  if v_checks < 9 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 9', v_checks;
+  if v_checks < 12 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 12', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_15_celebrated_materialization');
