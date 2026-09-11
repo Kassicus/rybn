@@ -54,11 +54,22 @@
 -- suite (see the task report) -- it is the assertion the plan's pre-flight
 -- ruling added specifically because an existence-only implementation of the
 -- occasion guard passes every other assertion in this file. Assertion 7 also
--- gets one LIVE POSITIVE-PATH check (a real group_date claim) below, added
--- post-review because every other live call in this file passes `p_occasion_id
--- = null`, so the occasion gate's code was never entered at runtime in
--- either direction -- only the denial side is forbidden by the harness; nothing
--- stopped exercising the admission side.
+-- gets TWO LIVE POSITIVE-PATH checks below (one per arm -- a real group_date
+-- claim AND a real celebrated-occasion claim), added post-review because
+-- every other live call in this file passes `p_occasion_id = null`, so the
+-- occasion gate's code was never entered at runtime in either direction --
+-- only the denial side is forbidden by the harness; nothing stopped
+-- exercising the admission side. ROUND-2 CORRECTION: the group_date check
+-- alone was first believed to cover "either arm" for the `o.id =
+-- p_occasion_id` -> `o.id = p_item_id` mutation. That is wrong -- the two
+-- arms are separate `select` statements, and a mutation confined to the
+-- celebrated arm is invisible to a group_date-only live path. Both arms now
+-- get their own live positive path (see that assertion's own comment), and
+-- assertion 7(c) is separately extended to anchor the `o.id = p_occasion_id`
+-- correlation as an OCCURRENCE COUNT (exactly 2, one per arm) rather than a
+-- bare existence check, because the two arms' `where o.id = p_occasion_id`
+-- lines are byte-identical text -- an existence check cannot tell "both arms
+-- have it" from "only one still does."
 --
 -- Also added post-review: the same anchored-source treatment for the auth
 -- guard, the item-visibility guard and the purchased guard, none of which
@@ -66,6 +77,27 @@
 -- can_view_wishlist_item(...) conjunct (which would let any authenticated
 -- caller claim any item in the database) previously passed this file
 -- untouched.
+--
+-- TWO ACCEPTED LIMITS OF EVERY EXACT-TEXT SHAPE CHECK IN THIS FILE, stated
+-- plainly rather than left implicit:
+--
+--   1. DISASSOCIATION: a guard's `if`/condition line(s) and its `raise` line
+--      can each still match their own anchored pattern verbatim while no
+--      longer being connected to each other -- e.g. the guard body emptied
+--      and the `raise` relocated elsewhere in the function, or reached
+--      unconditionally. An exact-text check on two separate lines cannot see
+--      that they used to be one `if ... then raise ...; end if;` and no
+--      longer are. Structural, not closed by this round.
+--   2. GUARD ORDERING is not verified anywhere in this file -- only guard
+--      PRESENCE and each guard's own wiring. Reordering the five guards in
+--      claim_wishlist_item changes which message/errcode a caller who trips
+--      two guards at once sees, but does not change whether the claim is
+--      ultimately denied, so it is out of scope for what this file asserts.
+--
+-- Both are the same class already named for assertion 2(c)/4(c)/7(c)
+-- specifically (a functionally-equivalent rewrite false-positives an
+-- exact-text check) -- stated once here because it now applies to every
+-- anchored check in the file, not repeated at each site.
 --
 -- Assertions 1, 3, 5 and 6 are unaffected -- 1/3/5 are success paths (no
 -- raise reached), and 6 is the one denial path that returns FALSE instead of
@@ -97,6 +129,7 @@ declare
   v_giver            text := 'user_claimrpc_giver';
   v_giver2           text := 'user_claimrpc_giver2';
   v_private          text := 'user_claimrpc_private';
+  v_celeb            text := 'user_claimrpc_celeb';
   v_group            uuid;
   v_item1            uuid;
   v_item3            uuid;
@@ -104,6 +137,8 @@ declare
   v_occasion_private uuid;
   v_occasion_groupd  uuid;
   v_item_groupd      uuid;
+  v_occasion_celeb   uuid;
+  v_item_celeb       uuid;
   v_result_id        uuid;
   v_result_bool      boolean;
   v_count            int;
@@ -117,6 +152,7 @@ declare
   v_occ_rows         int;
   v_guard_defs       int;
   v_block_comment_pos int;
+  v_occid_matches    int;
 begin
   select current_user into v_orig_role;
 
@@ -127,19 +163,22 @@ begin
     values (v_owner,   'claimrpcowner',   'ClaimRPC Owner'),
            (v_giver,   'claimrpcgiver',   'ClaimRPC Giver'),
            (v_giver2,  'claimrpcgiver2',  'ClaimRPC Giver2'),
-           (v_private, 'claimrpcprivate', 'ClaimRPC Private');
+           (v_private, 'claimrpcprivate', 'ClaimRPC Private'),
+           (v_celeb,   'claimrpccelebrant', 'ClaimRPC Celebrant');
 
   insert into groups (name, type, invite_code, created_by)
     values ('ClaimRPC Family', 'family', 'CLAIMRP1', v_owner)
     returning id into v_group;
 
-  -- add_group_creator_as_owner() already added v_owner. v_giver and v_giver2
-  -- join, sharing "family" with the owner; v_private stays out entirely --
-  -- irrelevant either way, since assertion 7 denies on an EMPTY
-  -- visibleToGroupTypes regardless of shared groups.
+  -- add_group_creator_as_owner() already added v_owner. v_giver, v_giver2
+  -- and v_celeb join, sharing "family" with the owner (and with each other,
+  -- which is what makes v_celeb's birthday visible to v_giver below);
+  -- v_private stays out entirely -- irrelevant either way, since assertion 7
+  -- denies on an EMPTY visibleToGroupTypes regardless of shared groups.
   insert into group_members (group_id, user_id, role)
     values (v_group, v_giver, 'member'),
-           (v_group, v_giver2, 'member')
+           (v_group, v_giver2, 'member'),
+           (v_group, v_celeb, 'member')
     on conflict do nothing;
 
   insert into wishlist_items (user_id, title, privacy_settings)
@@ -152,13 +191,27 @@ begin
             '{"visibleToGroupTypes": ["family"], "restrictToGroup": null}')
     returning id into v_item3;
 
-  -- For assertion 7's POSITIVE path (added post-review): a third item,
-  -- claimed with a real, visible group_date occasion -- see that assertion's
-  -- comment below for why this is necessary at all.
+  -- For assertion 7's POSITIVE paths (added post-review): two more items,
+  -- one claimed with a real, visible group_date occasion and one claimed
+  -- with a real, visible CELEBRATED occasion -- see that assertion's
+  -- comments below for why both arms need their own live path.
   insert into wishlist_items (user_id, title, privacy_settings)
     values (v_owner, 'ClaimRPC Item GroupDate',
             '{"visibleToGroupTypes": ["family"], "restrictToGroup": null}')
     returning id into v_item_groupd;
+
+  insert into wishlist_items (user_id, title, privacy_settings)
+    values (v_owner, 'ClaimRPC Item Celebrated',
+            '{"visibleToGroupTypes": ["family"], "restrictToGroup": null}')
+    returning id into v_item_celeb;
+
+  -- v_celeb's birthday, visible to "family" -- v_giver shares that group
+  -- with v_celeb, so can_view_field(v_celeb, v_giver, ...) is true and the
+  -- celebrated arm genuinely admits the occasion get_or_create_celebrated_
+  -- occasion() materializes from it below.
+  insert into profile_info (user_id, category, field_name, field_value, privacy_settings)
+    values (v_celeb, 'dates', 'birthday', '1988-04-12',
+            '{"visibleToGroupTypes": ["family"], "restrictToGroup": null}');
 
   -- (4a) Not-vacuous check for assertion 4, captured now while nothing has
   -- touched the row yet: item1 genuinely belongs to v_owner, so the
@@ -305,21 +358,37 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 7, POSITIVE path (1 check, added post-review): every live call
-  -- to claim_wishlist_item in this file passes p_occasion_id = null, so the
-  -- occasion gate (migration:72-92) was never ENTERED at runtime in either
-  -- direction -- the harness forbids only the denial side (it raises), but
-  -- nothing stopped exercising the admission side, which does not raise.
-  -- Two realistic mutations pass every other check in this file green while
-  -- being completely broken: `union all` -> `intersect` (the two arms are
-  -- mutually exclusive by the table's own celebrated_shape/group_date_shape
-  -- check constraints, so intersect rejects every non-null occasion), and
-  -- `o.id = p_occasion_id` -> `o.id = p_item_id` in either arm (rejects
-  -- every occasion, since an occasion id is never also an item id). A real,
-  -- visible group_date claim catches both: it only succeeds if the
-  -- group_date arm's `exists()` genuinely admits a row. Still v_giver, who
-  -- is a member of v_group.
+  -- Assertion 7, POSITIVE paths (2 checks, added post-review): every OTHER
+  -- live call to claim_wishlist_item in this file passes p_occasion_id =
+  -- null, so the occasion gate (migration:72-92) was never ENTERED at
+  -- runtime in either direction -- the harness forbids only the denial side
+  -- (it raises), but nothing stopped exercising the admission side, which
+  -- does not raise. Two realistic mutations pass every OTHER check in this
+  -- file green while being completely broken:
+  --
+  --   `union all` -> `intersect`: the two arms are mutually exclusive by
+  --   the table's own celebrated_shape/group_date_shape check constraints,
+  --   so intersect rejects every non-null occasion, in BOTH arms. Either
+  --   positive-path check below catches this one on its own.
+  --
+  --   `o.id = p_occasion_id` -> `o.id = p_item_id`: this is PER-ARM, not
+  --   "either arm" -- the two arms are separate `select` statements, each
+  --   with its own `where o.id = p_occasion_id` line, and a mutation
+  --   isolated to ONE of them only breaks admission through THAT arm.
+  --   (Round-2 review correction: an earlier draft of this comment claimed
+  --   the group_date check alone covered "either arm", which overstated it
+  --   -- it covers the group_date arm only. A mutation confined to the
+  --   celebrated arm's `o.id` line would have shipped green, silently
+  --   denying every celebrated-occasion claim -- i.e. every birthday claim,
+  --   the entire point of this phase.) So BOTH arms get their own live
+  --   positive path below, and assertion 7(c) below is separately extended
+  --   to anchor the `o.id = p_occasion_id` correlation in both arms at the
+  --   shape level too (belt-and-braces, not redundant -- see that check's
+  --   own comment for why).
   ---------------------------------------------------------------------------
+
+  -- POSITIVE path, group_date arm. Still v_giver, who is a member of
+  -- v_group.
   select public.claim_wishlist_item(v_item_groupd, v_occasion_groupd) into v_result_id;
 
   perform set_config('role', v_orig_role, true);
@@ -331,8 +400,32 @@ begin
 
   if v_count <> 1 then
     raise exception
-      'RLS FAIL: claiming item % with visible group_date occasion % returned id % which resolves to % matching row(s), expected exactly 1 -- the occasion gate''s admission path is broken',
+      'RLS FAIL: claiming item % with visible group_date occasion % returned id % which resolves to % matching row(s), expected exactly 1 -- the occasion gate''s group_date-arm admission path is broken',
       v_item_groupd, v_occasion_groupd, v_result_id, v_count;
+  end if;
+  v_checks := v_checks + 1;
+
+  -- POSITIVE path, CELEBRATED arm. Mirrors the normal application flow
+  -- (claimItem() calls get_or_create_celebrated_occasion() first, per the
+  -- migration's own header) and Task 1's 15_celebrated_materialization.sql
+  -- fixture shape: v_giver materializes v_celeb's birthday (visible to
+  -- v_giver via their shared "family" group), then claims with it.
+  perform set_config('role', 'authenticated', true);
+
+  select public.get_or_create_celebrated_occasion(v_celeb, 'birthday') into v_occasion_celeb;
+  select public.claim_wishlist_item(v_item_celeb, v_occasion_celeb) into v_result_id;
+
+  perform set_config('role', v_orig_role, true);
+
+  select count(*) into v_count
+    from wishlist_claims
+   where id = v_result_id and item_id = v_item_celeb and claimed_by = v_giver
+     and occasion_id = v_occasion_celeb and released_at is null;
+
+  if v_count <> 1 then
+    raise exception
+      'RLS FAIL: claiming item % with visible celebrated occasion % (celebrant %) returned id % which resolves to % matching row(s), expected exactly 1 -- the occasion gate''s celebrated-arm admission path is broken',
+      v_item_celeb, v_occasion_celeb, v_celeb, v_result_id, v_count;
   end if;
   v_checks := v_checks + 1;
 
@@ -613,6 +706,39 @@ begin
   end if;
   v_checks := v_checks + 1;
 
+  -- Assertion 7's anchored source check, EXTENDED (1 check, round-2
+  -- review): none of the four patterns above reference `o.id =
+  -- p_occasion_id` -- the line that correlates the arm's candidate row back
+  -- to the occasion actually being claimed with, in EITHER arm. A mutation
+  -- isolated to one arm (`o.id = p_occasion_id` -> `o.id = p_item_id`) is
+  -- therefore invisible to all four patterns above, and is NOT reliably
+  -- caught by a live path either -- the celebrated-arm live check just
+  -- added exercises the celebrated arm, and the group_date-arm live check
+  -- exercises that one, but a check file should not rest a shape guarantee
+  -- on "we happened to also write a live test for it." So: this line's
+  -- exact text is IDENTICAL in both arms
+  -- (confirmed against the deployed definition), which means a bare
+  -- existence check (`~`) cannot distinguish "both arms have it" from
+  -- "only one still does" -- a mutation on one arm would still leave the
+  -- OTHER arm's identical line matching, and the check would wrongly pass.
+  -- So this counts OCCURRENCES via regexp_matches(...,'g'), not existence,
+  -- and requires exactly 2 -- one per arm.
+  select count(*) into v_occid_matches
+    from pg_proc p,
+         regexp_matches(
+           pg_get_functiondef(p.oid),
+           '(?n)^\s*where o\.id = p_occasion_id$',
+           'g'
+         ) m
+   where p.oid = 'public.claim_wishlist_item(uuid, uuid)'::regprocedure;
+
+  if v_occid_matches <> 2 then
+    raise exception
+      'GUARD FAIL: claim_wishlist_item''s occasion-id correlation (`where o.id = p_occasion_id`) appears % time(s) in the deployed definition, expected exactly 2 (one per arm) -- a mutation confined to a single arm (e.g. o.id = p_occasion_id -> o.id = p_item_id) would silently deny every claim through that arm',
+      v_occid_matches;
+  end if;
+  v_checks := v_checks + 1;
+
   ---------------------------------------------------------------------------
   -- POST-REVIEW ADDITION (1 check): the floor beneath every anchored check
   -- above, including assertion 5/16_claim_visibility.sql's own patterns for
@@ -692,8 +818,8 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 25 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 25', v_checks;
+  if v_checks < 27 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 27', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_17_claim_lifecycle');
