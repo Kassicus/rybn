@@ -31,7 +31,7 @@ Branch `worktree-occasions-phase-2`, worktree at
 | Task | State |
 |---|---|
 | 1. `get_or_create_occasion()` | **complete**, review clean — `c50f8d1`, `f9c9b8f` |
-| 2. `wishlist_item_occasions` table | implemented `edce36f`; fix round 1 **PARTIAL and UN-REVIEWED** — `997a129`, see the incident below |
+| 2. `wishlist_item_occasions` table | **complete**, review clean — `edce36f`, `997a129`; see the incident below for how it got there |
 | 3. Tag actions and tag-carrying reads | not started |
 | 4. Owner tagging UI on `/wishlist` | not started |
 | 5. Occasion-aware ordering for viewers | not started |
@@ -63,10 +63,16 @@ have made the schema unreproducible. Committed in `997a129`, which is
 **controller-made and has not been reviewed**; its message names exactly what is
 done and what is still open.
 
-**Still open on Task 2**, from the round 1 review: pinning assertion 4's pattern
-against a disjunctive weakening and against a dropped join correlation, and the
-UPDATE-policy absence guard. Resume by dispatching a fresh implementer with
-those two findings plus `task-2-report.md`, then run the scoped re-review.
+**Nothing is open on Task 2.** It is complete — all five Important findings
+were addressed in `997a129`, all eight assertions were proven falsifiable in
+round 2, and the scoped re-review passed.
+
+Correcting an error this document originally carried: `997a129`'s commit
+message claimed assertion 4's pattern and the UPDATE-policy guard were "still
+open" when both were complete in that same diff, and this handoff repeated it.
+The re-review caught it. No harm followed — round 2 verified and stopped rather
+than redoing settled work, and its proofs were genuinely missing — but the
+commit message misdescribes its own payload if anyone reads it later.
 
 **The lesson, and it is not about this agent.** Every not-vacuous proof in this
 project works by deliberately breaking something and restoring it. If the agent
