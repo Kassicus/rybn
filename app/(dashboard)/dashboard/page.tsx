@@ -9,7 +9,9 @@ import { getMyWishlist } from "@/lib/actions/wishlist";
 import { getMyGroupGifts } from "@/lib/actions/gifts";
 import { getMyProfile } from "@/lib/actions/profile";
 import { getGiftTrackingStats } from "@/lib/actions/gift-tracking";
+import { getUpcomingOccasions } from "@/lib/actions/occasions";
 import { GiftExchangeCard } from "@/components/gift-exchange/GiftExchangeCard";
+import { UpcomingOccasions } from "@/components/occasions/UpcomingOccasions";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +31,7 @@ export default async function DashboardPage() {
   const { data: wishlistItems = [] } = await getMyWishlist();
   const { data: groupGifts = [] } = await getMyGroupGifts();
   const { data: giftTrackingStats } = await getGiftTrackingStats();
+  const { data: upcomingOccasions = [] } = await getUpcomingOccasions();
 
   // Extract group IDs
   const groupIds = groups.map((g) => g.id);
@@ -138,6 +141,8 @@ export default async function DashboardPage() {
           groupCount: groups.length,
         }}
       />
+
+      <UpcomingOccasions occasions={upcomingOccasions} limit={5} />
 
       {/* One navigation block, not two. Each card IS the destination and
           carries its own create action, so the old "Quick Actions" row --
