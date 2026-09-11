@@ -811,6 +811,10 @@ export type Database = {
           }
         ]
       }
+      // Claiming itself moved out of this table in
+      // 20260911100003_drop_item_claim_columns.sql -- see wishlist_claims
+      // below. claimed_by/claimed_at are gone from Row/Insert/Update and
+      // their FK relationship no longer exists.
       wishlist_items: {
         Row: {
           id: string
@@ -823,8 +827,6 @@ export type Database = {
           priority: "low" | "medium" | "high" | "must-have" | null
           category: string | null
           privacy_settings: Json
-          claimed_by: string | null
-          claimed_at: string | null
           purchased: boolean
           purchased_at: string | null
           out_of_stock_marked_by: string | null
@@ -843,8 +845,6 @@ export type Database = {
           priority?: "low" | "medium" | "high" | "must-have" | null
           category?: string | null
           privacy_settings?: Json
-          claimed_by?: string | null
-          claimed_at?: string | null
           purchased?: boolean
           purchased_at?: string | null
           out_of_stock_marked_by?: string | null
@@ -863,8 +863,6 @@ export type Database = {
           priority?: "low" | "medium" | "high" | "must-have" | null
           category?: string | null
           privacy_settings?: Json
-          claimed_by?: string | null
-          claimed_at?: string | null
           purchased?: boolean
           purchased_at?: string | null
           out_of_stock_marked_by?: string | null
@@ -874,17 +872,76 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "wishlist_items_claimed_by_fkey"
-            columns: ["claimed_by"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "wishlist_items_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      // Claims, moved off wishlist_items and into their own table
+      // (20260911100001_wishlist_claims.sql / 20260911100003_drop_item_claim_
+      // columns.sql). ONE ACTIVE CLAIM PER ITEM (wishlist_claims_one_active,
+      // a unique index on item_id where released_at is null) -- not one per
+      // occasion. occasion_id is nullable and ON DELETE SET NULL: deleting the
+      // occasion must not destroy the claim record, and an unscoped claim
+      // (occasion_id null) never auto-releases.
+      //
+      // Writes go through claim_wishlist_item() / release_wishlist_claim()
+      // only (see the Functions block below) -- there is no INSERT or UPDATE
+      // policy on this table, so a direct write fails closed. SELECT is owner
+      // -blind: gated by can_view_wishlist_item() on the parent item AND it
+      // excludes the item's own owner outright, so there is no query the
+      // owner can write that returns their own items' claims.
+      wishlist_claims: {
+        Row: {
+          id: string
+          item_id: string
+          occasion_id: string | null
+          claimed_by: string
+          claimed_at: string
+          released_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          item_id: string
+          occasion_id?: string | null
+          claimed_by: string
+          claimed_at?: string
+          released_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          item_id?: string
+          occasion_id?: string | null
+          claimed_by?: string
+          claimed_at?: string
+          released_at?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wishlist_claims_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "wishlist_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wishlist_claims_occasion_id_fkey"
+            columns: ["occasion_id"]
+            isOneToOne: false
+            referencedRelation: "occasions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wishlist_claims_claimed_by_fkey"
+            columns: ["claimed_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
             referencedColumns: ["id"]
           }
         ]
@@ -1085,6 +1142,66 @@ export type Database = {
           p_kind: "birthday" | "anniversary" | "group_date"
         }
         Returns: string
+      }
+      // Materializes SOMEBODY ELSE'S celebrated occasion -- the counterpart to
+      // get_or_create_occasion() above, which only ever materializes the
+      // caller's own. claimItem() calls this first so a claim on Mom's item
+      // can label itself with Mom's birthday occasion, not the claimer's.
+      // (20260911100000_celebrated_occasion_for_claims.sql.) SECURITY
+      // DEFINER, gated by can_view_field() against p_celebrant_id's own
+      // privacy settings for that date -- a caller who cannot see the date
+      // cannot materialize an occasion for it.
+      //
+      // Error codes, verified against the migration:
+      //   28000 NOT AUTHENTICATED                -- called with no Clerk JWT
+      //   22023 group dates created explicitly    -- p_kind = 'group_date'
+      //   22023 no visible % for that person      -- no such date on file, or
+      //         the caller may not see it; deliberately the same message for
+      //         both, so this is not an existence oracle
+      get_or_create_celebrated_occasion: {
+        Args: {
+          p_celebrant_id: string
+          p_kind: "birthday" | "anniversary" | "group_date"
+        }
+        Returns: string
+      }
+      // Claims p_item_id for the caller, optionally labelled with
+      // p_occasion_id, and returns the new wishlist_claims row's id.
+      // SECURITY DEFINER (20260911100002_claim_rpcs.sql). Releases any lapsed
+      // claim on the item first (occasion date passed), then inserts --
+      // wishlist_claims_one_active is the race backstop.
+      //
+      // Error codes, verified against the migration:
+      //   28000 NOT AUTHENTICATED                     -- no Clerk JWT
+      //   22023 that item is not available to claim   -- no such item, or not
+      //         visible to the caller (same message for both, deliberately)
+      //   22023 you cannot claim your own item         -- caller owns the item
+      //   22023 that item has already been purchased   -- purchase is terminal
+      //   22023 that occasion is not available          -- p_occasion_id given
+      //         but not one the caller can see (same message whether it does
+      //         not exist or is merely invisible to them)
+      //   22023 somebody has already claimed that item -- wishlist_claims_
+      //         one_active fired; reported as the product fact, not the
+      //         constraint name
+      claim_wishlist_item: {
+        Args: {
+          p_item_id: string
+          p_occasion_id: string | null
+        }
+        Returns: string
+      }
+      // Releases the CALLER's own active claim on p_item_id. Returns false
+      // (not an error) when there was nothing to release -- an unclaim that
+      // finds nothing is not exceptional. SECURITY DEFINER
+      // (20260911100002_claim_rpcs.sql).
+      //
+      // Error codes, verified against the migration:
+      //   28000 NOT AUTHENTICATED -- no Clerk JWT
+      release_wishlist_claim: {
+        Args: {
+          p_item_id: string
+        }
+        Returns: boolean
       }
     }
     Enums: {

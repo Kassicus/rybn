@@ -84,21 +84,30 @@ begin
 
   ---------------------------------------------------------------------------
   -- 1. wishlist_items: the pin exists, and its permitted list is EXACTLY the
-  --    claim columns.
+  --    non-owner write surface: purchase and out-of-stock state.
   --
   --    Everything absent from that list is owner-only, so this single
   --    comparison is what stands between a co-member who can see an item and
   --    a co-member who can rename it, re-price it, re-point it at themselves
-  --    or WIDEN its privacy_settings. The claimer only ever needs the seven
-  --    columns named here (lib/actions/wishlist.ts: claim, unclaim, purchase,
-  --    out-of-stock), and updated_at is among them because
+  --    or WIDEN its privacy_settings. A non-owner only ever needs the five
+  --    columns named here (lib/actions/wishlist.ts: purchase, out-of-stock;
+  --    claiming itself is no longer a write to this table at all -- it goes
+  --    through wishlist_claims / claim_wishlist_item(), which this trigger
+  --    never sees), and updated_at is among them because
   --    update_wishlist_items_updated_at sorts after 'pin_' and writes it on
-  --    the claimer's behalf.
+  --    the non-owner's behalf.
   --
   --    The whole definition is compared, not just the arguments, so a trigger
   --    quietly re-pointed at another function, or demoted from BEFORE to
   --    AFTER (where raising is too late to keep the row unchanged), fails
   --    here too.
+  --
+  --    claimed_by/claimed_at left this list in 20260911100003_drop_item_claim_
+  --    columns.sql -- claiming moved to wishlist_claims / claim_wishlist_item()
+  --    (Task 2/3) -- so the permitted set is now exactly the five columns a
+  --    non-owner still writes directly on the item: purchase and out-of-stock
+  --    state, plus updated_at, which update_wishlist_items_updated_at sorts
+  --    after 'pin_' and writes on the claimer's behalf.
   ---------------------------------------------------------------------------
   select replace(pg_get_triggerdef(t.oid), 'FUNCTION public.', 'FUNCTION '),
          t.tgenabled::text
@@ -112,7 +121,7 @@ begin
      and not t.tgisinternal;
 
   if v_def is distinct from
-     'CREATE TRIGGER pin_wishlist_item_owner_fields BEFORE UPDATE ON public.wishlist_items FOR EACH ROW EXECUTE FUNCTION reject_non_owner_column_change(''claimed_by'', ''claimed_at'', ''purchased'', ''purchased_at'', ''out_of_stock_marked_by'', ''out_of_stock_marked_at'', ''updated_at'')'
+     'CREATE TRIGGER pin_wishlist_item_owner_fields BEFORE UPDATE ON public.wishlist_items FOR EACH ROW EXECUTE FUNCTION reject_non_owner_column_change(''purchased'', ''purchased_at'', ''out_of_stock_marked_by'', ''out_of_stock_marked_at'', ''updated_at'')'
   then
     raise exception
       'PRIVACY PIN: the wishlist_items owner-field pin is missing or altered. Found: %. Anything added to that permitted list becomes rewritable by whoever can merely SEE the item -- title, price and privacy_settings included, which is how a claimer widens another user''s audience.',
@@ -337,7 +346,16 @@ begin
                      "33333333-3333-3333-3333-333333333333": ["work"]}}');
 
   ---------------------------------------------------------------------------
-  -- 5. POSITIVE CONTROL: a non-owner can still claim.
+  -- 5. POSITIVE CONTROL: a non-owner can still record purchase state.
+  --
+  --    Used to exercise claimed_by/claimed_at directly -- claiming was a
+  --    write to this table. As of 20260911100003_drop_item_claim_columns.sql
+  --    those columns are gone: claiming now goes through wishlist_claims via
+  --    claim_wishlist_item(), a SECURITY DEFINER RPC that this trigger never
+  --    sees at all (it fires on wishlist_items, not wishlist_claims). So this
+  --    assertion no longer has a claim column to exercise, and is rewritten
+  --    to `purchased`, the nearest surviving write a non-owner still makes
+  --    directly on the item (markAsPurchased() in lib/actions/wishlist.ts).
   --
   -- The role switch is what makes policies apply at all: the CLI connects as
   -- a role with rolbypassrls, so claims alone would leave every assertion
@@ -349,14 +367,13 @@ begin
   perform set_config('role', 'authenticated', true);
 
   update wishlist_items
-     set claimed_by = 'user_pp_peer',
-         claimed_at = now()
+     set purchased = true
    where id = '22222222-2222-2222-2222-222222222222'
-  returning claimed_by into v_text;
+  returning purchased::text into v_text;
 
-  if v_text is distinct from 'user_pp_peer' then
+  if v_text is distinct from 'true' then
     raise exception
-      'PRIVACY PIN: a co-member could not claim a visible wishlist item (claimed_by is %). The pin is too tight -- claiming a gift is the feature the claim policy exists for.',
+      'PRIVACY PIN: a co-member could not record purchase state on a visible wishlist item (purchased is %). The pin is too tight -- marking a gift purchased is a feature a non-owner must still be able to do now that claiming itself has moved to wishlist_claims.',
       coalesce(v_text, '<no row updated>');
   end if;
   v_checks := v_checks + 1;
