@@ -34,3 +34,4 @@
 14_tag_visibility.sql
 15_celebrated_materialization.sql
 16_claim_visibility.sql
+17_claim_lifecycle.sql
