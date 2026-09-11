@@ -21,12 +21,28 @@
 --
 -- A second, UNSHARED occasion (partner_id left null, a different celebrant
 -- entirely, privacy_settings excluding every group) stands in for assertion
--- 4: proof that the new OR-branch cannot fire when there is no partner to
--- admit, i.e. that the widening is additive rather than a general loosening.
--- This is the most important assertion in the file -- see the migration's
--- own header for why.
+-- 4: proof that the new OR-branch does not FIRE for a row with no partner.
 --
--- Four assertions:
+-- WHAT ASSERTION 4 DOES NOT PROVE, stated plainly after review caught this
+-- file overclaiming it. Additivity -- "the new branch cannot admit anything
+-- the old policy refused" -- is a claim about the policy's BOOLEAN
+-- STRUCTURE (`X OR (partner_id is not null AND Y)` can only ever be true
+-- more often than `X` alone, never less, for every row regardless of
+-- fixture), and no fixture-based assertion can establish that; it can only
+-- ever sample individual rows. The `partner_id is not null` guard is not
+-- what produces assertion 4's zero, either: when partner_id is NULL,
+-- `pi.user_id = occasions.partner_id` is NULL for every profile_info row, so
+-- the inner `exists (...)` is already false on its own, before the guard is
+-- ever consulted. The guard is belt-and-braces documentation of intent, not
+-- a barrier -- a version of the policy with the guard deleted entirely
+-- (leaving only the equality join) would pass assertion 4 identically. What
+-- assertion 4 actually verifies is narrower and still worth having: that
+-- this specific unshared row, in this fixture, is not visible through the
+-- new branch -- i.e. that the equality join correctly evaluates to "no
+-- match" rather than some other bug making it accidentally true for a null
+-- partner_id.
+--
+-- Six assertions:
 --   1. a viewer who can see only the CELEBRANT's date reads the shared row
 --      (the policy's pre-existing branch, still intact);
 --   2. a viewer who can see only the PARTNER's date reads the SAME shared
@@ -38,10 +54,23 @@
 --   4. that same neither-can-see viewer reads zero rows for the UNSHARED
 --      occasion. Its celebrant is unrelated to the shared couple and its
 --      privacy_settings admit no group at all, so this is not a coincidence
---      of the fixture -- and because partner_id is null there, the new
---      branch's own guard (`partner_id is not null`) must be what keeps this
---      at zero, not the celebrant branch (which is already proven selective
---      by assertion 3 against the shared row's own celebrant leg).
+--      of the fixture -- but, per the note above, the zero comes from the
+--      `pi.user_id = occasions.partner_id` join never matching a NULL
+--      partner_id, not from the `partner_id is not null` guard, and this
+--      assertion does not by itself distinguish those two mechanisms (a
+--      local build against six policy variants confirmed both a
+--      guard-dropped mutation and a mis-parenthesised mutation still pass
+--      this assertion; only a mutation that makes the branch unconditional
+--      of the join, e.g. a bare `true`, could fail it, and assertion 3 would
+--      independently catch that same mutation on the SHARED row);
+--   5-6. structural checks that the two CHECK constraints added by
+--      20260912000004_occasion_partner_constraints.sql
+--      (occasions_partner_requires_celebrant,
+--      occasions_partner_not_self) exist on public.occasions with exactly
+--      the expected definitions. A violating insert is not attempted for
+--      either -- it would RAISE (a check_violation) and abort this file, the
+--      same limitation 15_celebrated_materialization.sql's header documents
+--      for a raising denial -- so existence and exact text stand in instead.
 --
 -- This file grows again in Tasks 4 and 5 (materialization, then derivation),
 -- appending further assertions and raising v_checks' floor to match. Keep
@@ -71,6 +100,7 @@ declare
   v_shared_occasion uuid;
   v_unshared_occasion uuid;
   v_visible         int;
+  v_con_def         text;
 begin
   select current_user into v_orig_role;
 
@@ -190,18 +220,24 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 4 (the important one): the SAME neither-can-see viewer reads
-  -- zero rows for the UNSHARED occasion. Its partner_id is null, so the new
-  -- OR-branch's own guard (`partner_id is not null`) must be what keeps this
-  -- row hidden -- proving the widening is additive and cannot admit anything
-  -- the old policy refused for a row with no partner at all.
+  -- Assertion 4: the SAME neither-can-see viewer reads zero rows for the
+  -- UNSHARED occasion (partner_id null). This proves the new branch does not
+  -- FIRE for a row with no partner -- it does NOT prove the branch's guard
+  -- is what stops it. With partner_id null, `pi.user_id = occasions.partner_id`
+  -- is null for every profile_info row, so the inner `exists (...)` is
+  -- already false from the equality join alone, before `partner_id is not
+  -- null` is ever consulted; the guard is belt-and-braces, not the
+  -- mechanism. Additivity -- that this branch can only ever admit MORE than
+  -- the old policy, never less -- follows from the policy's boolean
+  -- structure (`X OR (guard AND Y)` dominates `X`), not from this or any
+  -- other fixture-based assertion. See the file header for the full note.
   ---------------------------------------------------------------------------
   select count(*) into v_visible
     from occasions where id = v_unshared_occasion;
 
   if v_visible <> 0 then
     raise exception
-      'RLS FAIL: viewer % sees % row(s) of an UNSHARED anniversary occasion (partner_id null), expected 0 -- the new branch must not admit an unshared row',
+      'RLS FAIL: viewer % sees % row(s) of an UNSHARED anniversary occasion (partner_id null), expected 0 -- the equality join against a null partner_id must not match',
       v_viewer_neither, v_visible;
   end if;
   v_checks := v_checks + 1;
@@ -209,8 +245,55 @@ begin
   -- Back to the connecting role so the token insert below is permitted.
   perform set_config('role', v_orig_role, true);
 
-  if v_checks < 4 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 4', v_checks;
+  ---------------------------------------------------------------------------
+  -- Assertion 5: occasions_partner_requires_celebrant exists as a CHECK
+  -- constraint on public.occasions with exactly the expected definition.
+  -- 20260912000004_occasion_partner_constraints.sql added this so a
+  -- group-date row (celebrant_id null) can never carry a partner_id --
+  -- closing a gap the INSERT/UPDATE with_check clauses leave open (they pin
+  -- kind = 'group_date' but constrain neither partner_id nor celebrant_id).
+  -- A violating insert is not attempted here: it would RAISE (a
+  -- check_violation) and abort this file, the same limitation
+  -- 15_celebrated_materialization.sql's header documents for a raising
+  -- denial -- so the constraint's existence and exact text are checked
+  -- structurally instead.
+  ---------------------------------------------------------------------------
+  select pg_get_constraintdef(oid) into v_con_def
+    from pg_constraint
+   where conrelid = 'public.occasions'::regclass
+     and conname = 'occasions_partner_requires_celebrant'
+     and contype = 'c';
+
+  if v_con_def is distinct from
+     'CHECK (((partner_id IS NULL) OR (celebrant_id IS NOT NULL)))' then
+    raise exception
+      'GUARD FAIL: occasions_partner_requires_celebrant has definition % (or is missing), expected CHECK (((partner_id IS NULL) OR (celebrant_id IS NOT NULL)))',
+      v_con_def;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 6: occasions_partner_not_self exists as a CHECK constraint
+  -- with exactly the expected definition -- independent of assertion 5, and
+  -- independently necessary: a row naming someone as their own partner would
+  -- be a real data bug once Task 4 starts writing this column for real.
+  ---------------------------------------------------------------------------
+  select pg_get_constraintdef(oid) into v_con_def
+    from pg_constraint
+   where conrelid = 'public.occasions'::regclass
+     and conname = 'occasions_partner_not_self'
+     and contype = 'c';
+
+  if v_con_def is distinct from
+     'CHECK (((partner_id IS NULL) OR (partner_id <> celebrant_id)))' then
+    raise exception
+      'GUARD FAIL: occasions_partner_not_self has definition % (or is missing), expected CHECK (((partner_id IS NULL) OR (partner_id <> celebrant_id)))',
+      v_con_def;
+  end if;
+  v_checks := v_checks + 1;
+
+  if v_checks < 6 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 6', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_20_shared_anniversary_reads');
