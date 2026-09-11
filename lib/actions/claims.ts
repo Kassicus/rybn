@@ -129,9 +129,42 @@ export async function releaseClaim(
 }
 
 /**
+ * A claim row together with its linked occasion's date, when it has one --
+ * the shape the embedded select below returns. The FK (occasion_id) lives on
+ * wishlist_claims, so this is a to-one embed: `occasions` is a single object
+ * or null, never an array, the same way lib/actions/groups.ts's `gm.groups`
+ * and lib/actions/gifts.ts's `m.group_gifts` are.
+ */
+type ActiveClaimRow = {
+  item_id: string;
+  claimed_by: string;
+  occasion_id: string | null;
+  occasions: { occasion_date: string } | null;
+};
+
+/**
  * Every ACTIVE claim among the given items, keyed by item id. An item with
  * no active claim is simply absent from the result, not present with a null
  * value -- same convention getTagsForItems() uses for tags.
+ *
+ * ACTIVE, per _planning/2026-09-10-gift-giving-occasions-design.md:260-267
+ * and 20260911100002_claim_rpcs.sql's own header, is `released_at is null
+ * AND (occasion_id is null OR occasion.occasion_date >= current_date)` --
+ * not `released_at is null` alone. The unique index and claim_wishlist_item()
+ * only ever self-heal a lapsed claim on the NEXT claim attempt for that item
+ * (20260911100002_claim_rpcs.sql:95-104); nothing else releases it. Without
+ * applying the date half here too, an item claimed for an occasion that has
+ * already passed would keep rendering as "claimed" to every other giver --
+ * looking taken while actually available -- until somebody happens to try
+ * claiming it again. "Reads use that definition directly" is the design
+ * doc's own words for exactly this.
+ *
+ * The date half is applied here, in TypeScript, against occasion_date
+ * embedded from `occasions` via the wishlist_claims_occasion_id_fkey
+ * relationship -- not as a second `.eq`/`.gte` filter, which cannot express
+ * an OR across a claim's own null occasion_id and a joined table's column in
+ * one query without a raw filter string. The `released_at is null` half
+ * stays a real query filter, same as before.
  *
  * The empty-list short circuit runs BEFORE getUserId() or createClient() are
  * even called, matching getTagsForItems() (lib/actions/item-occasions.ts):
@@ -162,7 +195,7 @@ export async function getActiveClaims(
 
   const { data, error } = await supabase
     .from("wishlist_claims")
-    .select("item_id, claimed_by, occasion_id")
+    .select("item_id, claimed_by, occasion_id, occasions ( occasion_date )")
     .in("item_id", itemIds)
     .is("released_at", null);
 
@@ -171,9 +204,35 @@ export async function getActiveClaims(
     return { error: "Failed to load claims. Please try again." };
   }
 
+  // Pinned to whatever "today" is at call time -- deliberately not passed in
+  // or otherwise mockable, since production has no fixed clock either. Tests
+  // avoid depending on the real date by asserting relative to it (`today`
+  // minus/plus N days), not by asserting a specific calendar date.
+  const today = new Date().toISOString().slice(0, 10);
+
   const result: Record<string, { claimedBy: string; occasionId: string | null }> =
     {};
-  for (const row of data ?? []) {
+  for (const row of (data ?? []) as unknown as ActiveClaimRow[]) {
+    // Optional chaining, not `row.occasions !== null`: a real PostgREST
+    // response with no matching occasion embeds `occasions` as `null`, but a
+    // hand-built test fixture that simply omits the key would leave it
+    // `undefined` -- and `undefined !== null` is `true` in JS, which would
+    // have made the very next line throw on `row.occasions.occasion_date`.
+    // `?.` collapses both "no embed" shapes to the same `null` fallback.
+    const occasionDate = row.occasions?.occasion_date ?? null;
+
+    if (row.occasion_id !== null && occasionDate !== null && occasionDate < today) {
+      continue; // lapsed: occasion has passed, not yet self-healed
+    }
+    // occasion_id === null: unscoped, never lapses. occasion_id set but no
+    // resolvable occasionDate: the occasion is either gone (impossible while
+    // occasion_id is non-null -- the FK is ON DELETE SET NULL) or invisible
+    // to THIS caller under its own separate privacy policy (can_view_field
+    // on the celebrant's date, independent of the item's own
+    // privacy_settings that already gated this claim row into view). Either
+    // way there is nothing to compare against, so the claim is left active
+    // rather than guessed lapsed -- the safer default for a feature whose
+    // entire point is preventing two people from buying the same gift.
     result[row.item_id] = {
       claimedBy: row.claimed_by,
       occasionId: row.occasion_id,

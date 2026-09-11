@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 /**
  * Follows the mocking pattern established in ./occasions.test.ts: mock
@@ -308,7 +308,9 @@ describe("getActiveClaims", () => {
     // mapping, or keying by something other than item_id. What this does
     // NOT catch: whether the SELECT policy on wishlist_claims genuinely
     // hides the item owner's own claims -- that is 16_claim_visibility.sql's
-    // job; this only pins the row-to-record mapping.
+    // job; this only pins the row-to-record mapping. Occasion dates are both
+    // deliberately far in the future so this test cannot be confused with
+    // the predicate tests below -- it exists purely to pin the mapping.
     supabase = createSupabaseMock({
       wishlist_claims: [
         {
@@ -317,8 +319,14 @@ describe("getActiveClaims", () => {
               item_id: "item-1",
               claimed_by: "user_a",
               occasion_id: OCCASION_ID,
+              occasions: { occasion_date: "2999-01-01" },
             },
-            { item_id: "item-2", claimed_by: "user_b", occasion_id: null },
+            {
+              item_id: "item-2",
+              claimed_by: "user_b",
+              occasion_id: null,
+              occasions: null,
+            },
           ],
           error: null,
         },
@@ -344,6 +352,136 @@ describe("getActiveClaims", () => {
     const result = await getActiveClaims(["item-1"]);
 
     expect(result).toEqual({ data: {} });
+  });
+
+  /**
+   * The active-claim predicate: released_at is null (already covered by the
+   * tests above, which never exercise this describe block's clock) AND
+   * (occasion_id is null OR occasion.occasion_date >= current_date) --
+   * _planning/2026-09-10-gift-giving-occasions-design.md:260-267,
+   * 20260911100002_claim_rpcs.sql:5-6. The clock is pinned with fake timers
+   * rather than computed relative to the real Date.now(), so this suite
+   * passes identically regardless of which day it is actually run -- Task 1
+   * of this phase lost a full round to a calendar-dependent fixture, and a
+   * test that only fails during part of the year is worse than no test.
+   */
+  describe("the active-claim predicate", () => {
+    const TODAY = "2026-06-15";
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("omits a claim whose linked occasion has already passed", async () => {
+      // What would make this fail: filtering only on released_at is null and
+      // ignoring the embedded occasion date entirely -- exactly the gap this
+      // predicate exists to close. Left unfixed, an item claimed for an
+      // occasion that has passed would keep rendering as claimed to every
+      // other giver -- looking taken while claim_wishlist_item would
+      // actually release and re-award it on the very next attempt -- until
+      // somebody happens to make that attempt. What this does NOT catch:
+      // whether a REAL PostgREST response embeds a to-one `occasions`
+      // relationship as a bare object (matching this mock and matching how
+      // lib/actions/groups.ts's `gm.groups` already behaves in this
+      // codebase) rather than an array -- that is a live-wiring risk no
+      // mock-based test can see.
+      supabase = createSupabaseMock({
+        wishlist_claims: [
+          {
+            data: [
+              {
+                item_id: "item-1",
+                claimed_by: "user_a",
+                occasion_id: OCCASION_ID,
+                occasions: { occasion_date: "2026-06-01" },
+              },
+            ],
+            error: null,
+          },
+        ],
+      });
+
+      const result = await getActiveClaims(["item-1"]);
+
+      expect(result).toEqual({ data: {} });
+    });
+
+    it("includes a claim whose linked occasion is today or in the future", async () => {
+      // What would make this fail: an off-by-one in the comparison (e.g.
+      // strict `>` instead of `>=`, which would wrongly exclude an occasion
+      // dated exactly today -- the boundary this test pins with item-1).
+      // What this does NOT catch: whether ISO 8601 (YYYY-MM-DD) string
+      // comparison agrees with Postgres's own date comparison for every
+      // value it could hand back -- both sides here are plain ISO strings,
+      // which sort identically to a numeric date comparison, so a
+      // differently-formatted date would not be caught by this test.
+      supabase = createSupabaseMock({
+        wishlist_claims: [
+          {
+            data: [
+              {
+                item_id: "item-1",
+                claimed_by: "user_a",
+                occasion_id: OCCASION_ID,
+                occasions: { occasion_date: TODAY },
+              },
+              {
+                item_id: "item-2",
+                claimed_by: "user_b",
+                occasion_id: OCCASION_ID,
+                occasions: { occasion_date: "2026-06-20" },
+              },
+            ],
+            error: null,
+          },
+        ],
+      });
+
+      const result = await getActiveClaims(["item-1", "item-2"]);
+
+      expect(result).toEqual({
+        data: {
+          "item-1": { claimedBy: "user_a", occasionId: OCCASION_ID },
+          "item-2": { claimedBy: "user_b", occasionId: OCCASION_ID },
+        },
+      });
+    });
+
+    it("includes an unscoped claim (occasion_id null), because it never lapses", async () => {
+      // What would make this fail: applying the date check even when
+      // occasion_id is null -- there is no date to check an unscoped claim
+      // against ("An unscoped claim never auto-releases," design doc
+      // :280-282). What this does NOT catch: whether an unscoped claim is
+      // correctly constructed in the first place -- claimItem's own "claims
+      // unscoped when kind is null" test above covers what gets sent to the
+      // RPC; this only covers reading one back.
+      supabase = createSupabaseMock({
+        wishlist_claims: [
+          {
+            data: [
+              {
+                item_id: "item-1",
+                claimed_by: "user_a",
+                occasion_id: null,
+                occasions: null,
+              },
+            ],
+            error: null,
+          },
+        ],
+      });
+
+      const result = await getActiveClaims(["item-1"]);
+
+      expect(result).toEqual({
+        data: { "item-1": { claimedBy: "user_a", occasionId: null } },
+      });
+    });
   });
 
   it("returns a generic message on a select error, without leaking provider detail", async () => {
