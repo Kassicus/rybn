@@ -33,3 +33,4 @@
 13_occasion_materialization.sql
 14_tag_visibility.sql
 15_celebrated_materialization.sql
+16_claim_visibility.sql
