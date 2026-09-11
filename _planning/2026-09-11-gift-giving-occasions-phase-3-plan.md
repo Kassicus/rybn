@@ -350,13 +350,43 @@ begin
     raise exception 'that item has already been purchased' using errcode = '22023';
   end if;
 
-  -- The occasion, when given, must be one the caller can actually see --
-  -- occasions has its own RLS, but this is SECURITY DEFINER so that does not
-  -- apply here and the check has to be explicit.
-  if p_occasion_id is not null
-     and not exists (select 1 from occasions o where o.id = p_occasion_id)
-  then
-    raise exception 'that occasion does not exist' using errcode = '22023';
+  -- The occasion, when given, must be one the caller can actually SEE -- not
+  -- merely one that exists. This is SECURITY DEFINER, so `occasions`' own RLS
+  -- does not apply here and the check has to be written out. An existence-only
+  -- check would let any authenticated caller label a claim with any occasion
+  -- id, including one belonging to somebody whose dates they cannot see --
+  -- and since the occasion's date decides when the claim auto-releases, that
+  -- is a forged label with real consequences, not a cosmetic one.
+  --
+  -- Two shapes, two gates, matching how the occasion itself is protected:
+  -- a celebrated occasion follows its celebrant's own privacy settings for
+  -- that date (can_view_field, the same gate get_upcoming_occasions uses), and
+  -- a group_date follows group membership.
+  --
+  -- Note this is belt-and-braces in the normal flow: claimItem() calls
+  -- get_or_create_celebrated_occasion() first, which already gates on
+  -- can_view_field. But this function is granted to `authenticated` and so is
+  -- reachable directly through PostgREST, where nothing upstream has run.
+  if p_occasion_id is not null and not exists (
+    select 1 from occasions o
+     where o.id = p_occasion_id
+       and o.celebrant_id is not null
+       and exists (
+         select 1 from profile_info pi
+          where pi.user_id = o.celebrant_id
+            and pi.category = 'dates'
+            and pi.field_name = o.kind::text
+            and public.can_view_field(o.celebrant_id, v_caller, pi.privacy_settings)
+       )
+    union all
+    select 1 from occasions o
+     where o.id = p_occasion_id
+       and o.group_id is not null
+       and public.is_group_member(o.group_id, v_caller)
+  ) then
+    -- Same message for "does not exist" and "you cannot see it", so this is
+    -- not an existence oracle for other people's occasions.
+    raise exception 'that occasion is not available' using errcode = '22023';
   end if;
 
   -- Release anything lapsed on this item before inserting. This is the step
@@ -426,7 +456,11 @@ grant execute on function public.release_wishlist_claim(uuid) to authenticated, 
 3. a claim whose occasion is **in the past** is released by a subsequent claim, and the new claim succeeds — this is the self-healing path and the reason the function exists;
 4. the owner claiming their own item creates no row;
 5. `release_wishlist_claim` by the claimer sets `released_at`, and a fresh claim then succeeds;
-6. `release_wishlist_claim` by a **different** user releases nothing.
+6. `release_wishlist_claim` by a **different** user releases nothing;
+7. claiming with an `p_occasion_id` the caller **cannot see** — a celebrated
+   occasion whose celebrant's date is private to them — creates no claim row.
+   This is the assertion for the visibility gate above; an existence-only
+   implementation passes every other assertion in this file.
 
 For assertion 3, build the fixture with an occasion dated in the past explicitly — do not rely on a date that happens to have passed.
 
