@@ -105,6 +105,8 @@ declare
   v_guard_defs     int;
   v_row_celebrant  text;
   v_row_created_by text;
+  v_row_kind       public.occasion_kind;
+  v_row_group      uuid;
 begin
   select current_user into v_orig_role;
 
@@ -150,8 +152,11 @@ begin
   perform set_config('role', 'authenticated', true);
 
   ---------------------------------------------------------------------------
-  -- Assertion 1: a caller who CAN see the celebrant's birthday materializes
-  -- exactly one row.
+  -- Assertion 1 (two checks): a caller who CAN see the celebrant's birthday
+  -- materializes exactly one row, of the right shape -- kind='birthday',
+  -- group_id NULL, same as get_or_create_occasion's own assertion 1 in
+  -- 13_occasion_materialization.sql. celebrant_id/created_by get their own
+  -- explicit, separate assertion (4) below, per the task brief.
   ---------------------------------------------------------------------------
   select public.get_or_create_celebrated_occasion(v_celeb, 'birthday') into v_id1;
 
@@ -160,6 +165,16 @@ begin
     raise exception
       'RLS FAIL: get_or_create_celebrated_occasion returned id % which resolves to % row(s) in occasions, expected exactly 1',
       v_id1, v_count;
+  end if;
+  v_checks := v_checks + 1;
+
+  select kind, group_id into v_row_kind, v_row_group
+    from public.occasions where id = v_id1;
+
+  if v_row_kind <> 'birthday' or v_row_group is not null then
+    raise exception
+      'RLS FAIL: materialized row has kind=%, group_id=%, expected kind=birthday, group_id=NULL',
+      v_row_kind, v_row_group;
   end if;
   v_checks := v_checks + 1;
 
@@ -276,8 +291,8 @@ begin
 
   perform set_config('role', v_orig_role, true);
 
-  if v_checks < 8 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 8', v_checks;
+  if v_checks < 9 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 9', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_15_celebrated_materialization');
