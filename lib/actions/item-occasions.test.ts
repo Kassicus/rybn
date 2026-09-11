@@ -180,6 +180,28 @@ describe("tagItemForMyOccasion", () => {
     );
   });
 
+  it('maps a 23505 from the insert ("already tagged") to "You\'ve already tagged this item for that occasion", not the generic failure', async () => {
+    rpc.mockResolvedValue({ data: OCCASION_ID, error: null });
+    supabase = createSupabaseMock({
+      wishlist_item_occasions: [
+        {
+          data: null,
+          error: {
+            code: "23505",
+            message:
+              'duplicate key value violates unique constraint "wishlist_item_occasions_pkey"',
+          },
+        },
+      ],
+    });
+
+    const result = await tagItemForMyOccasion(ITEM_ID, "birthday");
+
+    expect(result).toEqual({
+      error: "You've already tagged this item for that occasion",
+    });
+  });
+
   it("revalidates /wishlist and the caller's own wishlist page on success", async () => {
     rpc.mockResolvedValue({ data: OCCASION_ID, error: null });
     supabase = createSupabaseMock({
@@ -267,6 +289,28 @@ describe("tagItemForGroupDate", () => {
     const result = await tagItemForGroupDate(ITEM_ID, GROUP_OCCASION_ID);
 
     expect(result).toEqual({ error: "You can only tag your own items" });
+  });
+
+  it('maps a 23505 from the insert to "You\'ve already tagged this item for that occasion", after the occasion check passes', async () => {
+    supabase = createSupabaseMock({
+      occasions: [{ data: { id: GROUP_OCCASION_ID }, error: null }],
+      wishlist_item_occasions: [
+        {
+          data: null,
+          error: {
+            code: "23505",
+            message:
+              'duplicate key value violates unique constraint "wishlist_item_occasions_pkey"',
+          },
+        },
+      ],
+    });
+
+    const result = await tagItemForGroupDate(ITEM_ID, GROUP_OCCASION_ID);
+
+    expect(result).toEqual({
+      error: "You've already tagged this item for that occasion",
+    });
   });
 
   it("returns Not authenticated when signed out, without touching the database", async () => {

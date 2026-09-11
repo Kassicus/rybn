@@ -69,6 +69,9 @@ export async function tagItemForMyOccasion(
     if (insertError.code === "42501") {
       return { error: "You can only tag your own items" };
     }
+    if (insertError.code === "23505") {
+      return { error: "You've already tagged this item for that occasion" };
+    }
     console.error("tagItemForMyOccasion: insert failed", insertError);
     return { error: "Failed to tag this item. Please try again." };
   }
@@ -152,6 +155,9 @@ export async function tagItemForGroupDate(
   if (error) {
     if (error.code === "42501") {
       return { error: "You can only tag your own items" };
+    }
+    if (error.code === "23505") {
+      return { error: "You've already tagged this item for that occasion" };
     }
     console.error("tagItemForGroupDate: insert failed", error);
     return { error: "Failed to tag this item. Please try again." };
