@@ -263,7 +263,22 @@ unchanged by phase 3 — verified byte-identical pre- and post-task — but phas
 makes the claim badge the whole point of that page. A callback prop invoking
 `loadData("saved")` covers it.
 
-## Outstanding and owned by the project owner
+## Owner-blindness: VERIFIED (2026-09-11)
+
+**The two-account check was run by the project owner and passed.** A claims an
+item on B's list; A sees "Claimed for ...", and B's own `/wishlist` shows no
+claim indication of any kind.
+
+This closes the gap that stood open across all three phases. It matters more
+than the same check would have in phase 1: owner-blindness moved from a strip
+list in application code (`getMyWishlist` deleting six columns, a rule any
+future caller could forget) to an RLS policy the database enforces, and F1b
+later added a branch whose guard -- `not owns_wishlist_item(...)` -- is
+exercised only by a fixture no application path can produce. Everything else
+verifying it is code reading and RLS assertions. Two real browsers was the one
+check none of that substitutes for, and it agrees.
+
+### Original note
 
 **The two-account owner-blindness check has never been run, in any phase.**
 Two accounts: A claims an item on B's list for B's birthday; confirm A sees
