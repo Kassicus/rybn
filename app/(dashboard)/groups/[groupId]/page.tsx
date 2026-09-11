@@ -6,8 +6,11 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { getGroupById } from "@/lib/actions/groups";
+import { getUpcomingOccasions } from "@/lib/actions/occasions";
 import { CopyInviteCode } from "@/components/groups/CopyInviteCode";
 import { InviteMembersButton } from "@/components/groups/InviteMembersButton";
+import { UpcomingOccasions } from "@/components/occasions/UpcomingOccasions";
+import { NewGroupDateButton } from "@/components/occasions/NewGroupDateButton";
 import Link from "next/link";
 
 import { getUserId } from "@/lib/auth/require-auth";
@@ -32,6 +35,35 @@ export default async function GroupDetailPage({
 
   // Get current user to check if viewing own profile
   const userId = await getUserId();
+
+  // This IS the group's calendar, not a "coming up soon" widget -- a date
+  // created for any time in the next year belongs on it the moment it
+  // exists, per the plan's own done-when criterion ("Someone creates
+  // 'Christmas 2026' on the family group and it appears for every member").
+  // The old bare default of 30 days made that literal example (106 days out
+  // from today) invisible even immediately after creation (Important 1).
+  // Widening this is safe: every row is still gated by can_view_field() /
+  // is_group_member() INSIDE get_upcoming_occasions() itself, so a longer
+  // window grants no additional visibility, only reach.
+  //
+  // getUpcomingOccasions() already applies visibility -- everything below is
+  // presentation-only filtering of an already-authorized list, never a
+  // second authorization check.
+  const { data: allOccasions = [] } = await getUpcomingOccasions(365);
+  const memberIds = new Set(
+    (group.group_members ?? []).map((member) => member.user_id)
+  );
+  const groupOccasions = allOccasions.filter((occasion) => {
+    if (occasion.kind === "group_date") return occasion.groupId === groupId;
+    // Derived birthdays/anniversaries carry groupId: null (Task 3 keys them
+    // per celebrant, not per group), so membership is the only signal this
+    // shape offers for "does this belong on THIS group's page." A celebrant
+    // can surface on more than one of their groups' pages this way, which is
+    // correct: the same person's birthday belongs on every group page they
+    // are a member of, the same way it appears once on the dashboard
+    // regardless of how many shared groups made it visible there.
+    return occasion.celebrantId !== null && memberIds.has(occasion.celebrantId);
+  });
 
   const Icon = groupTypeIcons[group.type as keyof typeof groupTypeIcons] || Grid;
 
@@ -111,6 +143,27 @@ export default async function GroupDetailPage({
             </Button>
           </Link>
         </div>
+      </div>
+
+      {/* Occasions */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Text size="sm" className="font-medium">
+            Occasions
+          </Text>
+          <NewGroupDateButton groupId={group.id} />
+        </div>
+        {groupOccasions.length > 0 ? (
+          <UpcomingOccasions
+            occasions={groupOccasions}
+            viewerId={userId}
+            manageGroupDates
+          />
+        ) : (
+          <Text variant="secondary" size="sm">
+            Nothing on the calendar for this group yet.
+          </Text>
+        )}
       </div>
 
       <Separator />

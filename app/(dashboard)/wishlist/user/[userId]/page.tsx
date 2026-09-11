@@ -2,13 +2,25 @@ import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getUserWishlist, getClaimerProfiles } from "@/lib/actions/wishlist";
 import { getSharedGroups } from "@/lib/actions/profile";
+import { getUpcomingOccasions } from "@/lib/actions/occasions";
+import { occasionLabel, daysUntil } from "@/lib/occasions/display";
+import { RelativeWhen } from "@/components/occasions/RelativeWhen";
+import { whenLabel } from "@/components/occasions/whenLabel";
+import { formatMonthDay } from "@/lib/utils/dates";
 import { Heading, Text } from "@/components/ui/text";
 import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { SortableWishlistItems } from "@/components/wishlist/SortableWishlistItems";
-import { Gift, Eye, Users, Lock } from "lucide-react";
+import { Gift, Eye, Users, Lock, Cake, Heart } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 import { getUserId } from "@/lib/auth/require-auth";
+
+// Celebrant occasions only reach this page as "birthday" | "anniversary" --
+// a group_date row always has celebrantId: null, so it can never match
+// theirOccasion below. Same icon vocabulary UpcomingOccasions.tsx and
+// DateReminderBanner.tsx already established, so no surface disagrees about
+// what a birthday looks like.
+const OCCASION_ICON = { birthday: Cake, anniversary: Heart } as const;
 export default async function UserWishlistPage({
   params,
 }: {
@@ -78,6 +90,29 @@ export default async function UserWishlistPage({
     );
   }
 
+  // getUpcomingOccasions() is scoped to the VIEWER (see its own doc comment),
+  // and returns only what the viewer may see -- which for a celebrated
+  // occasion means can_view_field() already found a qualifying shared group.
+  // Finding this person among it is presentation only, not a second
+  // authorization check: the "No Shared Groups" branch above already gated
+  // the page, and a stranger's occasion could not appear in this list to
+  // begin with.
+  //
+  // 60 days: wider than the viewer's-own-wishlist case (30), because this
+  // reader is a GIVER, who needs more lead time than the celebrant needs for
+  // themselves -- sourcing, shipping, or coordinating with the rest of a
+  // group all take longer than "update your own list." Still well short of
+  // the group page's/dashboard's full-year horizon, because this line is
+  // context for THIS one occasion, not a calendar of everything coming up.
+  const { data: occasions = [] } = await getUpcomingOccasions(60);
+  const theirOccasion =
+    occasions.find((occasion) => occasion.celebrantId === userId) ?? null;
+  // theirOccasion, when set, is always "birthday" | "anniversary" -- see the
+  // OCCASION_ICON comment above.
+  const TheirOccasionIcon = theirOccasion
+    ? OCCASION_ICON[theirOccasion.kind as "birthday" | "anniversary"]
+    : null;
+
   // Get the user's wishlist (RLS will filter based on privacy)
   const { data: items, error, currentUserId } = await getUserWishlist(userId);
 
@@ -122,6 +157,19 @@ export default async function UserWishlistPage({
           </Heading>
           {targetUser.username && targetUser.display_name && (
             <Text variant="secondary">@{targetUser.username}</Text>
+          )}
+          {theirOccasion && TheirOccasionIcon && (
+            <div className="mt-1 flex items-center gap-1.5">
+              <TheirOccasionIcon className="h-4 w-4 text-primary" />
+              <Text variant="secondary" size="sm">
+                {occasionLabel(theirOccasion)} is{" "}
+                <RelativeWhen
+                  occasionDate={theirOccasion.occasionDate}
+                  serverLabel={whenLabel(daysUntil(theirOccasion.occasionDate))}
+                />{" "}
+                ({formatMonthDay(theirOccasion.occasionDate)})
+              </Text>
+            </div>
           )}
         </div>
       </div>

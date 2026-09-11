@@ -9,7 +9,9 @@ import { getMyWishlist } from "@/lib/actions/wishlist";
 import { getMyGroupGifts } from "@/lib/actions/gifts";
 import { getMyProfile } from "@/lib/actions/profile";
 import { getGiftTrackingStats } from "@/lib/actions/gift-tracking";
+import { getUpcomingOccasions } from "@/lib/actions/occasions";
 import { GiftExchangeCard } from "@/components/gift-exchange/GiftExchangeCard";
+import { UpcomingOccasions } from "@/components/occasions/UpcomingOccasions";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +31,16 @@ export default async function DashboardPage() {
   const { data: wishlistItems = [] } = await getMyWishlist();
   const { data: groupGifts = [] } = await getMyGroupGifts();
   const { data: giftTrackingStats } = await getGiftTrackingStats();
+  // "Coming up" below is capped at limit={5} -- results already come back
+  // soonest-first, so the LIMIT decides what is shown and this window only
+  // decides what is FINDABLE. A narrow window can hide a genuinely-soonest
+  // occasion the same way the 30-day default hid a 106-day-out group date
+  // from the group page (Important 1); widening costs nothing here, since
+  // anything past the 5th-soonest is trimmed by the slice below regardless
+  // of how wide the window is. 365 days matches the group page's own
+  // full-year horizon, for the same underlying reason -- it should not take
+  // more than a year of lead time to notice something is coming up.
+  const { data: upcomingOccasions = [] } = await getUpcomingOccasions(365);
 
   // Extract group IDs
   const groupIds = groups.map((g) => g.id);
@@ -137,6 +149,12 @@ export default async function DashboardPage() {
           activeGifts: groupGifts.length,
           groupCount: groups.length,
         }}
+      />
+
+      <UpcomingOccasions
+        occasions={upcomingOccasions}
+        limit={5}
+        viewerId={userId}
       />
 
       {/* One navigation block, not two. Each card IS the destination and

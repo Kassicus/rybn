@@ -17,7 +17,11 @@
 - **No function takes a viewer id parameter.** Pin the viewer to `requesting_user_id()` internally. A `p_viewer_id` argument on a `security definer` function granted to `authenticated` is a dump of the user table — which is why `get_upcoming_dates_for_notifications` is granted to `service_role` only.
 - **Birthday occasions key on `(kind, celebrant_id, occasion_year)` — never on group.** Group membership is a visibility dimension. Group dates are the opposite and do carry `group_id`.
 - **Untagged items are never hidden.** Every item in the database today is untagged.
+- **The relative day label must be computed against the VIEWER's clock, not the server's.** `daysUntil` honours whatever `Date` it is handed, but a server-rendered component on Vercel hands it UTC — which is one day ahead of US viewers every evening after roughly 7pm Eastern, so "in 3 days" renders as "in 2 days" during prime usage hours. Found by Task 3's review, reproduced, and NOT fixed by the helper alone. Any component rendering "Today" / "Tomorrow" / "in N days" must compute that fragment on the client, or render an absolute date on the server and enhance it on the client. Absolute dates (`formatMonthDay`) are safe server-side.
 - **New RLS test files must be added to `supabase/tests/rls/MANIFEST`.** The runner fails on undeclared files *and* on declared-but-missing ones, and every file must use the counter-gated `_harness_result` pattern.
+- **Every `create policy` needs an explicit `to authenticated`.** A policy with no `TO` clause applies to `PUBLIC`, which includes `anon` — and the anon key ships to every browser. `supabase/tests/rls/06_anon_has_no_reach.sql` is a standing invariant that fails the whole suite if any `public` policy lacks a named role. Task 1 hit this: the original plan text omitted it on all five policies.
+- **An RLS test's success token is `OK_<filename minus .sql>`, including the numeric prefix.** `scripts/test-rls.sh` derives the expected token from the filename, so `11_occasion_visibility.sql` must emit `OK_11_occasion_visibility`. A mismatched token reports as "did not emit its success token" even when every assertion passed.
+- **An RLS test must reset `role` to the connecting role before its token insert.** `_harness_result` is a superuser-owned temp table; inserting as `authenticated` fails with `42501: permission denied`. Capture `current_user` at the top and restore it after the last assertion, as `01_wishlist_isolation.sql` does.
 - **`types/database.ts` is generated but hand-annotated.** If regenerating, re-apply the four `StoredImageValue` annotations or `lib/storage/image-value.ts` fails to compile. Hand-editing is safer here.
 - **Name collision:** `tracked_gifts.occasion` is unrelated free text in the private gift tracker. It is not a foreign key and has nothing to do with this feature.
 - **Migrations run against a linked remote project** (`npx supabase db push`). RLS tests run with `npm run test:rls` against that same linked project; each test is wrapped in a rolled-back transaction.
@@ -114,7 +118,7 @@ alter table public.occasions enable row level security;
 
 -- Group dates: visible to that group's members.
 create policy "Members can view their groups' occasions"
-  on public.occasions for select
+  on public.occasions for select to authenticated
   using (
     group_id is not null
     and public.is_group_member(group_id, public.requesting_user_id())
@@ -124,7 +128,7 @@ create policy "Members can view their groups' occasions"
 -- EXACTLY. Without this the table would be a back door around can_view_field:
 -- a materialized birthday row would announce a date the profile field hides.
 create policy "Celebrated occasions follow the underlying date's privacy"
-  on public.occasions for select
+  on public.occasions for select to authenticated
   using (
     celebrant_id is not null
     and exists (
@@ -138,7 +142,7 @@ create policy "Celebrated occasions follow the underlying date's privacy"
   );
 
 create policy "Group members can create group dates"
-  on public.occasions for insert
+  on public.occasions for insert to authenticated
   with check (
     kind = 'group_date'
     and group_id is not null
@@ -153,7 +157,7 @@ create policy "Group members can create group dates"
 -- land in a group the actor is already an admin of, and celebrated_shape
 -- blocks a kind change.
 create policy "Creator or group admin can update group dates"
-  on public.occasions for update
+  on public.occasions for update to authenticated
   using (
     kind = 'group_date'
     and (created_by = public.requesting_user_id()
@@ -166,7 +170,7 @@ create policy "Creator or group admin can update group dates"
   );
 
 create policy "Creator or group admin can delete group dates"
-  on public.occasions for delete
+  on public.occasions for delete to authenticated
   using (
     kind = 'group_date'
     and (created_by = public.requesting_user_id()
@@ -204,8 +208,11 @@ do $$
 declare
   v_visible   int;
   v_group     uuid;
+  v_orig_role text;
   v_checks    int := 0;
 begin
+  select current_user into v_orig_role;
+
   insert into user_profiles (id, username, display_name)
     values ('user_occ_a', 'occuser_a', 'Occ A'),
            ('user_occ_b', 'occuser_b', 'Occ B');
@@ -249,11 +256,18 @@ begin
   end if;
   v_checks := v_checks + 1;
 
+  -- Back to the connect role so the token insert below is permitted:
+  -- _harness_result is a superuser-owned temp table and `authenticated` has
+  -- no privilege on it. Same placement as 01_wishlist_isolation.sql.
+  perform set_config('role', v_orig_role, true);
+
   if v_checks < 2 then
     raise exception 'RLS FAIL: only % checks ran, expected 2', v_checks;
   end if;
 
-  insert into _harness_result (token) values ('OK_occasion_visibility');
+  -- Token is OK_<filename minus .sql>, numeric prefix included: the runner
+  -- derives what it expects from the filename.
+  insert into _harness_result (token) values ('OK_11_occasion_visibility');
 end $$;
 
 select token as result from _harness_result;
@@ -286,7 +300,10 @@ git commit -m "feat(occasions): add occasions table with per-viewer RLS"
 ### Task 2: Date helper and the derived-occasions function
 
 **Files:**
-- Create: `supabase/migrations/20260910100001_occasions_derivation.sql`
+- Create: `supabase/migrations/20260910100002_occasions_derivation.sql`
+  (renumbered from ...100001: Task 1's review turned up a Critical RLS
+  defect in the plan's UPDATE policy, and its fix took ...100001. See the
+  ledger's Task 1 rulings.)
 - Create: `supabase/tests/rls/12_occasion_derivation.sql`
 - Modify: `supabase/tests/rls/MANIFEST`
 
@@ -310,7 +327,7 @@ This is the exact expression `get_upcoming_dates_for_notifications` evaluates in
 
 - [ ] **Step 2: Write the migration**
 
-Create `supabase/migrations/20260910100001_occasions_derivation.sql`:
+Create `supabase/migrations/20260910100002_occasions_derivation.sql`:
 
 ```sql
 -- =============================================================================
@@ -498,7 +515,12 @@ Expected: `2027-02-28`, `2028-02-29`, `NULL`. No exception.
 - [ ] **Step 6: Write the failing RLS test**
 
 Create `supabase/tests/rls/12_occasion_derivation.sql` using the same
-counter-gated pattern. Assert:
+counter-gated pattern, and observe the three conventions in Global Constraints
+that Task 1 established by failing on them: the success token must be
+`OK_12_occasion_derivation` (derived from the filename, numeric prefix
+included); `role` must be reset to the captured `current_user` after the last
+assertion and before the token insert; and any policy this test creates as a
+fixture needs `to authenticated`. Assert:
 
 1. a birthday with `visibleToGroupTypes: []` (this schema's spelling of
    private — see `valid_wishlist_privacy_settings` in the baseline) does NOT
@@ -525,7 +547,7 @@ Expected: all pass, including both new files.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add supabase/migrations/20260910100001_occasions_derivation.sql \
+git add supabase/migrations/20260910100002_occasions_derivation.sql \
         supabase/tests/rls/12_occasion_derivation.sql \
         supabase/tests/rls/MANIFEST
 git commit -m "feat(occasions): derive upcoming occasions, fix Feb-29 reminder crash"
@@ -1039,11 +1061,8 @@ import Link from "next/link";
 import { Cake, Heart, Calendar } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
 import { formatMonthDay } from "@/lib/utils/dates";
-import {
-  occasionLabel,
-  daysUntil,
-  type UpcomingOccasion,
-} from "@/lib/occasions/display";
+import { occasionLabel, type UpcomingOccasion } from "@/lib/occasions/display";
+import { RelativeWhen } from "./RelativeWhen";
 
 // Same icon vocabulary DateReminderBanner.tsx already established, so the two
 // surfaces do not disagree about what a birthday looks like.
@@ -1073,7 +1092,14 @@ interface UpcomingOccasionsProps {
 }
 
 /**
- * Server-rendered: no "use client", no state, nothing here is interactive.
+ * Server-rendered EXCEPT the relative day label. See the Global Constraint:
+ * `daysUntil` honours the clock it is given, and a server render on Vercel
+ * gives it UTC, which is a day ahead of every US viewer each evening. So the
+ * absolute date (`formatMonthDay`) renders on the server, and the
+ * "Today / Tomorrow / in N days" fragment is computed on the client from the
+ * viewer's own clock. Split that fragment into a small "use client" child
+ * rather than making this whole list client-side -- nothing else here is
+ * interactive, and the list should still render without JS.
  *
  * Renders NOTHING claim-derived -- no counts, no "N claimed" badges. This
  * component also renders for list owners, and getMyWishlist strips claim state
@@ -1110,8 +1136,16 @@ export function UpcomingOccasions({
                 <span className="min-w-0 flex-1">
                   <Text className="font-medium">{occasionLabel(o)}</Text>
                   <Text variant="secondary" size="sm">
+                    {/* The absolute date renders here on the server. The
+                        relative fragment MUST NOT -- see the doc comment
+                        above and the Global Constraint. Put it in a small
+                        "use client" child that receives occasionDate and
+                        reads the browser's own clock. Do NOT pass it a
+                        server-computed day count: that bakes in the
+                        server's clock before it reaches the client, which
+                        relocates the bug rather than fixing it. */}
                     {formatMonthDay(o.occasionDate)} &middot;{" "}
-                    {whenLabel(daysUntil(o.occasionDate))}
+                    <RelativeWhen occasionDate={o.occasionDate} />
                     {o.groupName ? ` · ${o.groupName}` : ""}
                   </Text>
                 </span>

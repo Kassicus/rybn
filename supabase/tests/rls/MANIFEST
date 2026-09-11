@@ -28,3 +28,5 @@
 08_profile_provisioning.sql
 09_privacy_pins.sql
 10_private_storage.sql
+11_occasion_visibility.sql
+12_occasion_derivation.sql
