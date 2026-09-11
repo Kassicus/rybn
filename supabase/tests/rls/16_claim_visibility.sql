@@ -121,6 +121,8 @@ declare
   v_claimer        text := 'user_claim_claimer';
   v_group          uuid;
   v_item           uuid;
+  v_hidden_item    uuid;
+  v_self_item      uuid;
   v_occasion       uuid;
   v_visible        int;
   v_priv_insert    boolean;
@@ -172,6 +174,34 @@ begin
   -- role), not yet impersonating anyone.
   insert into wishlist_claims (item_id, occasion_id, claimed_by)
     values (v_item, v_occasion, v_claimer);
+
+  -- An item NOBODY but its owner can see: visibleToGroupTypes is empty, so
+  -- can_view_wishlist_item() is false for every viewer including v_claimer,
+  -- who is otherwise a co-member. This reproduces the state a claimer lands in
+  -- after leaving the shared group or after the owner narrows privacy_settings
+  -- -- the claim survives, the item goes invisible.
+  insert into wishlist_items (user_id, title, privacy_settings)
+    values (v_owner, 'Hidden Claimable Item',
+            '{"visibleToGroupTypes": [], "restrictToGroup": null}')
+    returning id into v_hidden_item;
+
+  insert into wishlist_claims (item_id, occasion_id, claimed_by)
+    values (v_hidden_item, v_occasion, v_claimer);
+
+  -- A claim naming the item's OWNER as its claimer. claim_wishlist_item()
+  -- raises 'you cannot claim your own item' and `authenticated` holds no
+  -- INSERT privilege here, so this row cannot be produced through any path the
+  -- application offers -- it is written as the connecting role precisely
+  -- because it is the shape owner-blindness has to survive anyway. Without it
+  -- the owns_wishlist_item() conjunct added in 20260911100004 would be
+  -- decorative: nothing else in this file can tell whether it is there.
+  insert into wishlist_items (user_id, title, privacy_settings)
+    values (v_owner, 'Self Claimed Item',
+            '{"visibleToGroupTypes": ["family"], "restrictToGroup": null}')
+    returning id into v_self_item;
+
+  insert into wishlist_claims (item_id, occasion_id, claimed_by)
+    values (v_self_item, v_occasion, v_owner);
 
   ---------------------------------------------------------------------------
   -- Assertion 1: a co-member who can see the item -- and did NOT make this
@@ -228,6 +258,89 @@ begin
     raise exception
       'RLS FAIL: stranger % sees % claim(s) on an item they cannot see at all, expected 0',
       v_stranger, v_visible;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 6 (two checks): a claimer who can no longer SEE the item still
+  -- sees their OWN claim on it.
+  --
+  -- Check (a) first establishes that the item really is invisible to them,
+  -- because without it (b) proves nothing: if v_claimer could still see the
+  -- item, the pre-existing EXISTS branch would admit the row and the new
+  -- top-level branch would never be exercised.
+  --
+  -- What would make this fail: dropping the `claimed_by = requesting_user_id()`
+  -- branch, or -- the version that actually shipped in the follow-up doc --
+  -- writing it as a disjunct INSIDE the existing EXISTS, where it is
+  -- unreachable because that subquery is itself filtered by wishlist_items'
+  -- RLS for the querying role.
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_claimer || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  select count(*) into v_visible
+    from wishlist_items where id = v_hidden_item;
+
+  if v_visible <> 0 then
+    raise exception
+      'RLS FAIL: claimer % can still see the hidden item (% row(s)), so assertion 6(b) would not test the self-visibility branch',
+      v_claimer, v_visible;
+  end if;
+  v_checks := v_checks + 1;
+
+  select count(*) into v_visible
+    from wishlist_claims where item_id = v_hidden_item;
+
+  if v_visible <> 1 then
+    raise exception
+      'RLS FAIL: claimer % sees % claim(s) of their own on an item they can no longer see, expected 1',
+      v_claimer, v_visible;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 7: the new branch must not widen access to anyone else. A
+  -- co-member who did NOT make the claim still sees nothing on an item they
+  -- cannot see -- proving assertion 6(b) turned on "it is MY claim", not on
+  -- the branch admitting the row to everybody.
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_comember || '","role":"authenticated"}', true);
+
+  select count(*) into v_visible
+    from wishlist_claims where item_id = v_hidden_item;
+
+  if v_visible <> 0 then
+    raise exception
+      'RLS FAIL: non-claiming co-member % sees % claim(s) on an item they cannot see, expected 0',
+      v_comember, v_visible;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 8: OWNER-BLINDNESS SURVIVES THE NEW BRANCH. The owner is the
+  -- claimer on v_self_item, so `claimed_by = requesting_user_id()` is TRUE for
+  -- them -- the only thing keeping the row hidden is the
+  -- `not owns_wishlist_item(...)` conjunct.
+  --
+  -- What would make this fail: shipping the simpler `claimed_by =
+  -- requesting_user_id()` disjunct without that conjunct, which is the version
+  -- that needs no new function and looks obviously correct. This is the
+  -- assertion that makes owner-blindness structural here rather than a
+  -- consequence of claim_wishlist_item() refusing self-claims.
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_owner || '","role":"authenticated"}', true);
+
+  select count(*) into v_visible
+    from wishlist_claims where item_id = v_self_item;
+
+  if v_visible <> 0 then
+    raise exception
+      'RLS FAIL: owner % sees % claim(s) on their OWN item naming themselves as claimer, expected 0',
+      v_owner, v_visible;
   end if;
   v_checks := v_checks + 1;
 
@@ -314,7 +427,7 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 8 then
+  if v_checks < 12 then
     raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 8', v_checks;
   end if;
 

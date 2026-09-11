@@ -11,45 +11,84 @@ linked production project before the merge, so the merge itself was code-only �
 a repair of production, which until then ran code writing columns that no longer
 existed.
 
-## F1 — the two claim surfaces disagree (Important)
+## F1 — DONE (2026-09-11)
 
-`app/(dashboard)/wishlist/[itemId]/page.tsx:366` passes `kind={null}`
-unconditionally, so claiming from the item-detail page is always **unscoped** and
-never auto-releases, while claiming the same item from its list card is
-occasion-scoped. Two buttons, same item, same user, same day, different
-semantics.
+Both halves shipped. Kept here rather than deleted because F1b's originally
+specified fix **did not work**, and the reason is worth not rediscovering.
 
-The plan sanctioned this because the detail page "has no occasion in view
-concept at all". **That stopped being true in Task 6**, which added
-`getUpcomingOccasions(60)` to that page at `:165`. With `item.user_id` already in
-hand, `occasions.find(o => o.celebrantId === item.user_id)` is available at
-`:169`.
+**F1a — the two claim surfaces disagreed.** `[itemId]/page.tsx` passed
+`kind={null}` unconditionally, so claiming from the detail page produced an
+unscoped claim that never auto-releases, while claiming the same item from its
+list card produced a scoped one. Both now resolve the occasion identically,
+using the rule copied from `user/[userId]/page.tsx:110-117` rather than
+reinvented. Commit `858715e`.
 
-Do this first: it is the machine that manufactures unscoped claims, and fixing it
-shrinks F1b's blast radius before the policy is touched.
+**F1b — claimer self-visibility.** Shipped as
+`20260911100004_claimer_self_visibility.sql`.
 
-**F1b — claimer self-visibility.** The `wishlist_claims` SELECT policy has no
-`claimed_by = (select requesting_user_id())` disjunct, so a claimer who later
-loses visibility of the item (leaves the group, or the owner narrows
-`privacy_settings`) goes blind to their own claim. For an occasion-scoped claim
-this self-heals when the occasion passes; for an **unscoped** claim, which never
-auto-releases, the item stays locked by somebody who can neither see nor release
-it from the UI. The RPC path is fine — `release_wishlist_claim` is definer and
-does no visibility check — it is only the UI that goes blind, because
-`isClaimedByMe` derives from `getActiveClaims`.
+**What this document originally specified was wrong.** It said to add the
+disjunct as `wi.user_id <> me AND (can_view_wishlist_item(...) OR claimed_by =
+me)` — i.e. inside the policy's existing `EXISTS` over `wishlist_items`. That
+subquery is itself subject to `wishlist_items`' RLS for the querying role, so
+for the very caller this was meant to help — a claimer who has lost sight of
+the item — the `EXISTS` never matches and the added disjunct is unreachable.
+It would have shipped, passed review, and done nothing.
 
-Required shape, keeping owner-blindness as the OUTER conjunct so self-visibility
-can never reopen the owner's view:
+Verified rather than reasoned, impersonating a user who cannot see the one live
+item:
 
-```sql
-wi.user_id <> (select public.requesting_user_id())
-AND ( public.can_view_wishlist_item(...) OR claimed_by = (select public.requesting_user_id()) )
+```
+exists (select 1 from wishlist_items wi where wi.id = <item>)  ->  false
 ```
 
-Note this changes the policy that `supabase/tests/rls/16_claim_visibility.sql`
-asserts on; both move together.
+**The shape that works** puts the new branch at the TOP level, where it never
+reads `wishlist_items` as the caller:
 
-## F2 — `getActiveClaims` lapses claims on purchased items (Important)
+```sql
+(claimed_by = (select public.requesting_user_id())
+   and not public.owns_wishlist_item(wishlist_claims.item_id))
+or exists ( ...unchanged owner-excluding visibility check... )
+```
+
+`owns_wishlist_item(uuid)` is a new `security definer` helper pinned to
+`requesting_user_id()`. It takes no viewer parameter, so it only ever answers
+"do I own this", which the caller already knows — not an ownership oracle.
+
+**Why the helper rather than a bare `claimed_by = me` disjunct**, which needs no
+new function and looks obviously correct: a bare disjunct re-opens
+owner-blindness for any row where the item's owner is also its claimer. Proved
+in a rolled-back transaction against production:
+
+```
+A_shipped__claimer_sees_own_on_hidden_item       1   <- the fix works
+B_shipped__owner_sees_self_claim                 0   <- owner-blindness holds
+C_no_self_branch__claimer_sees_own               0   <- assertion 6(b) bites
+D_no_ownership_conjunct__OWNER_SEES_OWN_ITEM     1   <- the bare disjunct leaks
+```
+
+No such row can be produced through the application today — `claim_wishlist_item()`
+raises on self-claim and `authenticated` holds no INSERT privilege on the table
+— but that is an invariant maintained elsewhere, and moving owner-blindness into
+RLS (20260911100001) was specifically about not relying on those. The helper
+keeps the guarantee inside the policy.
+
+`16_claim_visibility.sql` gains assertions 6-8 (floor 8 -> 12), including a
+fixture whose claim names the item's owner as claimer. That row cannot arise
+through any application path; it exists precisely so the `owns_wishlist_item`
+conjunct is falsifiable. Without it the conjunct would be decorative — nothing
+else in the file can tell whether it is there.
+
+## F2 — DONE (2026-09-11, commit `2de5b24`)
+
+Fixed by consolidating the rule into `lib/claims/active.ts`, shared by
+`getActiveClaims` and `markAsPurchased`, rather than patching the two call
+sites into agreement and leaving them free to drift again. Purchase is checked
+BEFORE the date deliberately: reversing them refuses the purchaser permission
+to undo their own purchase once the occasion has passed. Both new tests
+verified by mutation. The false "by construction" invariant in
+`markAsPurchased`'s doc comment is corrected. Original description follows.
+
+### Original finding
 
 `lib/actions/claims.ts:224` excludes any claim whose occasion has passed, with no
 regard for `purchased`. `supabase/migrations/20260911100002_claim_rpcs.sql:50-52`
