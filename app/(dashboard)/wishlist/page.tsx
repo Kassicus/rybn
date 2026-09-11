@@ -1,5 +1,10 @@
 import { redirect } from "next/navigation";
 import { getMyWishlist } from "@/lib/actions/wishlist";
+import { getUpcomingOccasions } from "@/lib/actions/occasions";
+import { daysUntil } from "@/lib/occasions/display";
+import { RelativeWhen } from "@/components/occasions/RelativeWhen";
+import { whenLabel } from "@/components/occasions/whenLabel";
+import { formatMonthDay } from "@/lib/utils/dates";
 import { Button } from "@/components/ui/button";
 import { Heading, Text } from "@/components/ui/text";
 import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
@@ -16,6 +21,18 @@ export default async function WishlistPage() {
   }
 
   const { data: items, error } = await getMyWishlist();
+
+  // getUpcomingOccasions() carries no claim fields at all (see
+  // UpcomingOccasion in lib/occasions/display.ts) -- there is nothing here to
+  // strip, unlike getMyWishlist() above. The soonest occasion where the
+  // viewer IS the celebrant is the viewer's own upcoming birthday or
+  // anniversary; a group_date row always has celebrantId: null, so it can
+  // never match here. Failure is swallowed to `[]` rather than surfaced: this
+  // is a one-line decoration on the owner's list, not the list itself, and
+  // the page must not error out over it.
+  const { data: occasions = [] } = await getUpcomingOccasions();
+  const myOccasion =
+    occasions.find((occasion) => occasion.celebrantId === userId) ?? null;
 
   if (error) {
     return (
@@ -49,6 +66,24 @@ export default async function WishlistPage() {
           </Button>
         </Link>
       </div>
+
+      {/* Context only -- phase 1 has no tagging, so this line does not link
+          anywhere or invite an action. Renders the occasion and its date and
+          nothing else: no counts, no claim state. See getMyWishlist() above,
+          which already stripped every claim field from `items` before this
+          component ever saw them -- there is nothing claim-shaped left to
+          leak, from either fetch on this page. */}
+      {myOccasion && (
+        <Text variant="secondary">
+          {myOccasion.kind === "birthday" ? "Your birthday" : "Your anniversary"}{" "}
+          is{" "}
+          <RelativeWhen
+            occasionDate={myOccasion.occasionDate}
+            serverLabel={whenLabel(daysUntil(myOccasion.occasionDate))}
+          />{" "}
+          ({formatMonthDay(myOccasion.occasionDate)})
+        </Text>
+      )}
 
       {/* Empty state */}
       {items && items.length === 0 && (
