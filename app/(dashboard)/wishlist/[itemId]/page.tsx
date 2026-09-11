@@ -69,6 +69,13 @@ export default function WishlistItemDetailPage({
   // getActiveClaims returns { claimedBy, occasionId }, not a label -- and is
   // null both for an unscoped claim and for "no claim active."
   const [claimedBy, setClaimedBy] = useState<string | null>(null);
+  // The occasion kind a claim made FROM THIS PAGE should be scoped to -- the
+  // owner's own upcoming birthday/anniversary, if they have one inside the
+  // same 60-day window the list page uses. Distinct from
+  // claimedOccasionLabel below, which describes an EXISTING claim.
+  const [claimOccasionKind, setClaimOccasionKind] = useState<
+    "birthday" | "anniversary" | null
+  >(null);
   const [claimedOccasionLabel, setClaimedOccasionLabel] = useState<
     string | null
   >(null);
@@ -141,7 +148,28 @@ export default function WishlistItemDetailPage({
         if (ownItem) {
           setClaimedBy(null);
           setClaimedOccasionLabel(null);
+          setClaimOccasionKind(null);
         } else {
+          // One lookup, used for BOTH jobs below: scoping a NEW claim, and
+          // labelling an EXISTING one. Same horizon and same selection rule as
+          // /wishlist/user/[userId]/page.tsx:110-117 -- deliberately identical,
+          // because these two surfaces claim the same items and previously
+          // disagreed: the list card scoped its claim to the celebrant's
+          // occasion while this page always claimed UNSCOPED, so which button
+          // you pressed decided whether the claim would ever auto-release.
+          const { data: occasions = [] } = await getUpcomingOccasions(60);
+          const theirOccasion =
+            occasions.find(
+              (occasion) => occasion.celebrantId === itemData.user_id
+            ) ?? null;
+          // Always "birthday" | "anniversary" when set: a group_date row
+          // carries celebrantId: null and so can never match above.
+          setClaimOccasionKind(
+            theirOccasion
+              ? (theirOccasion.kind as "birthday" | "anniversary")
+              : null
+          );
+
           const claimsResult = await getActiveClaims([itemData.id]);
           const claim =
             "data" in claimsResult ? claimsResult.data[itemData.id] : undefined;
@@ -155,14 +183,10 @@ export default function WishlistItemDetailPage({
             if (!claim.occasionId) {
               setClaimedOccasionLabel(null);
             } else {
-              // Same 60-day horizon and justification as
-              // /wishlist/user/[userId]/page.tsx's own getUpcomingOccasions
-              // call: this reader is a GIVER looking at somebody else's
-              // item. An active (non-lapsed) claim's occasion date only
-              // ever gets closer over time from whenever it was scoped, and
-              // scoping only ever happens through that same 60-day-wide
+              // Reuses the single lookup above. An active (non-lapsed) claim's
+              // occasion date only ever gets closer over time from whenever it
+              // was scoped, and scoping only ever happens through a 60-day-wide
               // view, so the occasion is still inside this window here.
-              const { data: occasions = [] } = await getUpcomingOccasions(60);
               const claimedOccasion = occasions.find(
                 (occasion) =>
                   occasion.occasionId === claim.occasionId &&
@@ -357,13 +381,14 @@ export default function WishlistItemDetailPage({
             purchased={item.purchased || false}
             outOfStockMarkedBy={item.out_of_stock_marked_by || null}
             currentUserId={currentUserId}
-            // This standalone item page has no "occasion in view" concept
-            // (no occasion selector the way the user-wishlist page has) --
-            // a claim made from here is always UNSCOPED. celebrantId is
-            // inert whenever kind is null, but claimItem() still requires a
-            // value, so the item's real owner is passed for clarity.
+            // Scoped to the owner's own upcoming occasion when they have
+            // one, exactly as the list card does. kind falls back to null --
+            // an unscoped claim that never auto-releases -- only when they
+            // genuinely have no birthday or anniversary inside the window,
+            // which is the honest answer when nobody can say what the claim
+            // is for.
             celebrantId={item.user_id}
-            kind={null}
+            kind={claimOccasionKind}
             claimedOccasionLabel={claimedOccasionLabel}
             variant="detail"
             itemData={{

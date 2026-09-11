@@ -98,13 +98,20 @@ interface ClaimActionsProps {
    * this item right now -- the wishlist owner's id and the birthday/
    * anniversary currently in view, computed by the page (see
    * app/(dashboard)/wishlist/user/[userId]/page.tsx's `theirOccasion`).
-   * `kind: null` means no occasion is in view -- the standalone item detail
-   * page has no "occasion in view" concept at all, so it always passes null
-   * here. claimItem() then claims UNSCOPED, which never auto-releases: the
-   * honest behaviour when nobody can say what occasion it is for.
-   * celebrantId is unused by claimItem() whenever kind is null, but is
-   * still a required value -- callers with no real occasion in view may
-   * pass any string, since it is inert in that case.
+   *
+   * BOTH claim surfaces resolve this the same way -- the list card and the
+   * item detail page each look for an occasion whose celebrantId is the
+   * wishlist owner, inside the same 60-day window. They used to disagree: the
+   * detail page passed null unconditionally, so claiming the same item from
+   * the card produced a claim that auto-released and claiming it from the
+   * detail page produced one that never would. Which button you happened to
+   * press decided the semantics.
+   *
+   * `kind: null` now means what it says -- the owner has no birthday or
+   * anniversary inside the window. claimItem() then claims UNSCOPED, which
+   * never auto-releases: the honest behaviour when nobody can say what
+   * occasion it is for. celebrantId is unused by claimItem() whenever kind is
+   * null, but is still required, so callers pass the item's real owner.
    */
   celebrantId: string;
   kind: "birthday" | "anniversary" | null;
