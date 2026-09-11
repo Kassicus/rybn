@@ -50,6 +50,14 @@ interface WishlistItemCardProps {
   taggedOccasionIds?: string[];
   /** Only supplied on the owner's own list, where tagging is permitted. */
   availableOccasions?: UpcomingOccasion[];
+  /** The occasion a VIEWER currently has in view (SortableWishlistItems'
+      occasionId), for the "tagged for this occasion" badge below. Never
+      supplied on the owner's own list -- see showOccasionBadge. */
+  viewedOccasionId?: string | null;
+  /** Display label for viewedOccasionId, e.g. "Jane's Birthday" -- the
+      badge's text. Supplied together with viewedOccasionId; either both are
+      present or neither is. */
+  viewedOccasionLabel?: string | null;
 }
 
 
@@ -60,6 +68,8 @@ export function WishlistItemCard({
   claimerInfo,
   taggedOccasionIds = [],
   availableOccasions,
+  viewedOccasionId = null,
+  viewedOccasionLabel = null,
 }: WishlistItemCardProps) {
   const priorityInfo = PRIORITY_INFO[item.priority];
 
@@ -79,6 +89,23 @@ export function WishlistItemCard({
   // reliably (item.user_id is not even part of the WishlistItem shape
   // above) and which isOwnWishlist already exists to answer.
   const showOccasionTags = isOwnWishlist && availableOccasions !== undefined;
+  // A viewer-side badge, never an owner-side one: viewedOccasionId/Label are
+  // only ever supplied by SortableWishlistItems, which is only ever used on
+  // /wishlist/user/[userId] (a viewer's page). The isOwnWishlist guard is
+  // belt-and-braces against this shared card being reused somewhere that
+  // passes both isOwnWishlist and a viewedOccasionId by mistake -- the same
+  // defensive posture showOccasionTags takes above, in the other direction.
+  //
+  // taggedOccasionIds.includes(viewedOccasionId) -- not
+  // occasionTaggedIds.has(item.id) from the caller's Set -- so this reuses
+  // the SAME per-item tag array Task 4 already wired up for the owner's chip
+  // UI, rather than a second, parallel membership test that could drift out
+  // of sync with it.
+  const showOccasionBadge =
+    !isOwnWishlist &&
+    !!viewedOccasionId &&
+    !!viewedOccasionLabel &&
+    taggedOccasionIds.includes(viewedOccasionId);
 
   return (
     <div
@@ -125,6 +152,21 @@ export function WishlistItemCard({
                     {item.out_of_stock_marked_by && !isOwnWishlist && (
                       <span className="px-2 py-0.5 rounded-sm text-xs font-semibold bg-error-light text-error">
                         Out of Stock
+                      </span>
+                    )}
+                    {/* Occasion badge: same bg-primary-50/text-primary tokens
+                        already used for the "Claimed" pill above and for
+                        priority's own "medium" tone (PRIORITY_INFO.medium.
+                        toneClass), and for the tag chips ItemOccasionTags
+                        renders on the owner's list -- so this reads as the
+                        same "occasion" vocabulary Task 4 already
+                        established, not a new color introduced here.
+                        Renders nothing when the item is untagged: an
+                        "untagged" badge would turn the absence of an
+                        owner's statement into a visible label about them. */}
+                    {showOccasionBadge && (
+                      <span className="px-2 py-0.5 rounded-sm text-xs font-semibold bg-primary-50 text-primary">
+                        {viewedOccasionLabel}
                       </span>
                     )}
                   </div>

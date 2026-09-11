@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { WishlistItemCard } from "./WishlistItemCard";
 import {
   Select,
@@ -13,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import type { GroupType } from "@/types/privacy";
+import { partitionByOccasion } from "@/lib/occasions/order";
 
 interface ClaimerInfo {
   id: string;
@@ -45,6 +47,35 @@ interface SortableWishlistItemsProps {
   items: WishlistItem[];
   currentUserId?: string;
   claimerProfiles?: Record<string, ClaimerInfo>;
+  /**
+   * Item ids tagged for the ONE occasion currently in view -- already run
+   * through itemsTaggedFor() (lib/occasions/order.ts) at the page level, so
+   * this is never "has any tag at all." Omitted (the default, empty set)
+   * means no occasion grouping applies and this list renders exactly as it
+   * did before this feature existed -- see hasOccasionGrouping below.
+   */
+  occasionTaggedIds?: Set<string>;
+  /**
+   * Display label for that occasion, e.g. "Jane's Birthday" -- used for both
+   * the group heading and the toggle copy. Heading and badge text are driven
+   * from this single string (plus occasionId below) so they can never
+   * disagree with each other.
+   */
+  occasionLabel?: string;
+  /**
+   * The occasion's row id -- null for a derived, unmaterialized birthday.
+   * Forwarded to each card so its badge can check membership in that card's
+   * OWN tag list (tagsByItemId below), reusing the taggedOccasionIds prop
+   * Task 4 already added to WishlistItemCard.
+   */
+  occasionId?: string | null;
+  /**
+   * Every occasion id each item is tagged for (Task 3's getTagsForItems
+   * shape), keyed by item id. Threaded straight to each card's existing
+   * taggedOccasionIds prop -- this is a per-item VIEW of the same tag data
+   * occasionTaggedIds already summarizes for partitioning.
+   */
+  tagsByItemId?: Record<string, string[]>;
 }
 
 type SortOption = "priority" | "category" | "price";
@@ -61,9 +92,16 @@ export function SortableWishlistItems({
   items,
   currentUserId,
   claimerProfiles = {},
+  occasionTaggedIds = new Set<string>(),
+  occasionLabel,
+  occasionId = null,
+  tagsByItemId = {},
 }: SortableWishlistItemsProps) {
   const [sortBy, setSortBy] = useState<SortOption>("priority");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  // Opt-in, default off: untagged items must stay visible until the viewer
+  // explicitly asks to narrow the list down.
+  const [onlyTaggedForOccasion, setOnlyTaggedForOccasion] = useState(false);
 
   const sortedItems = useMemo(() => {
     const sorted = [...items];
@@ -110,23 +148,78 @@ export function SortableWishlistItems({
     return sorted;
   }, [items, sortBy, sortDirection]);
 
-  // Group items by category when sorting by category
-  const groupedItems = useMemo(() => {
-    if (sortBy !== "category") return null;
+  // Occasion grouping is layered ON TOP of the viewer's chosen sort, never
+  // instead of it: partitionByOccasion only re-groups sortedItems, an
+  // already-sorted array, so each group keeps that sort's relative order.
+  //
+  // Nothing about this grouping renders unless there is BOTH a label to
+  // name it and at least one item actually tagged for it. A celebrant
+  // nobody has tagged anything for -- which includes every never-
+  // materialized birthday (occasionId: null), per itemsTaggedFor's own null
+  // handling upstream -- always produces an empty occasionTaggedIds set, so
+  // this falls through to the exact same rendering the list used before
+  // this feature existed. That fallback is general (it fires just as
+  // readily for a materialized occasion nobody happened to tag), not a
+  // special case carved out for the null-id detail.
+  const hasOccasionGrouping = !!occasionLabel && occasionTaggedIds.size > 0;
+
+  const { tagged: taggedForOccasion, rest: everythingElse } = useMemo(
+    () =>
+      hasOccasionGrouping
+        ? partitionByOccasion(sortedItems, occasionTaggedIds)
+        : { tagged: [] as WishlistItem[], rest: sortedItems },
+    [sortedItems, hasOccasionGrouping, occasionTaggedIds]
+  );
+
+  const renderCard = (item: WishlistItem) => (
+    <WishlistItemCard
+      key={item.id}
+      item={item as any}
+      isOwnWishlist={false}
+      currentUserId={currentUserId}
+      claimerInfo={item.claimed_by ? claimerProfiles[item.claimed_by] : null}
+      taggedOccasionIds={tagsByItemId[item.id] ?? []}
+      viewedOccasionId={occasionId}
+      viewedOccasionLabel={occasionLabel ?? null}
+    />
+  );
+
+  // Shared by every list this component renders (the flat/no-occasion case,
+  // and both occasion partitions): category grouping is a presentation
+  // choice orthogonal to occasion grouping, so it applies inside each
+  // occasion group exactly as it applied to the whole list before.
+  const renderList = (list: WishlistItem[]) => {
+    if (sortBy !== "category") {
+      return <div className="space-y-4">{list.map(renderCard)}</div>;
+    }
 
     const groups: Record<string, WishlistItem[]> = {};
-    sortedItems.forEach((item) => {
+    for (const item of list) {
       const category = item.category || "Uncategorized";
-      if (!groups[category]) groups[category] = [];
-      groups[category].push(item);
-    });
-    return groups;
-  }, [sortedItems, sortBy]);
+      (groups[category] ??= []).push(item);
+    }
+
+    return (
+      <div className="space-y-8">
+        {Object.entries(groups).map(([category, categoryItems]) => (
+          <div key={category} className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Text className="font-semibold">{category}</Text>
+              <span className="px-2 py-0.5 rounded-full text-xs bg-light-background-hover text-light-text-secondary">
+                {categoryItems.length}
+              </span>
+            </div>
+            <div className="space-y-4">{categoryItems.map(renderCard)}</div>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
       {/* Sort Controls */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <ArrowUpDown className="w-4 h-4 text-light-text-secondary" />
           <Text size="sm" variant="secondary">
@@ -169,53 +262,42 @@ export function SortableWishlistItems({
             )}
           </Button>
         )}
+
+        {/* Occasion filter - opt-in, default off. Only offered when there is
+            at least one item to filter TO -- see hasOccasionGrouping above. */}
+        {hasOccasionGrouping && (
+          <label className="flex items-center gap-2 cursor-pointer">
+            <Checkbox
+              checked={onlyTaggedForOccasion}
+              onCheckedChange={(checked) =>
+                setOnlyTaggedForOccasion(checked === true)
+              }
+            />
+            <Text size="sm" variant="secondary">
+              Only show items for {occasionLabel}
+            </Text>
+          </label>
+        )}
       </div>
 
       {/* Items List */}
-      {sortBy === "category" && groupedItems ? (
-        // Grouped by category
+      {hasOccasionGrouping ? (
         <div className="space-y-8">
-          {Object.entries(groupedItems).map(([category, categoryItems]) => (
-            <div key={category} className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Text className="font-semibold">{category}</Text>
-                <span className="px-2 py-0.5 rounded-full text-xs bg-light-background-hover text-light-text-secondary">
-                  {categoryItems.length}
-                </span>
-              </div>
-              <div className="space-y-4">
-                {categoryItems.map((item) => (
-                  <WishlistItemCard
-                    key={item.id}
-                    item={item as any}
-                    isOwnWishlist={false}
-                    currentUserId={currentUserId}
-                    claimerInfo={
-                      item.claimed_by
-                        ? claimerProfiles[item.claimed_by]
-                        : null
-                    }
-                  />
-                ))}
-              </div>
+          <div className="space-y-4">
+            <Text className="font-semibold">Tagged for {occasionLabel}</Text>
+            {renderList(taggedForOccasion)}
+          </div>
+          {/* Untagged items stay visible below unless the viewer explicitly
+              opts into hiding them -- the toggle above, default off. */}
+          {!onlyTaggedForOccasion && (
+            <div className="space-y-4">
+              <Text className="font-semibold">Everything else</Text>
+              {renderList(everythingElse)}
             </div>
-          ))}
+          )}
         </div>
       ) : (
-        // Flat list
-        <div className="space-y-4">
-          {sortedItems.map((item) => (
-            <WishlistItemCard
-              key={item.id}
-              item={item as any}
-              isOwnWishlist={false}
-              currentUserId={currentUserId}
-              claimerInfo={
-                item.claimed_by ? claimerProfiles[item.claimed_by] : null
-              }
-            />
-          ))}
-        </div>
+        renderList(sortedItems)
       )}
     </div>
   );
