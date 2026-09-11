@@ -31,16 +31,41 @@
 -- two-line pattern), so a single anchored line ties the message and the
 -- errcode together with no join needed at all.
 --
+-- WHAT LINE-ANCHORING ACTUALLY PROVES (post-review correction): a `(?n)`
+-- line anchor stops a `--` line comment, because that changes where the line
+-- STARTS. It proves nothing against a `/* ... */` BLOCK comment, which
+-- leaves every line byte-identical and merely brackets them -- and `\s`
+-- matches a literal newline in a POSIX ARE even under `(?n)`; `n` constrains
+-- only `.` and a negated bracket expression, not `\s`. So every "uncommented"
+-- claim below means "not LINE-commented" -- wrapping the entire occasion
+-- gate in `/* ... */` would leave all four of assertion 7(c)'s patterns
+-- green with the guard gone. The floor beneath every anchored check in this
+-- file is the standalone `position('/*' in ...) = 0` check in the catalog
+-- block: one check that covers every pattern above it at once, and cannot be
+-- defeated the way a per-pattern lookahead could be worked around.
+--
 -- BE HONEST about what this buys: assertions 2, 4 and 7 are now SHAPE checks
--- -- they prove the guard is present, uncommented, and wired to the right
--- variables, not that the raise actually fires end-to-end through the RPC.
--- Assertion 2 and 4 are backed by one additional live, non-raising check each
--- that exercises the same underlying mechanism a different way (see their
--- own comments below); assertion 7 additionally gets a full rolled-back
--- exploit demonstration, run as a standalone script outside this suite (see
--- the task report) -- it is the assertion the plan's pre-flight ruling added
--- specifically because an existence-only implementation of the occasion
--- guard passes every other assertion in this file.
+-- -- they prove the guard is present, not LINE-commented, and wired to the
+-- right variables, not that the raise actually fires end-to-end through the
+-- RPC. Assertion 2 and 4 are backed by one additional live, non-raising
+-- check each that exercises the same underlying mechanism a different way
+-- (see their own comments below); assertion 7 additionally gets a full
+-- rolled-back exploit demonstration, run as a standalone script outside this
+-- suite (see the task report) -- it is the assertion the plan's pre-flight
+-- ruling added specifically because an existence-only implementation of the
+-- occasion guard passes every other assertion in this file. Assertion 7 also
+-- gets one LIVE POSITIVE-PATH check (a real group_date claim) below, added
+-- post-review because every other live call in this file passes `p_occasion_id
+-- = null`, so the occasion gate's code was never entered at runtime in
+-- either direction -- only the denial side is forbidden by the harness; nothing
+-- stopped exercising the admission side.
+--
+-- Also added post-review: the same anchored-source treatment for the auth
+-- guard, the item-visibility guard and the purchased guard, none of which
+-- had ANY check before -- in particular, dropping the
+-- can_view_wishlist_item(...) conjunct (which would let any authenticated
+-- caller claim any item in the database) previously passed this file
+-- untouched.
 --
 -- Assertions 1, 3, 5 and 6 are unaffected -- 1/3/5 are success paths (no
 -- raise reached), and 6 is the one denial path that returns FALSE instead of
@@ -53,8 +78,14 @@
 -- `authenticated` holds no INSERT privilege on it either) happen while
 -- impersonating the connecting (RLS-bypassing) role. RPC calls run as the
 -- specific caller they are testing, so `role`/`request.jwt.claims` are
--- toggled around each one, and `role` is reset to the captured `current_user`
--- before every catalog read.
+-- toggled around each one. Post-review correction: `role` is reset to the
+-- captured `current_user` before EVERY read of wishlist_claims/wishlist_items
+-- used to verify what a call actually wrote, not only before catalog reads --
+-- a verifying read left running as an impersonated caller can be silently
+-- filtered by that table's own RLS (wishlist_claims' SELECT policy excludes
+-- the item's OWNER specifically), which makes the check pass no matter what
+-- happened underneath it. See assertion 6's own comment for the concrete
+-- case this caught.
 
 create temp table _harness_result (token text);
 
@@ -71,6 +102,8 @@ declare
   v_item3            uuid;
   v_occasion_past    uuid;
   v_occasion_private uuid;
+  v_occasion_groupd  uuid;
+  v_item_groupd      uuid;
   v_result_id        uuid;
   v_result_bool      boolean;
   v_count            int;
@@ -83,6 +116,7 @@ declare
   v_priv_rows        int;
   v_occ_rows         int;
   v_guard_defs       int;
+  v_block_comment_pos int;
 begin
   select current_user into v_orig_role;
 
@@ -118,6 +152,14 @@ begin
             '{"visibleToGroupTypes": ["family"], "restrictToGroup": null}')
     returning id into v_item3;
 
+  -- For assertion 7's POSITIVE path (added post-review): a third item,
+  -- claimed with a real, visible group_date occasion -- see that assertion's
+  -- comment below for why this is necessary at all.
+  insert into wishlist_items (user_id, title, privacy_settings)
+    values (v_owner, 'ClaimRPC Item GroupDate',
+            '{"visibleToGroupTypes": ["family"], "restrictToGroup": null}')
+    returning id into v_item_groupd;
+
   -- (4a) Not-vacuous check for assertion 4, captured now while nothing has
   -- touched the row yet: item1 genuinely belongs to v_owner, so the
   -- ownership guard below is reached rather than short-circuited by a
@@ -151,6 +193,13 @@ begin
   insert into profile_info (user_id, category, field_name, field_value, privacy_settings)
     values (v_private, 'dates', 'birthday', '1985-03-03',
             '{"visibleToGroupTypes": [], "restrictToGroup": null}');
+
+  -- A real group_date occasion on the shared family group -- visible to
+  -- v_giver via is_group_member(v_group, v_giver). This is the fixture
+  -- assertion 7's positive-path check (below) attaches to a live claim.
+  insert into occasions (group_id, kind, name, occasion_date)
+    values (v_group, 'group_date', 'ClaimRPC Group Date', '2030-12-25'::date)
+    returning id into v_occasion_groupd;
 
   -- (7b) Not-vacuous check for assertion 7: the occasion row really is on
   -- file with celebrant_id set -- the row an existence-only guard would find
@@ -206,6 +255,15 @@ begin
 
   select public.claim_wishlist_item(v_item1, null) into v_result_id;
 
+  -- Post-review correction: verify as the CONNECTING role, not as v_giver.
+  -- wishlist_claims' own SELECT policy excludes the item's OWNER, not the
+  -- claimer, so v_giver (a non-owner) would actually see this correctly
+  -- either way here -- but every verifying read in this file now follows one
+  -- rule regardless (see the file header): ground truth, never filtered by
+  -- a policy this file isn't testing. 16_claim_visibility.sql already tests
+  -- that policy directly.
+  perform set_config('role', v_orig_role, true);
+
   select count(*) into v_count
     from wishlist_claims
    where id = v_result_id and item_id = v_item1 and claimed_by = v_giver
@@ -231,16 +289,50 @@ begin
   ---------------------------------------------------------------------------
   -- Assertion 7(a) (1 check): live, non-raising proof that v_giver genuinely
   -- CANNOT see v_private's birthday -- not merely that some guard exists in
-  -- source that might reference an unrelated pairing. Still impersonating
-  -- v_giver, whose sub can_view_field's self-pin requires as the viewer_id
-  -- argument.
+  -- source that might reference an unrelated pairing. can_view_field's own
+  -- self-pin requires the caller to BE v_giver (or a service context), so
+  -- role goes back to authenticated for this one call.
   ---------------------------------------------------------------------------
+  perform set_config('role', 'authenticated', true);
+
   select public.can_view_field(v_private, v_giver, v_priv_settings) into v_can;
 
   if v_can is distinct from false then
     raise exception
       'HARNESS FAIL: can_view_field(%, %, ...) returned % for the empty-visibleToGroupTypes fixture, expected false -- assertion 7 would be checking a guard that never had anything to deny',
       v_private, v_giver, v_can;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 7, POSITIVE path (1 check, added post-review): every live call
+  -- to claim_wishlist_item in this file passes p_occasion_id = null, so the
+  -- occasion gate (migration:72-92) was never ENTERED at runtime in either
+  -- direction -- the harness forbids only the denial side (it raises), but
+  -- nothing stopped exercising the admission side, which does not raise.
+  -- Two realistic mutations pass every other check in this file green while
+  -- being completely broken: `union all` -> `intersect` (the two arms are
+  -- mutually exclusive by the table's own celebrated_shape/group_date_shape
+  -- check constraints, so intersect rejects every non-null occasion), and
+  -- `o.id = p_occasion_id` -> `o.id = p_item_id` in either arm (rejects
+  -- every occasion, since an occasion id is never also an item id). A real,
+  -- visible group_date claim catches both: it only succeeds if the
+  -- group_date arm's `exists()` genuinely admits a row. Still v_giver, who
+  -- is a member of v_group.
+  ---------------------------------------------------------------------------
+  select public.claim_wishlist_item(v_item_groupd, v_occasion_groupd) into v_result_id;
+
+  perform set_config('role', v_orig_role, true);
+
+  select count(*) into v_count
+    from wishlist_claims
+   where id = v_result_id and item_id = v_item_groupd and claimed_by = v_giver
+     and occasion_id = v_occasion_groupd and released_at is null;
+
+  if v_count <> 1 then
+    raise exception
+      'RLS FAIL: claiming item % with visible group_date occasion % returned id % which resolves to % matching row(s), expected exactly 1 -- the occasion gate''s admission path is broken',
+      v_item_groupd, v_occasion_groupd, v_result_id, v_count;
   end if;
   v_checks := v_checks + 1;
 
@@ -297,6 +389,9 @@ begin
   perform set_config('role', 'authenticated', true);
 
   select public.claim_wishlist_item(v_item3, null) into v_result_id;
+
+  -- Post-review correction: verify as the connecting role (see file header).
+  perform set_config('role', v_orig_role, true);
 
   select count(*) into v_count
     from wishlist_claims
@@ -363,12 +458,17 @@ begin
 
   select public.release_wishlist_claim(v_item1) into v_result_bool;
 
+  -- v_result_bool is the RPC's RETURN VALUE, already captured -- no table
+  -- read involved, so no RLS/role concern for this check.
   if v_result_bool is distinct from true then
     raise exception
       'RLS FAIL: release_wishlist_claim(%) by claimer % returned %, expected true',
       v_item1, v_giver, v_result_bool;
   end if;
   v_checks := v_checks + 1;
+
+  -- Post-review correction: verify as the connecting role (see file header).
+  perform set_config('role', v_orig_role, true);
 
   select released_at into v_released_at
     from wishlist_claims where item_id = v_item1 and claimed_by = v_giver;
@@ -382,8 +482,12 @@ begin
 
   perform set_config('request.jwt.claims',
     '{"sub":"' || v_giver2 || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
 
   select public.claim_wishlist_item(v_item1, null) into v_result_id;
+
+  -- Post-review correction: verify as the connecting role (see file header).
+  perform set_config('role', v_orig_role, true);
 
   select count(*) into v_count
     from wishlist_claims
@@ -401,18 +505,37 @@ begin
   -- who never held the claim) releases nothing -- returns false rather than
   -- raising, per release_wishlist_claim's own header. v_giver2 holds the
   -- active claim on item1 now (assertion 5); v_owner never claimed it.
+  --
+  -- POST-REVIEW CORRECTION, the important one: check (ii) below must verify
+  -- as the CONNECTING role, not as v_owner. v_owner is item1's OWNER, and
+  -- wishlist_claims' sole SELECT policy specifically EXCLUDES the item's
+  -- owner (Task 2's owner-blindness invariant, 16_claim_visibility.sql:211).
+  -- Left running as v_owner/authenticated, this query would see ZERO rows no
+  -- matter what happened underneath it -- `select ... into v_released_at`
+  -- would assign NULL, and `v_released_at is not null` would be FALSE
+  -- unconditionally, so this check could never fail regardless of what a
+  -- mutation did. The case it exists to catch -- a mutation that releases
+  -- the WRONG row while still correctly returning false -- was completely
+  -- uncovered. Check (i) does NOT cover this: it only reads v_result_bool,
+  -- the RPC's own return value, and a "release the wrong row, still return
+  -- false" mutation would pass (i) too.
   ---------------------------------------------------------------------------
   perform set_config('request.jwt.claims',
     '{"sub":"' || v_owner || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
 
   select public.release_wishlist_claim(v_item1) into v_result_bool;
 
+  -- v_result_bool is the RPC's own return value -- no table read, no role
+  -- concern.
   if v_result_bool is distinct from false then
     raise exception
       'RLS FAIL: release_wishlist_claim(%) by non-claimer % returned %, expected false',
       v_item1, v_owner, v_result_bool;
   end if;
   v_checks := v_checks + 1;
+
+  perform set_config('role', v_orig_role, true);
 
   select released_at into v_released_at
     from wishlist_claims where item_id = v_item1 and claimed_by = v_giver2;
@@ -431,7 +554,7 @@ begin
   perform set_config('role', v_orig_role, true);
 
   -- Assertion 2's anchored source check (1 check): the unique_violation
-  -- handler is present, uncommented, and still raises the product-facing
+  -- handler is present, not line-commented, and still raises the product-facing
   -- message with its errcode attached. Scoped by exact regprocedure
   -- identity, not proname, so an ungated overload cannot satisfy the count.
   select count(*) into v_guard_defs
@@ -443,7 +566,7 @@ begin
 
   if v_guard_defs <> 1 then
     raise exception
-      'GUARD FAIL: claim_wishlist_item no longer contains its unique_violation handler, uncommented, with its errcode intact (matched % definition(s), expected 1)',
+      'GUARD FAIL: claim_wishlist_item no longer contains its unique_violation handler, not line-commented, with its errcode intact (matched % definition(s), expected 1)',
       v_guard_defs;
   end if;
   v_checks := v_checks + 1;
@@ -458,7 +581,7 @@ begin
 
   if v_guard_defs <> 1 then
     raise exception
-      'GUARD FAIL: claim_wishlist_item no longer contains its ownership guard, uncommented, with its errcode intact (matched % definition(s), expected 1)',
+      'GUARD FAIL: claim_wishlist_item no longer contains its ownership guard, not line-commented, with its errcode intact (matched % definition(s), expected 1)',
       v_guard_defs;
   end if;
   v_checks := v_checks + 1;
@@ -490,8 +613,87 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 20 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 20', v_checks;
+  ---------------------------------------------------------------------------
+  -- POST-REVIEW ADDITION (1 check): the floor beneath every anchored check
+  -- above, including assertion 5/16_claim_visibility.sql's own patterns for
+  -- OTHER functions -- for THIS file, every pg_get_functiondef() match above.
+  -- Line-anchoring (`(?n)^\s*...$`) stops a `--` LINE comment, because that
+  -- changes where the line starts. It does nothing against a `/* ... */`
+  -- BLOCK comment, which brackets whole lines while leaving each line's text
+  -- byte-identical -- and `\s`, even under `(?n)`, still matches a literal
+  -- newline in a POSIX ARE (`n` constrains only `.` and a negated bracket
+  -- expression, never `\s`). Wrapping the entire occasion gate in `/* ... */`
+  -- would leave all four of assertion 7(c)'s patterns matching while the
+  -- guard is disabled -- confirmed empirically in the task report. So: the
+  -- deployed definition must contain ZERO `/*`, full stop. One check,
+  -- covering every anchored pattern in this file at once, and it cannot be
+  -- defeated the way a per-pattern lookahead could be worked around.
+  ---------------------------------------------------------------------------
+  select position('/*' in pg_get_functiondef(p.oid)) into v_block_comment_pos
+    from pg_proc p
+   where p.oid = 'public.claim_wishlist_item(uuid, uuid)'::regprocedure;
+
+  if v_block_comment_pos <> 0 then
+    raise exception
+      'GUARD FAIL: claim_wishlist_item''s definition contains a /* block comment starting at character % -- every anchored check in this file is unsound while this is true (line-anchoring does not defend against a block comment)',
+      v_block_comment_pos;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- POST-REVIEW ADDITION (3 checks): the auth guard, the item-visibility
+  -- guard and the purchased guard had NO check of any kind before this
+  -- round. Dropping the can_view_wishlist_item(...) conjunct in particular
+  -- -- which would let any authenticated caller claim ANY item in the
+  -- database -- previously passed this file untouched. Same anchored-source
+  -- technique as assertions 2/4/7 above, protected by the same
+  -- no-block-comment floor just above.
+  ---------------------------------------------------------------------------
+  select count(*) into v_guard_defs
+    from pg_proc p
+   where p.oid = 'public.claim_wishlist_item(uuid, uuid)'::regprocedure
+     and pg_get_functiondef(p.oid) ~ '(?n)^\s*if v_caller is null then$'
+     and pg_get_functiondef(p.oid) ~
+       '(?n)^\s*raise exception ''not authenticated'' using errcode = ''28000'';$';
+
+  if v_guard_defs <> 1 then
+    raise exception
+      'GUARD FAIL: claim_wishlist_item no longer contains its auth guard, not line-commented, with its errcode intact (matched % definition(s), expected 1)',
+      v_guard_defs;
+  end if;
+  v_checks := v_checks + 1;
+
+  select count(*) into v_guard_defs
+    from pg_proc p
+   where p.oid = 'public.claim_wishlist_item(uuid, uuid)'::regprocedure
+     and pg_get_functiondef(p.oid) ~
+       '(?n)^\s*or not public\.can_view_wishlist_item\(v_owner, v_caller, v_privacy\)$'
+     and pg_get_functiondef(p.oid) ~
+       '(?n)^\s*raise exception ''that item is not available to claim'' using errcode = ''22023'';$';
+
+  if v_guard_defs <> 1 then
+    raise exception
+      'GUARD FAIL: claim_wishlist_item no longer contains its item-visibility guard (the can_view_wishlist_item conjunct), not line-commented, with its errcode intact (matched % definition(s), expected 1) -- without this, any authenticated caller could claim any item in the database',
+      v_guard_defs;
+  end if;
+  v_checks := v_checks + 1;
+
+  select count(*) into v_guard_defs
+    from pg_proc p
+   where p.oid = 'public.claim_wishlist_item(uuid, uuid)'::regprocedure
+     and pg_get_functiondef(p.oid) ~ '(?n)^\s*if v_purchased then$'
+     and pg_get_functiondef(p.oid) ~
+       '(?n)^\s*raise exception ''that item has already been purchased'' using errcode = ''22023'';$';
+
+  if v_guard_defs <> 1 then
+    raise exception
+      'GUARD FAIL: claim_wishlist_item no longer contains its purchased guard, not line-commented, with its errcode intact (matched % definition(s), expected 1)',
+      v_guard_defs;
+  end if;
+  v_checks := v_checks + 1;
+
+  if v_checks < 25 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 25', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_17_claim_lifecycle');
