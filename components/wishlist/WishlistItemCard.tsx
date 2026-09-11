@@ -7,6 +7,8 @@ import { PRIORITY_INFO } from "@/lib/schemas/wishlist";
 import type { GroupType } from "@/types/privacy";
 import { GROUP_TYPES } from "@/types/privacy";
 import { ClaimActions } from "./ClaimActions";
+import { ItemOccasionTags } from "./ItemOccasionTags";
+import type { UpcomingOccasion } from "@/lib/occasions/display";
 import { cn } from "@/lib/utils";
 
 interface ClaimerInfo {
@@ -43,6 +45,11 @@ interface WishlistItemCardProps {
   isOwnWishlist?: boolean;
   currentUserId?: string;
   claimerInfo?: ClaimerInfo | null;
+  /** Occasion ids this item is tagged for. Empty array, never undefined, so
+      the card never has to distinguish "no tags" from "tags not loaded". */
+  taggedOccasionIds?: string[];
+  /** Only supplied on the owner's own list, where tagging is permitted. */
+  availableOccasions?: UpcomingOccasion[];
 }
 
 
@@ -51,6 +58,8 @@ export function WishlistItemCard({
   isOwnWishlist = false,
   currentUserId,
   claimerInfo,
+  taggedOccasionIds = [],
+  availableOccasions,
 }: WishlistItemCardProps) {
   const priorityInfo = PRIORITY_INFO[item.priority];
 
@@ -61,6 +70,15 @@ export function WishlistItemCard({
   // Gray out purchased items for non-owners
   const isPurchasedForViewer = !isOwnWishlist && item.purchased;
   const showClaimActions = !isOwnWishlist && currentUserId;
+  // A viewer must never see a tag control on somebody else's item -- the
+  // RLS policy on wishlist_item_occasions would refuse the write anyway
+  // (it gates on the ITEM's ownership), but offering a control that always
+  // fails is worse than not offering it. Gated on isOwnWishlist, the prop
+  // the page already passes for exactly this purpose -- not on
+  // currentUserId === item.user_id, which this shared card cannot compute
+  // reliably (item.user_id is not even part of the WishlistItem shape
+  // above) and which isOwnWishlist already exists to answer.
+  const showOccasionTags = isOwnWishlist && availableOccasions !== undefined;
 
   return (
     <div
@@ -191,6 +209,20 @@ export function WishlistItemCard({
               // owner mask -- so this pair says "has an image we cannot hand on".
               image_is_private_upload: !!item.image_url && !item.image_path,
             }}
+          />
+        </div>
+      )}
+
+      {/* Occasion tags - only on the owner's own list; see showOccasionTags
+          above for the gate this depends on. The `availableOccasions &&`
+          repeats that gate so TypeScript can narrow it from optional to
+          required within this block. */}
+      {showOccasionTags && availableOccasions && (
+        <div className="px-4 pb-4 pt-2 border-t border-light-border">
+          <ItemOccasionTags
+            itemId={item.id}
+            taggedOccasionIds={taggedOccasionIds}
+            availableOccasions={availableOccasions}
           />
         </div>
       )}
