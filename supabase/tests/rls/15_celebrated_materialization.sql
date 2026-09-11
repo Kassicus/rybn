@@ -95,6 +95,34 @@
 --       three others), while refusing anything that does not begin the line
 --       with the literal `raise exception` text.
 --
+--       CORRECTION (post-review, round 2): confirmed under adversarial
+--       testing, and the join mechanism restated precisely rather than left
+--       implicit. `standard_conforming_strings = on` (this project's
+--       default) means the plain literal `\n` inside the pattern string is
+--       the two ORDINARY characters backslash and `n`, nothing more --
+--       confirmed directly: `length('a\nb') = 4`, and `'a\nb'` is distinct
+--       from `E'a\nb'` (the E-string, with one actual embedded newline, has
+--       length 3). The join across the two lines works because the ARE
+--       (Advanced Regular Expression) COMPILER, not the SQL string-literal
+--       parser, is what interprets that two-character `\n` as a newline
+--       escape once the pattern reaches the regex engine -- two separate
+--       layers, worth naming explicitly: reaching for an E-string here to
+--       "clarify" this line would silently change what gets matched, not
+--       merely how it is spelled.
+--
+--       Retested adversarially and all three of the following are correctly
+--       REJECTED (v_guard_defs = 0): the errcode changed on an otherwise-
+--       intact raise; the two lines physically reordered (`using errcode`
+--       first, `raise exception` second); and a `--` comment line inserted
+--       between them. One tolerance found and deliberately accepted, not
+--       chased further: an intervening BLANK line between the two still
+--       matches (confirmed directly). Cause: `\s`, unlike `.` and a
+--       negated bracket expression, still matches a literal newline even
+--       under `(?n)` newline-sensitive mode, so the `\s*` right after the
+--       joining `\n` also swallows one further blank line. A blank line
+--       changes nothing about what actually executes, so this costs
+--       nothing.
+--
 -- What this combination does NOT catch, stated plainly: a regression inside
 -- can_view_field()'s OWN logic that (a) does not exercise, because (a) only
 -- covers the empty-visibleToGroupTypes shape this fixture uses -- a
@@ -117,13 +145,13 @@ declare
   v_orig_role      text;
   v_checks         int := 0;
   v_celeb          text := 'user_celebmat_celeb';
-  v_celeb_soon     text := 'user_celebmat_soon';
+  v_celeb_dec31    text := 'user_celebmat_dec31';
   v_giver          text := 'user_celebmat_giver';
   v_private        text := 'user_celebmat_private';
   v_group          uuid;
   v_id1            uuid;
   v_id2            uuid;
-  v_id_soon        uuid;
+  v_id_dec31       uuid;
   v_count          int;
   v_can            boolean;
   v_priv_settings  jsonb;
@@ -134,69 +162,104 @@ declare
   v_row_kind       public.occasion_kind;
   v_row_group      uuid;
   v_bday_celeb     text;
-  v_bday_soon      text;
+  v_bday_dec31     text;
   v_expected_year_celeb int;
-  v_expected_year_soon  int;
+  v_expected_year_dec31 int;
   v_occ_year       int;
   v_occ_date       date;
 begin
   select current_user into v_orig_role;
 
-  -- Two birthdays, not one, so the this-year-or-next-year rollover in
-  -- get_or_create_celebrated_occasion is exercised in BOTH directions rather
-  -- than assumed. v_bday_celeb mirrors 13_occasion_materialization.sql's own
-  -- fixture (current_date - 10, "usually" already past this year, so the
-  -- function must roll it to next year); v_bday_soon is its mirror image
-  -- (current_date + 10, "usually" still upcoming this year, so it must NOT
-  -- roll). Neither offset is trusted to land on a particular side of the
-  -- rollover -- the EXPECTED year is computed through
-  -- celebration_date_in_year(), the same helper get_or_create_celebrated_
-  -- occasion itself calls, so the assertions below are correct on every
-  -- calendar day, not just today's. Known residue, same as 13's: within
-  -- roughly the first/last ten days of a calendar year a month-day wraps
-  -- across the year boundary and can land on the OTHER branch than the
-  -- offset's name suggests -- harmless, because the expectation is computed
-  -- from the fixture, never hardcoded.
-  v_bday_celeb := '1990-' || to_char(current_date - 10, 'MM-DD');
+  -- Two FIXED CALENDAR ANCHORS, not derived offsets, so the this-year-or-
+  -- next-year rollover in get_or_create_celebrated_occasion is exercised in
+  -- BOTH directions on every day of the year but one.
+  --
+  -- CORRECTION (post-review, round 2): the first cut derived both fixtures
+  -- from current_date (-10 / +10 days). That has a structural blind spot,
+  -- not an off-by-one: ANY fixture built by subtracting N days wraps into
+  -- the PREVIOUS calendar year whenever today is within N days of Jan 1,
+  -- landing on a December month-day, which is always still in the future --
+  -- no rollover forced, on EITHER fixture, for up to 2*N days a year.
+  -- Confirmed independently by the reviewer: on Jan 5, `current_date - 10`
+  -- has month-day Dec 26 (future) and `current_date + 10` has month-day
+  -- Jan 15 (also future) -- deleting the rollover branch entirely would
+  -- have left this suite green that day. Widening the offset only moves the
+  -- window; it does not close it.
+  --
+  -- Fixed anchors close it down to exactly one unavoidable day:
+  --   Jan 1  -- celebration_date_in_year(Jan-1, thisYear) is in the PAST on
+  --             every day except Jan 1 itself, so it MUST roll. Expected
+  --             year is thisYear + 1.
+  --   Dec 31 -- celebration_date_in_year(Dec-31, thisYear) is NEVER before
+  --             today, on any day of the year, so it must NEVER roll.
+  --             Expected year is thisYear -- a true constant, no `case`
+  --             needed at all.
+  --
+  -- JAN 1 ITSELF IS A PROPERTY OF THE CODE, NOT A GAP IN THIS TEST. The
+  -- rollover branch is `v_date < current_date`. On Jan 1, v_date is computed
+  -- IN the current year, so it ranges over Jan 1..Dec 31 and can never be
+  -- less than Jan 1 -- the branch is PROVABLY unreachable that day, for
+  -- every possible birthday, not just this fixture's. No fixture, anchored
+  -- or derived, can force it on Jan 1. So the Jan 1 anchor's expected year
+  -- below carries exactly one `case` for that single day (thisYear, not
+  -- thisYear + 1) -- stated here rather than silently computed, so a reader
+  -- does not mistake it for a gap.
+  --
+  -- Both expectations are asserted as the NEAR-CONSTANTS above, stated
+  -- directly -- NOT by re-deriving the general "if date_in_current_year <
+  -- today then +1" rule through celebration_date_in_year() the way the
+  -- first cut did. Doing that would reproduce the logic under test in the
+  -- test itself and pass whatever the migration does, rollover branch
+  -- included or not.
+  --
+  -- EXHAUSTIVE PROOF (read-only, full detail in the task report, not
+  -- re-run here): for every day of a 365-day year (2023) and a 366-day leap
+  -- year (2024, Feb 29 included), the intact function's actual
+  -- occasion_year for BOTH anchors was compared against (a) the
+  -- near-constant expectations below and (b) what a branch-deleted variant
+  -- would produce. Zero expectation mismatches across both years (731
+  -- days) -- these near-constants are correct on every day, not just
+  -- today's. Exactly one day PER YEAR has both anchors land on the same
+  -- year with or without the branch: Jan 1, matching the proof above --
+  -- confirming this is the single, unavoidable, already-documented blind
+  -- spot and not a wider one slipping back in. Feb 29, included in the
+  -- 2024 run, produced no mismatch either.
+  v_bday_celeb := '1990-01-01';
   v_expected_year_celeb := case
-    when public.celebration_date_in_year(v_bday_celeb, extract(year from current_date)::integer) < current_date
-    then extract(year from current_date)::integer + 1
-    else extract(year from current_date)::integer
+    when extract(month from current_date) = 1 and extract(day from current_date) = 1
+    then extract(year from current_date)::integer
+    else extract(year from current_date)::integer + 1
   end;
 
-  v_bday_soon := '1990-' || to_char(current_date + 10, 'MM-DD');
-  v_expected_year_soon := case
-    when public.celebration_date_in_year(v_bday_soon, extract(year from current_date)::integer) < current_date
-    then extract(year from current_date)::integer + 1
-    else extract(year from current_date)::integer
-  end;
+  v_bday_dec31 := '1990-12-31';
+  v_expected_year_dec31 := extract(year from current_date)::integer;
 
   insert into user_profiles (id, username, display_name)
-    values (v_celeb,      'celebmatceleb',   'Celebmat Celebrant'),
-           (v_celeb_soon, 'celebmatsoon',    'Celebmat Soon Celebrant'),
-           (v_giver,      'celebmatgiver',   'Celebmat Giver'),
-           (v_private,    'celebmatprivate', 'Celebmat Private');
+    values (v_celeb,       'celebmatceleb',   'Celebmat Celebrant'),
+           (v_celeb_dec31, 'celebmatdec31',   'Celebmat Dec31 Celebrant'),
+           (v_giver,       'celebmatgiver',   'Celebmat Giver'),
+           (v_private,     'celebmatprivate', 'Celebmat Private');
 
   insert into groups (name, type, invite_code, created_by)
     values ('Celebmat Family', 'family', 'CELEBM01', v_celeb)
     returning id into v_group;
 
   -- add_group_creator_as_owner() already made v_celeb an 'owner'. v_giver and
-  -- v_celeb_soon join so can_view_field(..., v_giver, ...) has a shared
+  -- v_celeb_dec31 join so can_view_field(..., v_giver, ...) has a shared
   -- "family" group to find for both celebrants. v_private shares nothing
   -- with anyone -- irrelevant to assertion 3 anyway, since an empty
   -- visibleToGroupTypes array denies regardless of shared groups
   -- (can_view_field's own short-circuit).
   insert into group_members (group_id, user_id, role)
     values (v_group, v_giver, 'member'),
-           (v_group, v_celeb_soon, 'member')
+           (v_group, v_celeb_dec31, 'member')
     on conflict do nothing;
 
   insert into profile_info (user_id, category, field_name, field_value, privacy_settings)
     values
       (v_celeb, 'dates', 'birthday', v_bday_celeb,
        '{"visibleToGroupTypes": ["family"], "restrictToGroup": null}'),
-      (v_celeb_soon, 'dates', 'birthday', v_bday_soon,
+      (v_celeb_dec31, 'dates', 'birthday', v_bday_dec31,
        '{"visibleToGroupTypes": ["family"], "restrictToGroup": null}'),
       (v_private, 'dates', 'birthday', '1990-11-11',
        '{"visibleToGroupTypes": [], "restrictToGroup": null}');
@@ -222,11 +285,10 @@ begin
   -- birthday materializes exactly one row, of the right shape --
   -- kind='birthday', group_id NULL, same as get_or_create_occasion's own
   -- assertion 1 in 13_occasion_materialization.sql -- landed in the
-  -- EXPECTED year (computed above from v_bday_celeb via the same
-  -- celebration_date_in_year() helper the function itself uses, not
-  -- hardcoded), proving the rollover actually ran rather than being
-  -- unasserted. celebrant_id/created_by get their own explicit, separate
-  -- assertion (4) below, per the task brief.
+  -- EXPECTED year for the Jan 1 anchor (see the declare block for why Jan 1,
+  -- why the year is a near-constant rather than re-derived, and the one day
+  -- it is provably unreachable). celebrant_id/created_by get their own
+  -- explicit, separate assertion (4) below, per the task brief.
   ---------------------------------------------------------------------------
   select public.get_or_create_celebrated_occasion(v_celeb, 'birthday') into v_id1;
 
@@ -251,9 +313,12 @@ begin
   select occasion_year, occasion_date into v_occ_year, v_occ_date
     from public.occasions where id = v_id1;
 
-  if v_occ_year <> v_expected_year_celeb or v_occ_date <= current_date then
+  -- occ_date < current_date (not <=) because on Jan 1 itself the Jan 1
+  -- anchor's occasion_date IS current_date exactly -- see the declare
+  -- block. That is correct behaviour, not staleness.
+  if v_occ_year <> v_expected_year_celeb or v_occ_date < current_date then
     raise exception
-      'RLS FAIL: celebrated occasion materialized into year % dated % -- expected year % (computed from v_bday_celeb via celebration_date_in_year(), not assumed) and a future date',
+      'RLS FAIL: celebrated occasion (Jan 1 anchor) materialized into year % dated % -- expected year % (near-constant, see declare block) and a date not in the past',
       v_occ_year, v_occ_date, v_expected_year_celeb;
   end if;
   v_checks := v_checks + 1;
@@ -372,35 +437,37 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 5 (two checks): the rollover helper's OTHER branch. v_celeb's
-  -- fixture in assertion 1 exercises "this year's date has already passed,
-  -- roll to next year"; v_celeb_soon is its mirror image, exercising "this
-  -- year's date has not happened yet, stay in this year". Both compute their
-  -- expected year through celebration_date_in_year() rather than a hardcoded
-  -- literal (see the declare block), so this is correct on every calendar
-  -- day the suite happens to run on, not just today's -- the concrete
-  -- exploit this closes: deleting migration:67-69's
-  -- `if v_date < current_date then ... end if;` rollover would leave this
-  -- file green every day of the year, because nothing before this assertion
-  -- checked occasion_date/occasion_year at all.
+  -- Assertion 5 (two checks): the rollover helper's OTHER branch, on the
+  -- Dec 31 anchor. Dec 31 of the current year is never before today, on any
+  -- day of the year, so it must NEVER roll -- expected year is a true
+  -- constant (see the declare block). Assertion 1's Jan 1 anchor exercises
+  -- "must roll" (except the one provably-unreachable day, Jan 1 itself);
+  -- this exercises "must not roll", unconditionally, every day. Together
+  -- they are the concrete exploit this closes: deleting migration:67-69's
+  -- `if v_date < current_date then ... end if;` rollover changes the Jan 1
+  -- anchor's occasion_year on every day but one -- see the exhaustive proof
+  -- in the declare block and the task report.
   ---------------------------------------------------------------------------
-  select public.get_or_create_celebrated_occasion(v_celeb_soon, 'birthday') into v_id_soon;
+  select public.get_or_create_celebrated_occasion(v_celeb_dec31, 'birthday') into v_id_dec31;
 
-  select count(*) into v_count from public.occasions where id = v_id_soon;
+  select count(*) into v_count from public.occasions where id = v_id_dec31;
   if v_count <> 1 then
     raise exception
       'RLS FAIL: get_or_create_celebrated_occasion returned id % which resolves to % row(s) in occasions, expected exactly 1',
-      v_id_soon, v_count;
+      v_id_dec31, v_count;
   end if;
   v_checks := v_checks + 1;
 
   select occasion_year, occasion_date into v_occ_year, v_occ_date
-    from public.occasions where id = v_id_soon;
+    from public.occasions where id = v_id_dec31;
 
-  if v_occ_year <> v_expected_year_soon or v_occ_date <= current_date then
+  -- occ_date < current_date (not <=) because on Dec 31 itself the Dec 31
+  -- anchor's occasion_date IS current_date exactly -- same reasoning as
+  -- assertion 1's comment above.
+  if v_occ_year <> v_expected_year_dec31 or v_occ_date < current_date then
     raise exception
-      'RLS FAIL: celebrated occasion (no-rollover fixture) materialized into year % dated % -- expected year % (computed from v_bday_soon via celebration_date_in_year(), not assumed) and a future date',
-      v_occ_year, v_occ_date, v_expected_year_soon;
+      'RLS FAIL: celebrated occasion (Dec 31 anchor) materialized into year % dated % -- expected year % (a true constant, see declare block) and a date not in the past',
+      v_occ_year, v_occ_date, v_expected_year_dec31;
   end if;
   v_checks := v_checks + 1;
 
