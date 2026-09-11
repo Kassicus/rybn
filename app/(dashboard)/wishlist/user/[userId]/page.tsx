@@ -152,6 +152,12 @@ export default async function UserWishlistPage({
   // SortableWishlistItems's own hasOccasionGrouping falls through to
   // rendering the list exactly as it did before this feature existed --
   // not a case special-cased here.
+  // tagsByItemId is an intermediate value ONLY -- it feeds itemsTaggedFor()
+  // below and is not itself forwarded to SortableWishlistItems. Shipping
+  // every item's full occasion-id array to the browser would be more than a
+  // viewer's card needs: each card only ever asks "am I tagged for the ONE
+  // occasion in view", which occasionTaggedIds (a Set of item ids) already
+  // answers per item (Minor 9 of the final review).
   const itemIds = (items ?? []).map((item) => item.id as string);
   const tagsResult = await getTagsForItems(itemIds);
   const tagsByItemId: Record<string, string[]> =
@@ -254,7 +260,6 @@ export default async function UserWishlistPage({
           occasionTaggedIds={occasionTaggedIds}
           occasionLabel={theirOccasion ? occasionLabel(theirOccasion) : undefined}
           occasionId={theirOccasion?.occasionId ?? null}
-          tagsByItemId={tagsByItemId}
         />
       )}
     </div>

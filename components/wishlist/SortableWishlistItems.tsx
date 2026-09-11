@@ -64,18 +64,9 @@ interface SortableWishlistItemsProps {
   occasionLabel?: string;
   /**
    * The occasion's row id -- null for a derived, unmaterialized birthday.
-   * Forwarded to each card so its badge can check membership in that card's
-   * OWN tag list (tagsByItemId below), reusing the taggedOccasionIds prop
-   * Task 4 already added to WishlistItemCard.
+   * Forwarded to each card as viewedOccasionId, for its badge's label lookup.
    */
   occasionId?: string | null;
-  /**
-   * Every occasion id each item is tagged for (Task 3's getTagsForItems
-   * shape), keyed by item id. Threaded straight to each card's existing
-   * taggedOccasionIds prop -- this is a per-item VIEW of the same tag data
-   * occasionTaggedIds already summarizes for partitioning.
-   */
-  tagsByItemId?: Record<string, string[]>;
 }
 
 type SortOption = "priority" | "category" | "price";
@@ -95,7 +86,6 @@ export function SortableWishlistItems({
   occasionTaggedIds = new Set<string>(),
   occasionLabel,
   occasionId = null,
-  tagsByItemId = {},
 }: SortableWishlistItemsProps) {
   const [sortBy, setSortBy] = useState<SortOption>("priority");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
@@ -178,9 +168,13 @@ export function SortableWishlistItems({
       isOwnWishlist={false}
       currentUserId={currentUserId}
       claimerInfo={item.claimed_by ? claimerProfiles[item.claimed_by] : null}
-      taggedOccasionIds={tagsByItemId[item.id] ?? []}
       viewedOccasionId={occasionId}
       viewedOccasionLabel={occasionLabel ?? null}
+      // The same membership test partitionByOccasion used to place this item
+      // in taggedForOccasion vs. everythingElse above -- reused here rather
+      // than shipping the item's full tag-id array down to the card just so
+      // it can check membership in one of them itself (Minor 9).
+      taggedForViewedOccasion={occasionTaggedIds.has(item.id)}
     />
   );
 
@@ -288,8 +282,12 @@ export function SortableWishlistItems({
             {renderList(taggedForOccasion)}
           </div>
           {/* Untagged items stay visible below unless the viewer explicitly
-              opts into hiding them -- the toggle above, default off. */}
-          {!onlyTaggedForOccasion && (
+              opts into hiding them -- the toggle above, default off. Also
+              gated on everythingElse.length: hasOccasionGrouping only
+              requires the TAGGED partition be non-empty, so when every item
+              on the list is tagged, everythingElse is empty and this heading
+              must not render over nothing. */}
+          {!onlyTaggedForOccasion && everythingElse.length > 0 && (
             <div className="space-y-4">
               <Text className="font-semibold">Everything else</Text>
               {renderList(everythingElse)}

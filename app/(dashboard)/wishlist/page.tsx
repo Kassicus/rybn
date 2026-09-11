@@ -24,6 +24,18 @@ export default async function WishlistPage() {
 
   const { data: items, error } = await getMyWishlist();
 
+  // Checked before either getUpcomingOccasions() call below (and before
+  // taggableOccasions() filters their result): both calls are discarded
+  // decoration for a list that failed to load, so a failed getMyWishlist()
+  // must not pay for two RPC round trips it will never render.
+  if (error) {
+    return (
+      <div className="max-w-4xl mx-auto p-6">
+        <p className="text-error">Error loading wishlist: {error}</p>
+      </div>
+    );
+  }
+
   // getUpcomingOccasions() carries no claim fields at all (see
   // UpcomingOccasion in lib/occasions/display.ts) -- there is nothing here to
   // strip, unlike getMyWishlist() above. The soonest occasion where the
@@ -58,14 +70,6 @@ export default async function WishlistPage() {
   // filtered before anything renders it as a tag target.
   const { data: occasionsForTagging = [] } = await getUpcomingOccasions(365);
   const taggableForItem = taggableOccasions(occasionsForTagging, userId);
-
-  if (error) {
-    return (
-      <div className="max-w-4xl mx-auto p-6">
-        <p className="text-error">Error loading wishlist: {error}</p>
-      </div>
-    );
-  }
 
   // item id -> occasion ids this item is tagged for. getTagsForItems reads
   // wishlist_item_occasions, a table with no claim columns at all -- see
@@ -159,6 +163,7 @@ export default async function WishlistPage() {
               key={item.id}
               item={item as any}
               isOwnWishlist={true}
+              currentUserId={userId}
               taggedOccasionIds={tagsByItemId[item.id] ?? []}
               availableOccasions={taggableForItem}
             />

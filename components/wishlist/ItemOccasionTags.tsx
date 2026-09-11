@@ -19,6 +19,7 @@ import {
 } from "@/lib/actions/item-occasions";
 import { occasionLabel, type UpcomingOccasion } from "@/lib/occasions/display";
 import {
+  taggableOccasions,
   untaggedOccasions,
   resolveTaggedChips,
   resolveTagTarget,
@@ -29,20 +30,35 @@ interface ItemOccasionTagsProps {
   /** Occasion ids this item is already tagged for. */
   taggedOccasionIds: string[];
   /**
-   * Occasions this OWNER may tag this item toward. Pre-filtered by the page
-   * (via taggableOccasions() in lib/occasions/taggable.ts) to the caller's
-   * own birthday/anniversary plus every group_date they can see -- never a
-   * family member's derived occasion, which tagItemForMyOccasion() has no
-   * way to target and would silently mis-tag if offered. See that module's
-   * doc comment for the full argument.
+   * Occasions this OWNER may tag this item toward, BEFORE the
+   * caller's-own-occasions-only filter. The page today already pre-filters
+   * this through taggableOccasions() before handing it down -- but this
+   * component does NOT rely on that. It re-applies taggableOccasions(userId)
+   * to whatever it is given, immediately below, as its own defense: a doc
+   * comment was previously the only thing standing between a future second
+   * call site and the bug where picking a family member's derived birthday
+   * would silently tag the CALLER's own instead (see taggableOccasions()'s
+   * own doc comment in lib/occasions/taggable.ts for the full argument).
+   * Filtering twice is idempotent, so the page's existing filter is
+   * harmless, redundant work, not a conflict with this one.
    */
   availableOccasions: UpcomingOccasion[];
+  /**
+   * The caller's own id -- always the item's owner, since this component is
+   * only ever mounted on the owner's own list. Used ONLY to re-derive the
+   * safe subset of availableOccasions above; never sent anywhere or used for
+   * any permissions decision of this component's own (the RLS policies on
+   * wishlist_item_occasions are what actually decide whether a write is
+   * allowed, per this file's own header).
+   */
+  userId: string;
 }
 
 /**
  * Owner-only affordance: which occasion(s) a wishlist item was meant for.
  * Renders removable chips for the tags already on the item, plus a control
- * to add one from `availableOccasions`.
+ * to add one from `availableOccasions`, filtered internally to the caller's
+ * own occasions via taggableOccasions(userId) -- see the props above.
  *
  * ONLY ever mounted by WishlistItemCard when isOwnWishlist is true AND
  * availableOccasions was supplied -- see that component. This file adds no
@@ -68,6 +84,7 @@ export function ItemOccasionTags({
   itemId,
   taggedOccasionIds,
   availableOccasions,
+  userId,
 }: ItemOccasionTagsProps) {
   const router = useRouter();
   const [isAdding, setIsAdding] = useState(false);
@@ -75,8 +92,14 @@ export function ItemOccasionTags({
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const chips = resolveTaggedChips(taggedOccasionIds, availableOccasions);
-  const untagged = untaggedOccasions(availableOccasions, taggedOccasionIds);
+  // The invariant lives HERE now, not in a doc comment on the prop above --
+  // whatever availableOccasions the caller passes, only the caller's own
+  // birthday/anniversary plus visible group_dates ever reach the rest of
+  // this component.
+  const taggableForOwner = taggableOccasions(availableOccasions, userId);
+
+  const chips = resolveTaggedChips(taggedOccasionIds, taggableForOwner);
+  const untagged = untaggedOccasions(taggableForOwner, taggedOccasionIds);
 
   const closeAdd = () => {
     setIsAdding(false);
@@ -165,7 +188,7 @@ export function ItemOccasionTags({
         </div>
       )}
 
-      {availableOccasions.length === 0 ? (
+      {taggableForOwner.length === 0 ? (
         <Text variant="secondary" size="sm">
           Add your birthday to your profile to tag items for it
         </Text>
