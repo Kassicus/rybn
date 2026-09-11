@@ -425,7 +425,11 @@ git commit -m "feat(occasions): let owners tag items for an occasion"
 
 **Interfaces:**
 - Consumes: `getTagsForItems` (Task 3), `getUpcomingOccasions` (phase 1).
-- Produces: `export function partitionByOccasion<T extends { id: string }>(items: T[], taggedIds: Set<string>): { tagged: T[]; rest: T[] }`
+- Produces:
+  - `export function partitionByOccasion<T extends { id: string }>(items: T[], taggedIds: Set<string>): { tagged: T[]; rest: T[] }`
+  - `export function itemsTaggedFor(tagsByItem: Record<string, string[]>, occasionId: string | null): Set<string>`
+
+**The shape change between Task 3 and here, stated explicitly because it is the seam where this goes wrong:** `getTagsForItems` returns `Record<itemId, occasionIds[]>` — every tag on every item. `partitionByOccasion` needs a `Set<itemId>` containing only the items tagged for the **one occasion currently in view**. The obvious wrong conversion is "every item that has any tag at all", which would surface Christmas-tagged items while a viewer is looking at somebody's birthday. `itemsTaggedFor` exists to make that conversion one named, tested function rather than an inline `Object.keys()` somebody writes from memory.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -433,7 +437,7 @@ Create `lib/occasions/order.test.ts`:
 
 ```ts
 import { describe, it, expect } from "vitest";
-import { partitionByOccasion } from "./order";
+import { partitionByOccasion, itemsTaggedFor } from "./order";
 
 const items = [{ id: "a" }, { id: "b" }, { id: "c" }];
 
@@ -456,6 +460,31 @@ describe("partitionByOccasion", () => {
   it("preserves relative order within each partition", () => {
     const { tagged } = partitionByOccasion(items, new Set(["c", "a"]));
     expect(tagged).toEqual([{ id: "a" }, { id: "c" }]);
+  });
+});
+
+describe("itemsTaggedFor", () => {
+  const tags = { a: ["occ-1"], b: ["occ-1", "occ-2"], c: ["occ-2"] };
+
+  it("selects only items tagged for the occasion in view", () => {
+    expect(itemsTaggedFor(tags, "occ-1")).toEqual(new Set(["a", "b"]));
+  });
+
+  // The failure this function exists to prevent: treating "has any tag" as
+  // "is for this occasion" would put c in the set while viewing occ-1.
+  it("excludes items tagged only for a different occasion", () => {
+    expect(itemsTaggedFor(tags, "occ-1").has("c")).toBe(false);
+  });
+
+  // A derived birthday nobody has tagged anything for was never materialized,
+  // so it has no id -- and nothing can be tagged for it. The list must then
+  // render exactly as it did before this feature existed.
+  it("returns an empty set for an unmaterialized occasion", () => {
+    expect(itemsTaggedFor(tags, null)).toEqual(new Set());
+  });
+
+  it("returns an empty set when the item has no tags at all", () => {
+    expect(itemsTaggedFor({}, "occ-1")).toEqual(new Set());
   });
 });
 ```
@@ -489,6 +518,32 @@ export function partitionByOccasion<T extends { id: string }>(
   }
   return { tagged, rest };
 }
+
+/**
+ * The item ids tagged for ONE occasion, from the all-tags map the action
+ * returns.
+ *
+ * This exists as a named function rather than an inline expression because
+ * the wrong version is so easy to write: taking every key of the map treats
+ * "has any tag" as "is for this occasion", and would surface a Christmas-
+ * tagged item to somebody looking at a birthday list.
+ *
+ * A null occasionId means the occasion has no materialized row -- a derived
+ * birthday nobody has tagged anything for. Nothing can be tagged for it, so
+ * the empty Set is the honest answer and the list renders as it always did.
+ */
+export function itemsTaggedFor(
+  tagsByItem: Record<string, string[]>,
+  occasionId: string | null
+): Set<string> {
+  if (occasionId === null) return new Set();
+
+  const ids = new Set<string>();
+  for (const [itemId, occasionIds] of Object.entries(tagsByItem)) {
+    if (occasionIds.includes(occasionId)) ids.add(itemId);
+  }
+  return ids;
+}
 ```
 
 - [ ] **Step 4: Run, confirm it passes**
@@ -499,7 +554,9 @@ In `SortableWishlistItems.tsx`, accept an optional `occasionTaggedIds?: Set<stri
 
 Add an **opt-in** "only show items for this occasion" toggle, default off. Untagged items must remain visible until the viewer explicitly asks otherwise.
 
-In `app/(dashboard)/wishlist/user/[userId]/page.tsx`, fetch the tags with `getTagsForItems` and pass them down alongside the occasion already surfaced there.
+In `app/(dashboard)/wishlist/user/[userId]/page.tsx`, fetch the tags with `getTagsForItems`, convert them with `itemsTaggedFor(tags, theirOccasion?.occasionId ?? null)`, and pass the resulting Set down alongside the occasion already surfaced there.
+
+Note what happens when that celebrant has never tagged anything: their birthday was never materialized, `occasionId` is `null`, `itemsTaggedFor` returns an empty Set, and the list renders exactly as it does today. That is the correct behaviour, not a case to special-case around.
 
 - [ ] **Step 6: Add the badge the spec calls for**
 
@@ -532,3 +589,28 @@ git commit -m "feat(occasions): order a viewer's list by the occasion in view"
 ## Out of scope
 
 Phase 3 — occasion-scoped claiming, `wishlist_claims`, and dropping `wishlist_items.claimed_by` — is a separate plan. Do not start it here, and do not modify `claimWishlistItem`, `unclaimWishlistItem`, or `markAsPurchased`.
+
+## Known gaps
+
+Written during the final whole-branch review's fix wave. Both below are deliberate scope calls, not bugs — recorded here so they are visible on `main` rather than silent.
+
+### Known gap: group-date tags are owner-visible only
+
+**What works:** An owner can tag one of their own items for a group date (a shared occasion any member of the group can see, e.g. "Christmas 2026"), the same way they tag one for their own birthday or anniversary. The tag is stored in `wishlist_item_occasions` exactly like a birthday/anniversary tag, gated by the same RLS policies, and renders as a chip on the owner's own `/wishlist` card via `ItemOccasionTags`.
+
+**What does not work:** No giver-facing surface ever groups an item by a group-date tag. The only viewer ordering surface, `/wishlist/user/[userId]`, selects "the occasion in view" with `occasions.find(o => o.celebrantId === userId)` (`app/(dashboard)/wishlist/user/[userId]/page.tsx:110-111`) — and a `group_date` row always has `celebrant_id: null`, so it can never match there. The group page links a group date to `/groups/{id}`, never to any wishlist. A tag written against a group date is therefore stored, correctly access-controlled, and rendered back to its own owner — but invisible to every other member of the group who might act on it. Half the tag-target surface is write-only today.
+
+**Why it was not built:** Threading a group-date occasion through to a read path is not a small wire. A birthday or anniversary has exactly one celebrant, so "whose wishlist does this occasion belong to" is unambiguous. A group date applies to everyone in the group — "see what people want for Christmas" is inherently a roster across every member's wishlist, not one person's list ordered around it. That is a real design question (a new page? a section on the group page? which items, in what order, for whom?), and a scope decision like that belongs to a human, not something to improvise inside a fix wave.
+
+**Why the picker still offers group dates, rather than removing them:** Removing `group_date` from `taggableOccasions()` (`lib/occasions/taggable.ts`) would take away a capability the spec's Surfacing table grants, and a tag an owner has already made still means something to them today — it is their own recorded intent, visible on their own card, exactly as a birthday tag is. Silently disabling the option would be a regression with no compensating fix, in exchange for closing a gap that removing the option does not actually close (existing tags would still have no read path; only new ones would stop being created).
+
+**Resolution:** Phase 3 (occasion-scoped claiming) is where group dates get a real read path — claiming is inherently the roster-across-the-group view this needs, so the two land together rather than this phase building a one-off list page that phase 3 would have to redesign anyway.
+
+### Known gap: two spec Surfacing rows were never built
+
+The spec's Surfacing table promises two views this phase never built. Neither was ever asked for by any task in this plan, so no task's reviewer could have flagged the gap — it surfaced only in the final whole-branch review, which is exactly the kind of thing a whole-branch pass exists to catch.
+
+- **Item detail** (`app/(dashboard)/wishlist/[itemId]/page.tsx`): the spec says the owner should see "which occasions this item is tagged for" here. That page currently renders zero occasion content — tags are visible only from the `/wishlist` card list (`ItemOccasionTags`), never from an item's own detail page.
+- **Dashboard "N items tagged"**: the spec calls for a per-occasion count of tagged items, shown to viewers on the dashboard. No dashboard surface in this branch computes or renders that count.
+
+Both are legitimate scope cuts for phase 2 — not oversights to quietly patch later without a plan of their own. Building either is future work.
