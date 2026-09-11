@@ -887,6 +887,51 @@ export type Database = {
           }
         ]
       }
+      // Owner-asserted link between a wishlist item and an occasion it is
+      // meant for (20260911000002_wishlist_item_occasions.sql). PK is
+      // (item_id, occasion_id) -- there is no surrogate `id` column. Both FKs
+      // are ON DELETE CASCADE. created_at was made NOT NULL in
+      // 20260911000003_tag_created_at_not_null.sql, after the table's own
+      // migration first shipped it nullable.
+      //
+      // SELECT is gated by the ITEM's visibility (can_view_wishlist_item), not
+      // the occasion's. INSERT and DELETE are gated by the item's OWNERSHIP.
+      // There is no UPDATE policy at all, deliberately -- a tag has no mutable
+      // field; changing which occasion an item is for is a delete plus an
+      // insert.
+      wishlist_item_occasions: {
+        Row: {
+          item_id: string
+          occasion_id: string
+          created_at: string
+        }
+        Insert: {
+          item_id: string
+          occasion_id: string
+          created_at?: string
+        }
+        Update: {
+          item_id?: string
+          occasion_id?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wishlist_item_occasions_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "wishlist_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wishlist_item_occasions_occasion_id_fkey"
+            columns: ["occasion_id"]
+            isOneToOne: false
+            referencedRelation: "occasions"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -1017,6 +1062,27 @@ export type Database = {
           group_id: string | null
           group_name: string | null
         }[]
+      }
+      // Materializes the CALLER'S OWN celebrated occasion and returns its id
+      // (20260911000000_get_or_create_occasion.sql, superseded in place by
+      // 20260911000001_get_or_create_occasion_returning.sql -- same signature,
+      // an upsert-and-RETURN fix). Takes no subject parameter, deliberately:
+      // the caller is always the celebrant. SECURITY DEFINER, pinned to
+      // requesting_user_id() internally like join_group_with_code /
+      // accept_group_invitation above.
+      //
+      // Error codes, verified against the migration:
+      //   28000 NOT AUTHENTICATED   -- called with no Clerk JWT
+      //   22023 INVALID p_kind / NO DATE ON FILE -- raised for p_kind =>
+      //         'group_date' (group dates are created explicitly, never
+      //         materialized) AND for a caller with no such date in
+      //         profile_info; the caller cannot and must not need to tell
+      //         these apart from the error code alone.
+      get_or_create_occasion: {
+        Args: {
+          p_kind: "birthday" | "anniversary" | "group_date"
+        }
+        Returns: string
       }
     }
     Enums: {
