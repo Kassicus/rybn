@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getUserId } from "@/lib/auth/require-auth";
+import { isClaimActive, todayISO } from "@/lib/claims/active";
 
 /**
  * Claim / release / read layer for public.wishlist_claims
@@ -140,6 +141,10 @@ type ActiveClaimRow = {
   claimed_by: string;
   occasion_id: string | null;
   occasions: { occasion_date: string } | null;
+  // Same to-one embed shape as `occasions`: the FK (item_id) lives on
+  // wishlist_claims, and it is the only FK from this table to wishlist_items,
+  // so the embed is unambiguous and resolves to one object or null.
+  wishlist_items: { purchased: boolean } | null;
 };
 
 /**
@@ -195,7 +200,9 @@ export async function getActiveClaims(
 
   const { data, error } = await supabase
     .from("wishlist_claims")
-    .select("item_id, claimed_by, occasion_id, occasions ( occasion_date )")
+    .select(
+      "item_id, claimed_by, occasion_id, occasions ( occasion_date ), wishlist_items ( purchased )",
+    )
     .in("item_id", itemIds)
     .is("released_at", null);
 
@@ -204,11 +211,9 @@ export async function getActiveClaims(
     return { error: "Failed to load claims. Please try again." };
   }
 
-  // Pinned to whatever "today" is at call time -- deliberately not passed in
-  // or otherwise mockable, since production has no fixed clock either. Tests
-  // avoid depending on the real date by asserting relative to it (`today`
-  // minus/plus N days), not by asserting a specific calendar date.
-  const today = new Date().toISOString().slice(0, 10);
+  // Read once for the whole batch, not per row: a result spanning midnight
+  // would otherwise apply two different "todays" within one response.
+  const today = todayISO();
 
   const result: Record<string, { claimedBy: string; occasionId: string | null }> =
     {};
@@ -221,18 +226,20 @@ export async function getActiveClaims(
     // `?.` collapses both "no embed" shapes to the same `null` fallback.
     const occasionDate = row.occasions?.occasion_date ?? null;
 
-    if (row.occasion_id !== null && occasionDate !== null && occasionDate < today) {
-      continue; // lapsed: occasion has passed, not yet self-healed
-    }
-    // occasion_id === null: unscoped, never lapses. occasion_id set but no
-    // resolvable occasionDate: the occasion is either gone (impossible while
-    // occasion_id is non-null -- the FK is ON DELETE SET NULL) or invisible
-    // to THIS caller under its own separate privacy policy (can_view_field
-    // on the celebrant's date, independent of the item's own
-    // privacy_settings that already gated this claim row into view). Either
-    // way there is nothing to compare against, so the claim is left active
-    // rather than guessed lapsed -- the safer default for a feature whose
-    // entire point is preventing two people from buying the same gift.
+    // Every reason a claim is or is not active now lives in one place --
+    // lib/claims/active.ts -- shared with markAsPurchased()'s authorization
+    // check, which used to spell out a LOOSER version of this same rule.
+    const active = isClaimActive(
+      {
+        occasionId: row.occasion_id,
+        occasionDate,
+        itemPurchased: row.wishlist_items?.purchased ?? false,
+      },
+      today,
+    );
+
+    if (!active) continue;
+
     result[row.item_id] = {
       claimedBy: row.claimed_by,
       occasionId: row.occasion_id,

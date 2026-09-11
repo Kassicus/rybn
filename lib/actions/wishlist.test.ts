@@ -160,6 +160,95 @@ describe("markAsPurchased", () => {
     expect(updateSpy).not.toHaveBeenCalled();
   });
 
+  it("refuses the claimer when their own claim has LAPSED", async () => {
+    // The gap the final review caught: this function used to check only
+    // `released_at is null`, a LOOSER rule than the one getActiveClaims()
+    // applies to the very same row. So a claim the read path had already
+    // told every viewer did not exist could still authorize a purchase --
+    // permanently marking an item purchased that the UI was showing as
+    // available to claim.
+    //
+    // What would make this fail: dropping the isClaimActive() call and going
+    // back to "a row came back, therefore authorized". What this does NOT
+    // catch: whether Postgres would have lapsed this same claim at the same
+    // instant -- claim_rpcs.sql:102 compares against `current_date` in the
+    // session TimeZone while this compares ISO strings in UTC, and they
+    // agree only because the database is configured to UTC.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-15T12:00:00Z"));
+    try {
+      supabase = createSupabaseMock({
+        wishlist_claims: [
+          {
+            data: {
+              id: "claim-1",
+              occasion_id: "occ-1",
+              occasions: { occasion_date: "2026-06-01" },
+              wishlist_items: { purchased: false },
+            },
+            error: null,
+          },
+        ],
+      });
+
+      const result = await markAsPurchased(ITEM_ID, true);
+
+      expect(result).toEqual({
+        error: "Only the person who claimed this item can mark it purchased",
+      });
+      expect(updateSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still lets the purchaser UNDO after the occasion has passed", async () => {
+    // The counterpart, and the reason isClaimActive() checks `purchased`
+    // before the date rather than after. Buying the gift and then letting the
+    // birthday go by is the ordinary end state of a fulfilled claim: the
+    // occasion is in the past AND the item is purchased. If the date were
+    // checked first, the person who actually bought it would be refused
+    // permission to undo their own purchase.
+    //
+    // What would make this fail: reordering isClaimActive()'s branches so the
+    // date test runs before the purchased test. What this does NOT catch:
+    // whether "Mark as Not Purchased" is still reachable in the UI at that
+    // point -- ClaimActions renders it from getActiveClaims(), which is
+    // covered separately in claims.test.ts.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-15T12:00:00Z"));
+    try {
+      supabase = createSupabaseMock({
+        wishlist_claims: [
+          {
+            data: {
+              id: "claim-1",
+              occasion_id: "occ-1",
+              occasions: { occasion_date: "2026-06-01" },
+              wishlist_items: { purchased: true },
+            },
+            error: null,
+          },
+        ],
+        wishlist_items: [
+          { data: { id: ITEM_ID, purchased: false, purchased_at: null }, error: null },
+        ],
+      });
+
+      const result = await markAsPurchased(ITEM_ID, false);
+
+      expect(result).toEqual({
+        data: { id: ITEM_ID, purchased: false, purchased_at: null },
+      });
+      expect(updateSpy).toHaveBeenCalledWith(
+        "wishlist_items",
+        expect.objectContaining({ purchased: false })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("returns Not authenticated when signed out, without touching the database", async () => {
     getUserId.mockResolvedValue(null);
 

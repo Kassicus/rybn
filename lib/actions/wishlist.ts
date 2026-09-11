@@ -10,6 +10,7 @@ import {
 import { resolveStoredImageValue } from "@/lib/storage/image-value";
 
 import { getUserId } from "@/lib/auth/require-auth";
+import { isClaimActive, todayISO } from "@/lib/claims/active";
 
 /**
  * INVARIANT for this file: every wishlist_items row that leaves a server action
@@ -308,9 +309,22 @@ export async function getWishlistItem(itemId: string) {
  * non-owner may touch, not WHICH non-owner. Skipping this check would let
  * any co-member who can see the item mark somebody else's claim purchased.
  *
- * The claimer can always read their own claim row here: wishlist_claims'
- * SELECT policy admits any row on an item the caller can still see, and a
- * caller holding an active claim on an item can, by construction, see it.
+ * One caveat, stated because the obvious reading is wrong: the claimer can
+ * NOT always read their own claim row here. wishlist_claims' SELECT policy
+ * admits a row only on an item the caller can still see, and item visibility
+ * is revocable AFTER the claim -- the claimer leaves the shared group, or the
+ * owner narrows privacy_settings. The claim survives; the claimer's ability to
+ * see it does not. Such a caller is refused here even though they do hold the
+ * claim. That is the safe direction to fail, and release_wishlist_claim() is
+ * SECURITY DEFINER and performs no visibility check, so the claim can still be
+ * released -- but do not build on "they can see it by construction", because
+ * they cannot.
+ *
+ * Activity is decided by lib/claims/active.ts, the same predicate
+ * getActiveClaims() uses. Before that module existed this function checked
+ * only `released_at is null`, so a claim the read path had already told every
+ * viewer did not exist could still authorize a purchase -- permanently marking
+ * an item purchased that the UI was showing as available.
  */
 export async function markAsPurchased(itemId: string, purchased: boolean) {
   const supabase = await createClient();
@@ -323,7 +337,9 @@ export async function markAsPurchased(itemId: string, purchased: boolean) {
 
   const { data: claim, error: claimError } = await supabase
     .from("wishlist_claims")
-    .select("id")
+    .select(
+      "id, occasion_id, occasions ( occasion_date ), wishlist_items ( purchased )",
+    )
     .eq("item_id", itemId)
     .eq("claimed_by", userId)
     .is("released_at", null)
@@ -333,7 +349,31 @@ export async function markAsPurchased(itemId: string, purchased: boolean) {
     return { error: claimError.message };
   }
 
-  if (!claim) {
+  // Same message for "no claim row" and "claim exists but has lapsed". The
+  // caller is not entitled to learn which, and one message keeps this from
+  // becoming an oracle about other people's claims -- the same reason
+  // claim_wishlist_item() collapses its own two refusal paths into one raise.
+  const claimRow = claim as
+    | {
+        id: string;
+        occasion_id: string | null;
+        occasions: { occasion_date: string } | null;
+        wishlist_items: { purchased: boolean } | null;
+      }
+    | null;
+
+  const holdsActiveClaim =
+    claimRow !== null &&
+    isClaimActive(
+      {
+        occasionId: claimRow.occasion_id,
+        occasionDate: claimRow.occasions?.occasion_date ?? null,
+        itemPurchased: claimRow.wishlist_items?.purchased ?? false,
+      },
+      todayISO(),
+    );
+
+  if (!holdsActiveClaim) {
     return {
       error: "Only the person who claimed this item can mark it purchased",
     };

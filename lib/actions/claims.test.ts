@@ -411,6 +411,50 @@ describe("getActiveClaims", () => {
       expect(result).toEqual({ data: {} });
     });
 
+    it("keeps a lapsed claim whose item was already PURCHASED", async () => {
+      // The normal end state of every fulfilled gift: claim it, buy it, then
+      // the occasion passes. claim_wishlist_item() refuses a new claim on a
+      // purchased item (20260911100002_claim_rpcs.sql:50-52) BEFORE it ever
+      // reaches the lapsed-release, so such a claim is never released -- it
+      // is the standing record of who bought it. A read path that lapses it
+      // anyway disagrees with the RPC about the same row.
+      //
+      // What would make this fail: applying the date comparison without
+      // checking `purchased` first -- which is exactly what shipped. The
+      // visible damage is not subtle: every viewer sees a "Purchased" badge
+      // AND an "I'll get this" button that can only ever error, and the
+      // person who actually bought it loses their own Undo/Unclaim controls,
+      // because those derive from this result.
+      //
+      // What this does NOT catch: whether a real PostgREST response embeds
+      // `wishlist_items` as a bare object rather than an array (same
+      // live-wiring risk as the `occasions` embed above), nor whether the
+      // caller can actually SELECT the item row -- they can, since the item
+      // ids came from a list they just read.
+      supabase = createSupabaseMock({
+        wishlist_claims: [
+          {
+            data: [
+              {
+                item_id: "item-1",
+                claimed_by: "user_a",
+                occasion_id: OCCASION_ID,
+                occasions: { occasion_date: "2026-06-01" },
+                wishlist_items: { purchased: true },
+              },
+            ],
+            error: null,
+          },
+        ],
+      });
+
+      const result = await getActiveClaims(["item-1"]);
+
+      expect(result).toEqual({
+        data: { "item-1": { claimedBy: "user_a", occasionId: OCCASION_ID } },
+      });
+    });
+
     it("includes a claim whose linked occasion is today or in the future", async () => {
       // What would make this fail: an off-by-one in the comparison (e.g.
       // strict `>` instead of `>=`, which would wrongly exclude an occasion
