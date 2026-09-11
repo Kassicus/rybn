@@ -163,7 +163,51 @@ Remove it and drop the floor 21 -> 20. Repointing has exactly one viable target
 (`updated_at` alone, the only permitted column assertion 6 never writes), and
 that tests a write shape the app never makes.
 
-## F4 — two test-hardening gaps
+## F4 — DONE (2026-09-11)
+
+**Block-comment floor back-ported to `15_celebrated_materialization.sql`**
+(floor 12 -> 13). It guards `get_or_create_celebrated_occasion`, the other
+SECURITY DEFINER function in this phase taking a subject parameter, and the
+file had documented the residue as KNOWN rather than closing it. Its header no
+longer describes an open hole: it now says anchoring stops a LINE comment and
+points at the floor for the block-comment case.
+
+**The lapse boundary is now pinned on the SQL side too**
+(`17_claim_lifecycle.sql`, floor 27 -> 28). `claim_rpcs.sql:102` compares
+`o.occasion_date < current_date`; mutating that to `<=` releases a live claim on
+the morning of the birthday. The TypeScript side pins the same boundary
+behaviourally; this side had nothing, because the file's only lapse fixture is
+dated 2000-01-01 and `<` -> `<=` changes none of its outcomes.
+
+**Why it is a shape check rather than the live fixture this document asked for.**
+The release is scoped to the item being claimed (`c.item_id = p_item_id`), so
+the only way to exercise it is to claim that same item. With the operator
+CORRECT a claim dated today survives, the insert collides with
+`wishlist_claims_one_active`, and the re-raised `unique_violation` aborts the
+file's whole batch. With the operator MUTATED the claim releases and the insert
+quietly succeeds. The live test would therefore pass only while the code is
+broken and fail the entire file while it is correct -- the same harness
+limitation that makes assertions 2/4/7 shape checks, reached from the opposite
+direction. The suggestion in this document to assert a today-dated fixture
+"untouched after a claim attempt on a different item" would have proved nothing
+either: the release never targets another item.
+
+Both proved read-only, by fetching the live definitions and simulating the
+mutations textually -- no DDL against production at all:
+
+```
+blocked_still_matches_anchor  true   <- the anchored pattern IS defeated by /* */
+floor_flags_blocked           true   <- the floor catches exactly that
+floor_passes_shipped          true   <- no false positive on the real definition
+boundary_matches_shipped      true
+boundary_matches_lte          false  <- the `<=` mutation is caught
+```
+
+Still open from the original note: `13_occasion_materialization.sql:194` carries
+the unanchored `[^;]*22023` pattern that Task 1 round 1 fixed in `15`. It is
+phase 2's and pre-existing.
+
+### Original finding
 
 - **The block-comment floor did not propagate.** Task 3 ruled
   `position('/*' in definition) = 0` "the total fix, not a per-pattern one"; it

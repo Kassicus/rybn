@@ -63,10 +63,11 @@
 --       celebrated_occasion runs SECURITY DEFINER so table RLS is not what
 --       would have to stop it;
 --   (c) the pg_get_functiondef() match itself, anchored line-by-line so a
---       commented-out guard cannot satisfy it (same `(?n)^\s*` technique
---       13_occasion_materialization.sql's post-review fix uses, with the same
---       KNOWN RESIDUE: a `/* ... */` block comment around the guard still
---       begins with whitespace and would still match). This is the one that
+--       LINE-commented guard cannot satisfy it (same `(?n)^\s*` technique
+--       13_occasion_materialization.sql's post-review fix uses). Anchoring
+--       alone does NOT stop a `/* ... */` block comment, which leaves every
+--       line byte-identical -- that hole is closed separately, by the
+--       no-block-comment floor asserted just before this match. This is the one that
 --       also proves can_view_field's arguments are NOT inverted -- the
 --       pattern requires the literal call
 --       `can_view_field(p_celebrant_id, v_caller, v_row.privacy_settings)`,
@@ -157,6 +158,7 @@ declare
   v_priv_settings  jsonb;
   v_priv_rows      int;
   v_guard_defs     int;
+  v_block_comment_pos int;
   v_row_celebrant  text;
   v_row_created_by text;
   v_row_kind       public.occasion_kind;
@@ -390,6 +392,34 @@ begin
   -- unanchored `[^;]*` the first cut used). Scoped by exact regprocedure, not
   -- proname alone, so an ungated overload with an extra parameter cannot
   -- also satisfy this count.
+  ---------------------------------------------------------------------------
+  -- THE FLOOR BENEATH THE ANCHORED MATCH BELOW.
+  --
+  -- Line-anchoring stops a `--` prefix, which moves where a line starts. It
+  -- does nothing against a `/* ... */` block comment, which leaves every line
+  -- byte-identical and merely brackets them -- and `\s` matches newline in a
+  -- POSIX ARE even under `(?n)`, since `n` constrains only `.` and negated
+  -- bracket expressions. So the whole guard could be commented out with `/*`
+  -- and every pattern below would still match.
+  --
+  -- 17_claim_lifecycle.sql closed this for claim_wishlist_item after review;
+  -- this file documented the same residue as KNOWN and left it open, while
+  -- guarding get_or_create_celebrated_occasion -- the other SECURITY DEFINER
+  -- function in this phase that takes a subject parameter. One assertion
+  -- covers every anchored pattern here at once, and unlike a per-pattern
+  -- negative lookahead it cannot be worked around.
+  ---------------------------------------------------------------------------
+  select position('/*' in pg_get_functiondef(p.oid)) into v_block_comment_pos
+    from pg_proc p
+   where p.oid = 'public.get_or_create_celebrated_occasion(text, public.occasion_kind)'::regprocedure;
+
+  if v_block_comment_pos <> 0 then
+    raise exception
+      'GUARD FAIL: get_or_create_celebrated_occasion''s definition contains a /* block comment starting at character % -- every anchored check in this file is unsound while this is true (line-anchoring does not defend against a block comment)',
+      v_block_comment_pos;
+  end if;
+  v_checks := v_checks + 1;
+
   select count(*) into v_guard_defs
     from pg_proc p
    where p.oid = 'public.get_or_create_celebrated_occasion(text, public.occasion_kind)'::regprocedure
@@ -473,7 +503,7 @@ begin
 
   perform set_config('role', v_orig_role, true);
 
-  if v_checks < 12 then
+  if v_checks < 13 then
     raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 12', v_checks;
   end if;
 

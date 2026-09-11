@@ -818,7 +818,45 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 27 then
+  ---------------------------------------------------------------------------
+  -- THE LAPSE BOUNDARY, pinned in SQL.
+  --
+  -- claim_rpcs.sql's lapsed-release compares `o.occasion_date < current_date`.
+  -- Mutating that `<` to `<=` releases a live claim on the MORNING OF THE
+  -- BIRTHDAY -- the single worst day for a gift to silently become available
+  -- to somebody else. lib/actions/claims.test.ts pins the same boundary on the
+  -- TypeScript side, where the equivalent mutation is caught behaviourally;
+  -- this side had nothing. The only lapse fixture in this file is dated
+  -- 2000-01-01, so `<` -> `<=` changes none of its outcomes and ships green.
+  --
+  -- WHY THIS IS A SHAPE CHECK AND NOT A LIVE ONE. The release is scoped to the
+  -- item being claimed (`c.item_id = p_item_id`), so the only way to exercise
+  -- it is to claim that same item. With the operator CORRECT, a claim dated
+  -- today survives, the insert collides with wishlist_claims_one_active, and
+  -- the unique_violation is re-raised -- which aborts this file's whole batch.
+  -- With the operator MUTATED, the claim is released and the insert quietly
+  -- succeeds. So the live test would pass only while the code is broken, and
+  -- fail the entire file while it is correct. Same harness limitation that
+  -- makes assertions 2, 4 and 7 shape checks, arriving from the opposite
+  -- direction.
+  --
+  -- Protected by the same no-block-comment floor as every other anchored match
+  -- here, and scoped by exact regprocedure.
+  ---------------------------------------------------------------------------
+  select count(*) into v_guard_defs
+    from pg_proc p
+   where p.oid = 'public.claim_wishlist_item(uuid, uuid)'::regprocedure
+     and pg_get_functiondef(p.oid) ~
+       '(?n)^\s*where o\.id = c\.occasion_id and o\.occasion_date < current_date$';
+
+  if v_guard_defs <> 1 then
+    raise exception
+      'GUARD FAIL: claim_wishlist_item''s lapsed-release no longer compares `o.occasion_date < current_date` exactly (matched % definition(s), expected 1) -- `<=` here releases a live claim on the morning of the occasion itself',
+      v_guard_defs;
+  end if;
+  v_checks := v_checks + 1;
+
+  if v_checks < 28 then
     raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 27', v_checks;
   end if;
 
