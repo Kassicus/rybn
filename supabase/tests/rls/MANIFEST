@@ -36,3 +36,4 @@
 16_claim_visibility.sql
 17_claim_lifecycle.sql
 18_anniversary_links.sql
+20_shared_anniversary_reads.sql
