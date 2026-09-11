@@ -29,7 +29,9 @@ import { getUserId } from "@/lib/auth/require-auth";
 
 /**
  * Get the current user's wishlist
- * Note: Claim data is stripped since owners should not see who claimed their items
+ * Note: purchase/stock data is stripped since owners should not see whether
+ * or by whom their items were marked purchased or out of stock. Claim data
+ * needs no stripping here -- see the comment inside this function.
  */
 export async function getMyWishlist() {
   const supabase = await createClient();
@@ -50,11 +52,15 @@ export async function getMyWishlist() {
     return { error: error.message };
   }
 
-  // Strip claim/stock data - owners should never see who claimed or marked their items
+  // Strip purchase/stock data - owners should never see whether or by whom
+  // their items were marked purchased or out of stock. Claim data no longer
+  // needs stripping here at all: claimed_by/claimed_at left wishlist_items
+  // in 20260911100003_drop_item_claim_columns.sql, and owner-blindness for
+  // claims is now enforced structurally by wishlist_claims' own SELECT
+  // policy (it excludes the item's owner outright), not by this function
+  // remembering to null out two columns that no longer exist.
   const sanitizedItems = items?.map((item) => ({
     ...item,
-    claimed_by: null,
-    claimed_at: null,
     purchased: false,
     purchased_at: null,
     out_of_stock_marked_by: null,
@@ -89,13 +95,12 @@ export async function getUserWishlist(userId: string) {
     return { error: error.message };
   }
 
-  // If viewing own wishlist through this route, strip claim/stock data
+  // If viewing own wishlist through this route, strip purchase/stock data.
+  // No claimed_by/claimed_at left to strip -- see getMyWishlist's comment.
   const isOwnWishlist = currentUserId === userId;
   const sanitizedItems = isOwnWishlist
     ? items?.map((item) => ({
         ...item,
-        claimed_by: null,
-        claimed_at: null,
         purchased: false,
         purchased_at: null,
         out_of_stock_marked_by: null,
@@ -261,13 +266,12 @@ export async function getWishlistItem(itemId: string) {
     return { error: error.message, notFound: error.code === "PGRST116" };
   }
 
-  // If viewing own item, strip claim/stock data
+  // If viewing own item, strip purchase/stock data. No claimed_by/claimed_at
+  // left to strip -- see getMyWishlist's comment.
   const isOwnItem = item.user_id === userId;
   const sanitizedItem = isOwnItem
     ? {
         ...item,
-        claimed_by: null,
-        claimed_at: null,
         purchased: false,
         purchased_at: null,
         out_of_stock_marked_by: null,
@@ -282,70 +286,31 @@ export async function getWishlistItem(itemId: string) {
 }
 
 /**
- * Claim a wishlist item (mark that you're buying it)
- */
-export async function claimWishlistItem(itemId: string) {
-  const supabase = await createClient();
-
-  const userId = await getUserId();
-
-  if (!userId) {
-    return { error: "Not authenticated" };
-  }
-
-  const { data: item, error } = await supabase
-    .from("wishlist_items")
-    .update({
-      claimed_by: userId,
-      claimed_at: new Date().toISOString(),
-    })
-    .eq("id", itemId)
-    .neq("user_id", userId) // Can't claim your own items
-    .is("claimed_by", null) // Item must not already be claimed
-    .select()
-    .single();
-
-  if (error) {
-    return { error: error.message };
-  }
-
-  revalidatePath("/wishlist");
-  return { data: await withSignedWishlistImage(item, userId) };
-}
-
-/**
- * Unclaim a wishlist item
- */
-export async function unclaimWishlistItem(itemId: string) {
-  const supabase = await createClient();
-
-  const userId = await getUserId();
-
-  if (!userId) {
-    return { error: "Not authenticated" };
-  }
-
-  const { data: item, error } = await supabase
-    .from("wishlist_items")
-    .update({
-      claimed_by: null,
-      claimed_at: null,
-    })
-    .eq("id", itemId)
-    .eq("claimed_by", userId) // Can only unclaim your own claims
-    .select()
-    .single();
-
-  if (error) {
-    return { error: error.message };
-  }
-
-  revalidatePath("/wishlist");
-  return { data: await withSignedWishlistImage(item, userId) };
-}
-
-/**
- * Mark a wishlist item as purchased
+ * Mark a wishlist item as purchased.
+ *
+ * Claiming and unclaiming moved to lib/actions/claims.ts (claimItem /
+ * releaseClaim), which write public.wishlist_claims through the
+ * claim_wishlist_item()/release_wishlist_claim() RPCs. This action stays
+ * here because `purchased`/`purchased_at` are still columns on
+ * wishlist_items (20260911100003_drop_item_claim_columns.sql's header:
+ * "Purchase is terminal... stays on wishlist_items").
+ *
+ * AUTHORIZATION: only the person holding an ACTIVE claim on this item may
+ * record its purchase state. This used to be `.eq("claimed_by", userId)`
+ * against wishlist_items -- that column is gone, so the same rule is now
+ * checked against where the fact actually lives: a wishlist_claims row for
+ * this item, this caller, with released_at is null. It is the same
+ * authorization, re-pointed at the new source of truth, not a weaker one --
+ * the RLS layer alone would not stop this: "Users can claim visible
+ * wishlist items" (the policy still governing this UPDATE, per that
+ * migration's own comment) admits any non-owner who can see the item, and
+ * the pin_wishlist_item_owner_fields trigger only restricts WHICH columns a
+ * non-owner may touch, not WHICH non-owner. Skipping this check would let
+ * any co-member who can see the item mark somebody else's claim purchased.
+ *
+ * The claimer can always read their own claim row here: wishlist_claims'
+ * SELECT policy admits any row on an item the caller can still see, and a
+ * caller holding an active claim on an item can, by construction, see it.
  */
 export async function markAsPurchased(itemId: string, purchased: boolean) {
   const supabase = await createClient();
@@ -356,6 +321,24 @@ export async function markAsPurchased(itemId: string, purchased: boolean) {
     return { error: "Not authenticated" };
   }
 
+  const { data: claim, error: claimError } = await supabase
+    .from("wishlist_claims")
+    .select("id")
+    .eq("item_id", itemId)
+    .eq("claimed_by", userId)
+    .is("released_at", null)
+    .maybeSingle();
+
+  if (claimError) {
+    return { error: claimError.message };
+  }
+
+  if (!claim) {
+    return {
+      error: "Only the person who claimed this item can mark it purchased",
+    };
+  }
+
   const { data: item, error } = await supabase
     .from("wishlist_items")
     .update({
@@ -363,7 +346,6 @@ export async function markAsPurchased(itemId: string, purchased: boolean) {
       purchased_at: purchased ? new Date().toISOString() : null,
     })
     .eq("id", itemId)
-    .eq("claimed_by", userId) // Only the claimer can mark as purchased
     .select()
     .single();
 
@@ -373,67 +355,6 @@ export async function markAsPurchased(itemId: string, purchased: boolean) {
 
   revalidatePath("/wishlist");
   return { data: await withSignedWishlistImage(item, userId) };
-}
-
-/**
- * Get the profile of a user who claimed an item
- * Used to display who claimed a gift to other viewers
- */
-export async function getClaimerProfile(claimedById: string) {
-  const supabase = await createClient();
-
-  const userId = await getUserId();
-
-  if (!userId) {
-    return { error: "Not authenticated" };
-  }
-
-  const { data: profile, error } = await supabase
-    .from("user_profiles")
-    .select("id, username, display_name, avatar_url")
-    .eq("id", claimedById)
-    .single();
-
-  if (error) {
-    return { error: error.message };
-  }
-
-  return { data: profile };
-}
-
-/**
- * Get profiles for multiple claimers (batch fetch)
- * Used to efficiently fetch claimer info for all claimed items on a wishlist
- */
-export async function getClaimerProfiles(claimerIds: string[]) {
-  if (claimerIds.length === 0) {
-    return { data: {} };
-  }
-
-  const supabase = await createClient();
-
-  const userId = await getUserId();
-
-  if (!userId) {
-    return { error: "Not authenticated" };
-  }
-
-  const { data: profiles, error } = await supabase
-    .from("user_profiles")
-    .select("id, username, display_name, avatar_url")
-    .in("id", claimerIds);
-
-  if (error) {
-    return { error: error.message };
-  }
-
-  // Convert to a map for easy lookup
-  const profileMap: Record<string, typeof profiles[0]> = {};
-  profiles?.forEach((profile) => {
-    profileMap[profile.id] = profile;
-  });
-
-  return { data: profileMap };
 }
 
 /**
