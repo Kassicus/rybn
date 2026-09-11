@@ -2,8 +2,13 @@ import Link from "next/link";
 import { Cake, Heart, Calendar } from "lucide-react";
 import { Heading, Text } from "@/components/ui/text";
 import { formatMonthDay } from "@/lib/utils/dates";
-import { occasionLabel, type UpcomingOccasion } from "@/lib/occasions/display";
+import {
+  occasionLabel,
+  daysUntil,
+  type UpcomingOccasion,
+} from "@/lib/occasions/display";
 import { RelativeWhen } from "./RelativeWhen";
+import { whenLabel } from "./whenLabel";
 
 // Same icon vocabulary DateReminderBanner.tsx already established, so the two
 // surfaces do not disagree about what a birthday looks like.
@@ -39,6 +44,15 @@ interface UpcomingOccasionsProps {
  * should still render meaningfully with JS disabled (see RelativeWhen.tsx
  * for what that fallback looks like).
  *
+ * `RelativeWhen` also gets a `serverLabel`, computed here with THIS
+ * component's own (server) clock. That is the pre-hydration fallback only --
+ * RelativeWhen replaces it the moment it mounts client-side. It is not the
+ * "server-computed day count" the client component must never be handed:
+ * that would bake the server's clock in permanently, whereas this value is
+ * discarded on mount. See RelativeWhen.tsx for why passing it is still
+ * necessary (React 19's hydration does not repaint a suppressed mismatch on
+ * its own).
+ *
  * Renders NOTHING claim-derived -- no counts, no "N claimed" badges, no
  * purchase state. This component also renders for list owners, and
  * getMyWishlist strips claim state from owners everywhere else in the app
@@ -71,14 +85,20 @@ export function UpcomingOccasions({
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-50">
                   <Icon className="h-4 w-4 text-primary" />
                 </span>
-                <span className="min-w-0 flex-1">
+                {/* A div, not a span: Text renders a <p>, and a <span> --
+                    phrasing content -- may not contain a <p> -- flow
+                    content. */}
+                <div className="min-w-0 flex-1">
                   <Text className="font-medium">{occasionLabel(o)}</Text>
                   <Text variant="secondary" size="sm">
-                    {formatMonthDay(o.occasionDate)} &middot;{" "}
-                    <RelativeWhen occasionDate={o.occasionDate} />
+                    {formatMonthDay(o.occasionDate)} ·{" "}
+                    <RelativeWhen
+                      occasionDate={o.occasionDate}
+                      serverLabel={whenLabel(daysUntil(o.occasionDate))}
+                    />
                     {o.groupName ? ` · ${o.groupName}` : ""}
                   </Text>
-                </span>
+                </div>
               </Link>
             </li>
           );
