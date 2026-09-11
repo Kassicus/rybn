@@ -204,14 +204,17 @@ describe("tagItemForMyOccasion", () => {
 });
 
 describe("tagItemForGroupDate", () => {
-  it("inserts the given item/occasion pair directly, without calling get_or_create_occasion", async () => {
+  it("verifies the occasion (id + kind = group_date, filtered through occasions' own SELECT policy) then inserts, without calling get_or_create_occasion", async () => {
     supabase = createSupabaseMock({
+      occasions: [{ data: { id: GROUP_OCCASION_ID }, error: null }],
       wishlist_item_occasions: [{ data: null, error: null }],
     });
 
     const result = await tagItemForGroupDate(ITEM_ID, GROUP_OCCASION_ID);
 
     expect(rpc).not.toHaveBeenCalled();
+    expect(eqSpy).toHaveBeenCalledWith("occasions", "id", GROUP_OCCASION_ID);
+    expect(eqSpy).toHaveBeenCalledWith("occasions", "kind", "group_date");
     expect(insertSpy).toHaveBeenCalledWith("wishlist_item_occasions", {
       item_id: ITEM_ID,
       occasion_id: GROUP_OCCASION_ID,
@@ -219,8 +222,36 @@ describe("tagItemForGroupDate", () => {
     expect(result).toEqual({ data: { occasionId: GROUP_OCCASION_ID } });
   });
 
-  it('maps a 42501 from the insert to "You can only tag your own items"', async () => {
+  /**
+   * The occasion-verification query is exactly what a caller passing a
+   * BIRTHDAY occasion's id would hit: `.eq("kind", "group_date")` excludes
+   * it, so Postgres hands back zero rows -- the identical shape to a
+   * nonexistent id or a real group_date the caller cannot see (not a group
+   * member). All three collapse to this one scripted response, which is
+   * exactly why one message below covers all three; there is nothing to
+   * distinguish them by from here.
+   *
+   * Breaks if the `.eq("kind", "group_date")` filter (or the lookup
+   * entirely) is removed from tagItemForGroupDate -- the function would then
+   * proceed straight to the insert, and insertSpy would have been called.
+   */
+  it("refuses to tag using a birthday occasion's id, without reaching the insert", async () => {
+    const BIRTHDAY_OCCASION_ID = "birthday-occasion-id-1";
     supabase = createSupabaseMock({
+      occasions: [{ data: null, error: null }],
+    });
+
+    const result = await tagItemForGroupDate(ITEM_ID, BIRTHDAY_OCCASION_ID);
+
+    expect(result).toEqual({
+      error: "That occasion no longer exists, or is not yours to tag",
+    });
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it('maps a 42501 from the insert to "You can only tag your own items", after the occasion check passes', async () => {
+    supabase = createSupabaseMock({
+      occasions: [{ data: { id: GROUP_OCCASION_ID }, error: null }],
       wishlist_item_occasions: [
         {
           data: null,

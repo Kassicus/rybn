@@ -82,10 +82,38 @@ export async function tagItemForMyOccasion(
 /**
  * Tag an item for an existing group_date occasion. Unlike
  * tagItemForMyOccasion, the occasion already exists (created explicitly
- * through createGroupDate()), so this inserts directly -- no RPC involved.
+ * through createGroupDate()), so this does not call get_or_create_occasion --
+ * but it must still verify the id it was handed before inserting.
  *
- * A 42501 from the insert means the same thing it does above: the item is
- * not the caller's.
+ * Nothing constrains which occasion_id a caller may pass here: this is a
+ * directly callable server action, and RLS on wishlist_item_occasions gates
+ * INSERT on the ITEM's ownership only, never on which occasion the tag
+ * names. Without this check a caller could tag their own item against an
+ * occasion id that is a birthday/anniversary rather than a group date, or a
+ * real group_date belonging to a group they do not belong to. Occasion ids
+ * are not hard to come by either -- get_upcoming_occasions() (already wired
+ * into lib/actions/occasions.ts and rendered on the dashboard) hands every
+ * family member the materialized occasion id for OTHER people's derived
+ * birthdays (20260910100002_occasions_derivation.sql:87), so "the id is
+ * secret" cannot be relied on to close this gap.
+ *
+ * The check runs on the user-scoped client so occasions' own SELECT policy
+ * applies, which closes both problems in the same query: filtering on
+ * kind = 'group_date' rejects a celebrated occasion's id outright (the
+ * celebrated-occasion SELECT policy is a different branch entirely, so this
+ * filter alone would reject it even under an admin client), and reusing RLS
+ * rather than re-deriving it means a group_date row only comes back if the
+ * caller is actually a member of that group -- "Members can view their
+ * groups' occasions" in 20260910100000_occasions_schema.sql. One generic
+ * message covers a nonexistent id, the wrong kind, and a real group_date the
+ * caller cannot see, for the same no-oracle reason untagItem documents
+ * below: distinguishing them would let a caller probe which occasion ids
+ * exist and what kind they are.
+ *
+ * A 42501 from the insert below means what it means everywhere else in this
+ * file: the ITEM is not the caller's. That check is unaffected by, and
+ * still necessary alongside, the occasion check above -- they gate two
+ * different foreign keys on the same row.
  */
 export async function tagItemForGroupDate(
   itemId: string,
@@ -97,6 +125,25 @@ export async function tagItemForGroupDate(
   }
 
   const supabase = await createClient();
+
+  const { data: occasion, error: occasionError } = await supabase
+    .from("occasions")
+    .select("id")
+    .eq("id", occasionId)
+    .eq("kind", "group_date")
+    .maybeSingle();
+
+  if (occasionError) {
+    console.error(
+      "tagItemForGroupDate: occasion lookup failed",
+      occasionError
+    );
+    return { error: "Failed to tag this item. Please try again." };
+  }
+
+  if (!occasion) {
+    return { error: "That occasion no longer exists, or is not yours to tag" };
+  }
 
   const { error } = await supabase
     .from("wishlist_item_occasions")
@@ -163,10 +210,12 @@ export async function untagItem(
  * Items with no tags are simply absent from the result, not present with an
  * empty array.
  *
- * The empty-list short circuit runs BEFORE getUserId()/createClient() --
- * mirroring getClaimerProfiles() in lib/actions/wishlist.ts -- so an empty
- * list never touches auth or the database at all, not just never sends a
- * query.
+ * The empty-list short circuit runs BEFORE getUserId() or createClient() are
+ * even called -- stricter than the similarly-shaped short circuit in
+ * getClaimerProfiles() (lib/actions/wishlist.ts:408-419), which checks the
+ * empty list first but still calls createClient() ahead of its own !userId
+ * check. Here neither runs at all for an empty list, not just "no query is
+ * sent."
  *
  * Read access is gated by the ITEM's visibility (can_view_wishlist_item), not
  * by ownership, so this can return tags for items the caller does not own --
