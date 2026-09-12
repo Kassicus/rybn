@@ -12,6 +12,7 @@ import { ClaimActions } from "@/components/wishlist/ClaimActions";
 import { getWishlistItem } from "@/lib/actions/wishlist";
 import { getActiveClaims } from "@/lib/actions/claims";
 import { getUpcomingOccasions } from "@/lib/actions/occasions";
+import { isOccasionFor, occasionFor } from "@/lib/occasions/celebrant";
 import { occasionLabel } from "@/lib/occasions/display";
 import { PRIORITY_INFO } from "@/lib/schemas/wishlist";
 import { cn } from "@/lib/utils";
@@ -158,12 +159,19 @@ export default function WishlistItemDetailPage({
           // occasion while this page always claimed UNSCOPED, so which button
           // you pressed decided whether the claim would ever auto-release.
           const { data: occasions = [] } = await getUpcomingOccasions(60);
-          const theirOccasion =
-            occasions.find(
-              (occasion) => occasion.celebrantId === itemData.user_id
-            ) ?? null;
+          // occasionFor(), not `celebrantId === itemData.user_id`: a
+          // confirmed couple's anniversary is stored under the canonical
+          // (user_a) partner. With an id comparison, opening an item on the
+          // NON-canonical partner's list left claimOccasionKind null, so
+          // ClaimActions received kind={null} and a claim made from THIS
+          // page was silently created unscoped -- never auto-releasing,
+          // while the same item claimed from the list card was scoped
+          // correctly. That is the exact list-card-vs-detail-page
+          // disagreement the shared lookup below was introduced to end.
+          const theirOccasion = occasionFor(occasions, itemData.user_id);
           // Always "birthday" | "anniversary" when set: a group_date row
-          // carries celebrantId: null and so can never match above.
+          // carries celebrantId and partnerId null and so can never match
+          // above.
           setClaimOccasionKind(
             theirOccasion
               ? (theirOccasion.kind as "birthday" | "anniversary")
@@ -190,7 +198,7 @@ export default function WishlistItemDetailPage({
               const claimedOccasion = occasions.find(
                 (occasion) =>
                   occasion.occasionId === claim.occasionId &&
-                  occasion.celebrantId === itemData.user_id
+                  isOccasionFor(occasion, itemData.user_id)
               );
               setClaimedOccasionLabel(
                 claimedOccasion ? occasionLabel(claimedOccasion) : null
@@ -382,11 +390,21 @@ export default function WishlistItemDetailPage({
             outOfStockMarkedBy={item.out_of_stock_marked_by || null}
             currentUserId={currentUserId}
             // Scoped to the owner's own upcoming occasion when they have
-            // one, exactly as the list card does. kind falls back to null --
-            // an unscoped claim that never auto-releases -- only when they
+            // one, exactly as the list card does -- "their own" now
+            // including a shared anniversary stored under their partner's
+            // id, which this comment previously did not account for and the
+            // lookup above previously missed. kind falls back to null -- an
+            // unscoped claim that never auto-releases -- only when they
             // genuinely have no birthday or anniversary inside the window,
             // which is the honest answer when nobody can say what the claim
             // is for.
+            //
+            // celebrantId stays item.user_id, the person whose list this is,
+            // NOT theirOccasion.celebrantId: claimItem passes it to
+            // get_or_create_celebrated_occasion, whose privacy gate runs
+            // against the celebrant the CALLER named. Naming the canonical
+            // partner instead would refuse a viewer entitled to see only
+            // this owner's date. The function resolves the couple itself.
             celebrantId={item.user_id}
             kind={claimOccasionKind}
             claimedOccasionLabel={claimedOccasionLabel}

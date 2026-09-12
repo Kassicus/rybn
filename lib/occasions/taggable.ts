@@ -1,3 +1,4 @@
+import { isOccasionFor } from "@/lib/occasions/celebrant";
 import { occasionLabel, type UpcomingOccasion } from "@/lib/occasions/display";
 import { formatMonthDay } from "@/lib/utils/dates";
 
@@ -27,6 +28,16 @@ import { formatMonthDay } from "@/lib/utils/dates";
  * function has no id to target anyone else's. There is nothing for the
  * action layer to reject, so the wrong option is removed here instead.
  *
+ * isOccasionFor(), not `celebrantId === userId`: a confirmed couple's
+ * anniversary is stored under the canonical (user_a) partner, so an id
+ * comparison drops the NON-canonical partner's own anniversary out of their
+ * own tag picker. get_or_create_occasion resolves the same link on the write
+ * side (20260912000015_link_aware_get_or_create_occasion.sql), so the option
+ * this admits lands on the couple's one shared row -- these two changes had
+ * to ship together, since admitting the partner here while that function
+ * still inserted unconditionally under the caller would have materialized a
+ * SECOND occasion for every couple that tagged before claiming.
+ *
  * A group_date carries no celebrant at all -- it is a shared occasion any
  * member of the group may tag toward -- so every group_date the caller can
  * see passes through unfiltered.
@@ -34,8 +45,8 @@ import { formatMonthDay } from "@/lib/utils/dates";
  * KNOWN GAP, deliberate -- do not "fix" by removing group_date from this
  * filter: tagging an item for a group_date currently has no read path. The
  * only viewer surface (app/(dashboard)/wishlist/user/[userId]/page.tsx)
- * picks the occasion in view with `occasions.find(o => o.celebrantId ===
- * userId)`, and a group_date always has celebrantId: null, so it can never
+ * picks the occasion in view with `occasionFor(occasions, userId)`, and a
+ * group_date has BOTH celebrantId and partnerId null, so it can never
  * match there -- the tag is stored and renders back to the owner on their
  * own card, but no giver's list ever groups by it. Left in on purpose: this
  * is a design question (a group_date applies to everyone, so "see what
@@ -51,7 +62,7 @@ export function taggableOccasions(
   userId: string
 ): UpcomingOccasion[] {
   return occasions.filter(
-    (o) => o.kind === "group_date" || o.celebrantId === userId
+    (o) => o.kind === "group_date" || isOccasionFor(o, userId)
   );
 }
 

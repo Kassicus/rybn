@@ -7,6 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { getGroupById } from "@/lib/actions/groups";
 import { getUpcomingOccasions } from "@/lib/actions/occasions";
+import { occasionInvolvesAny } from "@/lib/occasions/celebrant";
 import { CopyInviteCode } from "@/components/groups/CopyInviteCode";
 import { InviteMembersButton } from "@/components/groups/InviteMembersButton";
 import { UpcomingOccasions } from "@/components/occasions/UpcomingOccasions";
@@ -62,7 +63,13 @@ export default async function GroupDetailPage({
     // correct: the same person's birthday belongs on every group page they
     // are a member of, the same way it appears once on the dashboard
     // regardless of how many shared groups made it visible there.
-    return occasion.celebrantId !== null && memberIds.has(occasion.celebrantId);
+    //
+    // EITHER partner counts, not just the celebrant. A confirmed couple's
+    // anniversary is stored under the canonical (user_a) partner, so a
+    // celebrant-only test drops the couple off a group page whose only
+    // member of the two is the NON-canonical partner -- the same rule as for
+    // a single person, applied to both halves of a shared occasion.
+    return occasionInvolvesAny(occasion, memberIds);
   });
 
   const Icon = groupTypeIcons[group.type as keyof typeof groupTypeIcons] || Grid;

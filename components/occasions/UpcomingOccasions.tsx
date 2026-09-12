@@ -9,6 +9,7 @@ import {
 } from "@/lib/occasions/display";
 import { RelativeWhen } from "./RelativeWhen";
 import { whenLabel } from "./whenLabel";
+import { hrefFor } from "./hrefFor";
 import { GroupDateActions } from "./GroupDateActions";
 
 // Same icon vocabulary DateReminderBanner.tsx already established, so the two
@@ -19,26 +20,10 @@ const ICON = {
   group_date: Calendar,
 } as const;
 
-// A giver needs the list, not the group. Celebrated occasions therefore link
-// to the celebrant's wishlist; only a group date has nowhere better to go.
-//
-// The viewer's OWN celebrated occasion is the one exception:
-// /wishlist/user/<self> only ever redirects straight back to /wishlist (see
-// wishlist/user/[userId]/page.tsx's "Don't allow viewing your own wishlist
-// through this route" guard), so this links there directly and skips the
-// redirect hop. `viewerId` is optional and defaults to never matching,
-// because not every caller of this component knows the viewer (there is
-// none to know from a logged-out render), and skipping the special case
-// then just falls back to the redirect, not a broken link.
-function hrefFor(o: UpcomingOccasion, viewerId: string | null): string {
-  if (o.kind === "group_date" && o.groupId) return `/groups/${o.groupId}`;
-  if (o.celebrantId) {
-    return o.celebrantId === viewerId
-      ? "/wishlist"
-      : `/wishlist/user/${o.celebrantId}`;
-  }
-  return "/dashboard";
-}
+// hrefFor moved to ./hrefFor.ts so its "is this the viewer's own occasion"
+// rule -- which a collapsed couple's non-canonical partner gets wrong under a
+// bare celebrantId comparison -- is unit-testable. Same split, same reason,
+// as whenLabel.ts.
 
 interface UpcomingOccasionsProps {
   occasions: UpcomingOccasion[];

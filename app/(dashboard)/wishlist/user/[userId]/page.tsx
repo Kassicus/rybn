@@ -5,6 +5,7 @@ import { getActiveClaims } from "@/lib/actions/claims";
 import { getSharedGroups } from "@/lib/actions/profile";
 import { getUpcomingOccasions } from "@/lib/actions/occasions";
 import { getTagsForItems } from "@/lib/actions/item-occasions";
+import { isOccasionFor, occasionFor } from "@/lib/occasions/celebrant";
 import { occasionLabel, daysUntil } from "@/lib/occasions/display";
 import { itemsTaggedFor } from "@/lib/occasions/order";
 import { RelativeWhen } from "@/components/occasions/RelativeWhen";
@@ -108,8 +109,12 @@ export default async function UserWishlistPage({
   // the group page's/dashboard's full-year horizon, because this line is
   // context for THIS one occasion, not a calendar of everything coming up.
   const { data: occasions = [] } = await getUpcomingOccasions(60);
-  const theirOccasion =
-    occasions.find((occasion) => occasion.celebrantId === userId) ?? null;
+  // occasionFor(), not `celebrantId === userId`: a confirmed couple's
+  // anniversary is stored under the canonical (user_a) partner, so an id
+  // comparison gives a giver opening the NON-canonical partner's list no
+  // anniversary header at all -- and, further down, a null occasion label on
+  // claims already scoped to it.
+  const theirOccasion = occasionFor(occasions, userId);
   // theirOccasion, when set, is always "birthday" | "anniversary" -- see the
   // OCCASION_ICON comment above.
   const theirOccasionKind = theirOccasion
@@ -149,20 +154,28 @@ export default async function UserWishlistPage({
   const claimsResult = await getActiveClaims(itemIds);
   const activeClaims = "data" in claimsResult ? claimsResult.data : {};
 
-  // Every occasion belonging to THIS celebrant that the viewer can see
-  // within the 60-day window above, keyed by occasion id -- both birthday
-  // and anniversary, not just theirOccasion (the sooner of the two, if both
-  // are upcoming). A claim's occasion is created via
-  // get_or_create_celebrated_occasion(celebrantId: userId, kind), so its
-  // celebrant is always this page's userId; its date only ever gets closer
-  // over time (or the claim self-heals as lapsed and getActiveClaims drops
-  // it), so an occasion scoped while inside this 60-day window stays inside
-  // it for as long as the claim stays active.
+  // Every occasion belonging to THIS person that the viewer can see within
+  // the 60-day window above, keyed by occasion id -- both birthday and
+  // anniversary, not just theirOccasion (the sooner of the two, if both are
+  // upcoming).
+  //
+  // "Belonging to" is isOccasionFor(), not `celebrantId === userId`. A claim
+  // is scoped through get_or_create_celebrated_occasion(celebrantId: userId,
+  // kind), which for a confirmed couple resolves to the CANONICAL (user_a)
+  // partner's row -- so when this page shows the non-canonical partner's
+  // list, the claim's occasion carries somebody else's celebrant_id and a
+  // celebrant-only filter drops it, leaving every existing claim labelled
+  // with a bare "Claimed" and no occasion.
+  //
+  // The occasion's date only ever gets closer over time (or the claim
+  // self-heals as lapsed and getActiveClaims drops it), so an occasion
+  // scoped while inside this 60-day window stays inside it for as long as
+  // the claim stays active.
   const theirOccasionsById = new Map(
     occasions
       .filter(
         (occasion): occasion is typeof occasion & { occasionId: string } =>
-          occasion.celebrantId === userId && occasion.occasionId !== null
+          isOccasionFor(occasion, userId) && occasion.occasionId !== null
       )
       .map((occasion) => [occasion.occasionId, occasion] as const)
   );

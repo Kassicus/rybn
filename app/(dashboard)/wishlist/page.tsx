@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getMyWishlist } from "@/lib/actions/wishlist";
 import { getUpcomingOccasions } from "@/lib/actions/occasions";
 import { getTagsForItems } from "@/lib/actions/item-occasions";
+import { occasionFor } from "@/lib/occasions/celebrant";
 import { daysUntil } from "@/lib/occasions/display";
 import { taggableOccasions } from "@/lib/occasions/taggable";
 import { RelativeWhen } from "@/components/occasions/RelativeWhen";
@@ -38,10 +39,14 @@ export default async function WishlistPage() {
 
   // getUpcomingOccasions() carries no claim fields at all (see
   // UpcomingOccasion in lib/occasions/display.ts) -- there is nothing here to
-  // strip, unlike getMyWishlist() above. The soonest occasion where the
-  // viewer IS the celebrant is the viewer's own upcoming birthday or
-  // anniversary; a group_date row always has celebrantId: null, so it can
-  // never match here. Failure is swallowed to `[]` rather than surfaced: this
+  // strip, unlike getMyWishlist() above. The soonest occasion the viewer is
+  // the subject of is their own upcoming birthday or anniversary; a
+  // group_date row has both celebrantId and partnerId null, so it can never
+  // match here. occasionFor(), not `celebrantId === userId`: a confirmed
+  // couple's anniversary is stored under the canonical (user_a) partner, so
+  // an id comparison deletes the NON-canonical partner's own "your
+  // anniversary is in N days" line from their own list. Failure is swallowed
+  // to `[]` rather than surfaced: this
   // is a one-line decoration on the owner's list, not the list itself, and
   // the page must not error out over it.
   //
@@ -53,8 +58,7 @@ export default async function WishlistPage() {
   // 1); it is not noise on the group page or dashboard, where it is one
   // entry among several rather than the only line on the page.
   const { data: occasions = [] } = await getUpcomingOccasions(30);
-  const myOccasion =
-    occasions.find((occasion) => occasion.celebrantId === userId) ?? null;
+  const myOccasion = occasionFor(occasions, userId);
 
   // A SEPARATE call from the context line above, at a SEPARATE horizon, on
   // purpose -- these two ask different questions. The context line above

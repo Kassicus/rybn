@@ -68,6 +68,52 @@ describe("taggableOccasions", () => {
     const gd = groupDate();
     expect(taggableOccasions([mine, moms, gd], USER)).toEqual([mine, gd]);
   });
+
+  // FINDING I2, the tagging half -- the check that would have caught the
+  // whole class. A confirmed couple's anniversary is stored under the
+  // canonical (user_a) partner, so for the OTHER partner
+  // `celebrantId === userId` is false and their own anniversary vanished
+  // from their own tag picker: they could not tag a single item for it.
+  //
+  // Falsifiable by: reverting taggableOccasions to
+  // `o.celebrantId === userId` -- verified by making that edit, which fails
+  // this test while every other test in this file keeps passing. The
+  // existing "keeps the caller's own" test uses a celebrant-side fixture and
+  // cannot see this bug.
+  //
+  // This test and the I1 database fix had to land together. Admitting the
+  // partner here makes resolveTagTarget return { via: "my", kind:
+  // "anniversary" }, which routes to tagItemForMyOccasion ->
+  // get_or_create_occasion. Until 20260912000015 that function inserted
+  // unconditionally under the caller, so this option would have materialized
+  // a SECOND occasion row for the couple -- the exact defect the feature
+  // exists to remove, fired on every couple rather than only when privacy
+  // narrowed.
+  it("keeps the NON-canonical partner's own collapsed anniversary", () => {
+    const shared = birthday({
+      kind: "anniversary",
+      celebrantId: OTHER,
+      celebrantDisplayName: "Alex",
+      partnerId: USER,
+      partnerUsername: "kason",
+      partnerDisplayName: "Kason",
+    });
+    expect(taggableOccasions([shared], USER)).toEqual([shared]);
+  });
+
+  it("still drops a couple's anniversary from a third party's picker", () => {
+    // The companion to the test above: admitting the partner must not admit
+    // everybody. Without this, "keeps the partner's own" would also pass an
+    // implementation that returned every anniversary to every caller.
+    const shared = birthday({
+      kind: "anniversary",
+      celebrantId: OTHER,
+      partnerId: "user-3",
+      partnerUsername: "sam",
+      partnerDisplayName: "Sam",
+    });
+    expect(taggableOccasions([shared], USER)).toEqual([]);
+  });
 });
 
 describe("untaggedOccasions", () => {
