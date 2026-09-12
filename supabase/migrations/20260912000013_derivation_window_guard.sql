@@ -79,10 +79,13 @@
 -- celebration_date_in_year() rollover logic. This makes "the exclusion fires
 -- for pi.user_id" and "the couple arm would fire for this link" the same
 -- condition: both now require status = 'confirmed', both can_view_field()
--- calls (established via this exists() call plus the OUTER where clause's
--- own can_view_field(pi.user_id, ...), which already ran before the
--- exclusion is ever consulted), AND user_a's own date non-null and in
--- window. Verified by mutation, see the task report: reproducing the
+-- calls (this exists() call's own, ANDed together with the OUTER where
+-- clause's own can_view_field(pi.user_id, ...) as a separate top-level
+-- conjunct of the SAME where clause -- both conjuncts must hold
+-- simultaneously for this row to survive; that is a property of AND, not of
+-- which one Postgres happens to evaluate first, and SQL makes no guarantee
+-- about evaluation order for a conjunction), AND user_a's own date non-null
+-- and in window. Verified by mutation, see the task report: reproducing the
 -- original bug fixture (user_a's date out of window, user_b's in window,
 -- viewer sees both) now yields exactly 1 row -- user_b's own individual row,
 -- partner_id NULL, since the couple arm still correctly declines to fire
@@ -99,13 +102,33 @@
 -- its root. It remains theoretically reachable if a partner edits their own
 -- date after confirming without the other's date also changing -- an
 -- existing, documented gap (see 20260912000012's header) this migration does
--- not attempt to close, since the couple arm's occasion_date has never been
--- keyed off `agreed_date` (it is not even the value get_or_create_
--- celebrated_occasion's own materialization uses -- that function re-derives
--- from the CANONICAL partner's own current profile_info date every time,
--- exactly mirroring this arm's choice) and changing that choice is outside
--- this fix's scope of "make the exclusion and the couple arm genuinely
--- complementary".
+-- not attempt to close.
+--
+-- CORRECTED (20260912000014): this paragraph originally justified leaving
+-- the couple arm keyed on the canonical partner's LIVE profile_info date
+-- (rather than switching it to `agreed_date`) by claiming get_or_create_
+-- celebrated_occasion's own materialization "re-derives from the CANONICAL
+-- partner's own current profile_info date every time, exactly mirroring
+-- this arm's choice." That is false, and was never verified before being
+-- written -- checked live with the two dates deliberately drifted: get_or_
+-- create_celebrated_occasion derives from `p_celebrant_id`, i.e. WHICHEVER
+-- partner the CALLER named, then upserts under the canonical id with
+-- `do update set occasion_date = excluded.occasion_date` -- so the
+-- materialized date is last-writer-wins by whoever last called it as
+-- either partner, not a stable function of the canonical partner's own
+-- data. The two paths (this arm's derivation and that function's
+-- materialization) do NOT provably agree, and no comment in this codebase
+-- should claim they do.
+--
+-- The choice to key this arm on the canonical partner's live profile_info
+-- date stands anyway, for a different and correct reason: a listing should
+-- reflect the celebrant's CURRENTLY STATED date, and freezing it at the
+-- (potentially stale, potentially simply wrong) `agreed_date` snapshot
+-- would stop a couple from correcting a genuinely mistaken date after
+-- confirming. `20260912000014_confirm_link_reconciles_occasion_date.sql`
+-- separately closes the specific inconsistency this migration's window-axis
+-- fix exists for (an already-MATERIALIZED occasion's stale occasion_date
+-- after a confirm) without touching this arm's own derivation choice.
 create or replace function public.get_upcoming_occasions(
   p_days_ahead integer default 30
 )

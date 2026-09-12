@@ -54,6 +54,37 @@
 -- to be requested) now gets one created here, same as the confirmer already
 -- did.
 --
+-- NEW DEPENDENCY THIS FIX INTRODUCES, worth stating plainly (round-1
+-- review, MINOR). `profile_info`'s own INSERT/UPDATE policies are strictly
+-- `requesting_user_id() = user_id` -- an ordinary `authenticated` caller can
+-- only ever write their OWN row. This function writes `v_link.user_a`'s row
+-- even when `v_caller` (the confirmer, who authenticated the request) is
+-- `v_link.user_b`, and vice versa -- something an ordinary caller could
+-- never do directly. That works ONLY because this function is `security
+-- definer` and therefore runs with its owner's privileges, which include
+-- BYPASSRLS -- the same mechanism every other cross-user write in this
+-- function (anniversary_link_members, the reconciliation block below)
+-- already depends on, now extended to `profile_info` for the first time.
+-- NOT exploitable as a general write primitive: the value written is always
+-- `v_link.agreed_date`, fixed at request time and never taken from an
+-- argument the confirming caller supplies to THIS call, so a caller cannot
+-- use this path to write an arbitrary value into someone else's row --
+-- only the one date the other party already agreed to see adopted.
+--
+-- A SECOND newly-reached consequence of writing BOTH rows unconditionally
+-- (round-1 review, MINOR): a partner with no prior anniversary `profile_
+-- info` row gets one CREATED here with the column's default `privacy_
+-- settings` -- `{"visibleToGroupTypes": ["family","friends","work",
+-- "custom"]}` (20260821000000_clerk_native_baseline.sql), i.e. maximum
+-- visibility, not private. Before this fix that default was reachable only
+-- through the CONFIRMER's half of this same insert; it is now equally
+-- reachable through the INITIATOR's half too. This is consistent with
+-- already-shipped behaviour (the confirmer's own no-prior-row case has
+-- worked this way since 20260912000003), not a new default being chosen
+-- here -- flagged only because this fix is what makes the initiator's side
+-- exercise a code path it never reached before, and the default itself is
+-- deliberately left unchanged by this migration.
+--
 -- This does not, on its own, make date drift permanently impossible: either
 -- partner can edit their own anniversary in profile_info at any later time,
 -- and nothing re-syncs the other one's. That gap is real but out of this
@@ -66,6 +97,12 @@
 -- this same round -- see that file's own header) is what keeps
 -- get_upcoming_occasions correct even when dates DO later diverge again,
 -- which is the belt to this fix's braces.
+--
+-- CORRECTIVE FOLLOW-UP, round-2 review: this migration reconciles the
+-- CONFIRMED couple's `profile_info` dates but left an already-MATERIALIZED
+-- `occasions` row's `occasion_date` stale -- see
+-- `20260912000014_confirm_link_reconciles_occasion_date.sql`, which
+-- supersedes this function body again to close that gap.
 create or replace function public.confirm_anniversary_link(p_link_id uuid)
 returns void
 language plpgsql

@@ -120,6 +120,34 @@
 --   MINOR: assertion 4's fixture-1 comment claimed anniversary_link_members
 --   cascades on unlink; a check reading that table after unlink now backs
 --   the claim.
+--
+-- ROUND-2 REVIEW FIXES, for Task 5's own round-1 fix
+-- (20260912000012_confirm_link_reconciles_both_dates.sql), which made
+-- confirm_anniversary_link adopt the agreed anniversary date for BOTH
+-- partners instead of only the confirmer:
+--
+--   IMPORTANT: nothing in this file (or anywhere else) checked the
+--   INITIATOR's profile_info row after a confirm -- assertions 5 and 6 both
+--   check only the RECIPIENT's. Reverting 20260912000012 entirely (back to
+--   20260912000003's original body, writing only `v_caller`) left this
+--   file's gate fully green regardless. New assertion 6b closes that,
+--   reusing assertions 5/6's own fixtures and confirm calls -- no new
+--   fixture needed, since both v_c5_a and v_c6_a (the initiators) already
+--   have zero prior profile_info anniversary rows, so this exercises the
+--   INSERT branch of the ON CONFLICT for the initiator specifically.
+--
+--   IMPORTANT: 20260912000012 reconciled profile_info (the LISTING's
+--   source) but left an already-MATERIALIZED occasion's own occasion_date
+--   untouched -- a claim's lapse check keys off THAT column, not the
+--   listing, so the two could drift out of sync the moment a canonical
+--   partner's anniversary was materialized before the confirm. Assertion
+--   7's own fixture already has exactly the right shape (both partners
+--   pre-materialized in the same year); its `agreed_date` is changed from
+--   matching v_occ_r_a's own pre-existing date to a genuinely different one
+--   ('2026-07-04', still the same year, so occasion_year cannot collide),
+--   and a new check (c3) confirms occasion_date is re-derived to that
+--   value, not left stale. Fixed by
+--   20260912000014_confirm_link_reconciles_occasion_date.sql (live body).
 
 create temp table _harness_result (token text);
 
@@ -134,6 +162,7 @@ declare
   v_status            text;
   v_confirmed_at      timestamptz;
   v_claim_occasion    uuid;
+  v_occ_date          date;
   v_block_comment_pos int;
   v_guard_defs        int;
 
@@ -898,6 +927,55 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
+  -- Assertion 6b (2 checks, round-2 review, IMPORTANT regression guard).
+  -- Assertions 5 and 6 above check only the RECIPIENT's (v_c5_b / v_c6_b)
+  -- profile_info row after confirm -- neither checks the INITIATOR's
+  -- (v_c5_a / v_c6_a). 20260912000012_confirm_link_reconciles_both_
+  -- dates.sql's whole point is that BOTH partners' dates agree afterwards,
+  -- not only the confirmer's -- reverting that migration entirely (back to
+  -- 20260912000003's original body, which writes only `v_caller`) left
+  -- this file's gate fully green, since nothing here ever looked at the
+  -- initiator's side. Neither v_c5_a nor v_c6_a has any prior profile_info
+  -- anniversary row in this file's fixture (see the fixture comment above),
+  -- so this exercises the INSERT branch of the ON CONFLICT for the
+  -- initiator specifically -- the complement of what assertion 5 already
+  -- proved for the recipient's OVERWRITE branch.
+  --
+  -- FALSIFIABLE: reverting confirm_anniversary_link's date-adoption insert
+  -- to write only `v_caller` (20260912000003's original shape, or
+  -- equivalently deleting `v_link.user_a`/`v_link.user_b` from the VALUES
+  -- list and writing a single `v_caller` row instead) makes BOTH checks
+  -- below fail: v_c5_a and v_c6_a would each have ZERO profile_info
+  -- anniversary rows, not one, since confirm only ever ran as the
+  -- RECIPIENT (v_c5_b / v_c6_b) in both fixtures -- verified by mutation
+  -- against a scratch copy, see the task report. NOT caught: a write that
+  -- reaches the initiator's row but with the WRONG value -- this checks
+  -- field_value = the fixture's own agreed_date explicitly, so that is
+  -- caught too.
+  ---------------------------------------------------------------------------
+  select count(*) into v_count
+    from profile_info
+   where user_id = v_c5_a and category = 'dates' and field_name = 'anniversary'
+     and field_value = '2015-05-05';
+  if v_count <> 1 then
+    raise exception
+      'RPC FAIL: initiator % has % profile_info anniversary row(s) reading 2015-05-05 after confirm, expected exactly 1 -- confirm_anniversary_link must adopt the agreed date for BOTH partners, not only the confirmer',
+      v_c5_a, v_count;
+  end if;
+  v_checks := v_checks + 1;
+
+  select count(*) into v_count
+    from profile_info
+   where user_id = v_c6_a and category = 'dates' and field_name = 'anniversary'
+     and field_value = '2018-08-08';
+  if v_count <> 1 then
+    raise exception
+      'RPC FAIL: initiator % has % profile_info anniversary row(s) reading 2018-08-08 after confirm, expected exactly 1 -- confirm_anniversary_link must adopt the agreed date for BOTH partners, not only the confirmer',
+      v_c6_a, v_count;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
   -- Fixture for assertion 7: reconciliation. Both partners ALREADY hold a
   -- materialized anniversary occasion for the SAME year (different exact
   -- dates -- 06-15 and 09-20, both 2026 -- so the reconciliation is proven to
@@ -936,12 +1014,17 @@ begin
     values (v_item_r_b, v_occ_r_b, v_r_claimer)
     returning id into v_claim_r;
 
+  -- agreed_date is DELIBERATELY '2026-07-04' -- neither v_occ_r_a's
+  -- ('2026-06-15') nor v_occ_r_b's ('2026-09-20') existing occasion_date --
+  -- so check (c3) below (round-2 review) proves occasion_date is genuinely
+  -- RE-DERIVED from the newly-agreed value, not left at whichever of the
+  -- two pre-existing dates happened to survive the reconciliation.
   insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date)
-    values (v_r_a, v_r_b, 'pending', v_r_a, '2026-06-15')
+    values (v_r_a, v_r_b, 'pending', v_r_a, '2026-07-04')
     returning id into v_link_r;
 
   ---------------------------------------------------------------------------
-  -- Assertion 7 (8 checks): reconciliation. Not-vacuous checks first (the
+  -- Assertion 7 (9 checks): reconciliation. Not-vacuous checks first (the
   -- fixture genuinely has two occasions in the same year, and the claim
   -- genuinely points at the non-canonical one, before anything runs), then
   -- the post-confirm state.
@@ -1011,6 +1094,36 @@ begin
     raise exception
       'RPC FAIL: canonical occasion % does not have partner_id = % after confirm (% matching row(s), expected 1)',
       v_occ_r_a, v_r_b, v_count;
+  end if;
+  v_checks := v_checks + 1;
+
+  -- (c3, round-2 review, IMPORTANT regression guard): the SAME canonical
+  -- occasion's occasion_date is RE-DERIVED to the newly-agreed date
+  -- ('2026-07-04'), not left at v_occ_r_a's stale pre-existing value
+  -- ('2026-06-15'). 20260912000012_confirm_link_reconciles_both_dates.sql
+  -- fixed profile_info (the LISTING's source) but left an already-
+  -- MATERIALIZED occasion's occasion_date untouched -- exactly the gap
+  -- claim_wishlist_item's lapse check (`occasion_date < current_date`)
+  -- depends on staying in sync with what the listing shows, per the task
+  -- report. Fixed in
+  -- 20260912000014_confirm_link_reconciles_occasion_date.sql (live body).
+  --
+  -- FALSIFIABLE: reverting to 20260912000012's reconciliation UPDATE
+  -- (`set partner_id = v_link.user_b` alone, no `occasion_date` conjunct)
+  -- makes this fail: the canonical occasion keeps its stale '2026-06-15'
+  -- instead of adopting '2026-07-04' -- verified by mutation against a
+  -- scratch copy, see the task report. NOT caught: a re-derivation that
+  -- lands on the WRONG date entirely (this checks the exact expected
+  -- value, so that would already be caught) or one that changes
+  -- occasion_year in the process (out of scope here -- this fixture's
+  -- agreed_date stays within the same calendar year as the existing row,
+  -- deliberately, so this check alone does not exercise a year-crossing
+  -- re-derivation).
+  select occasion_date into v_occ_date from occasions where id = v_occ_r_a;
+  if v_occ_date is distinct from '2026-07-04' then
+    raise exception
+      'RPC FAIL: canonical occasion % has occasion_date % after confirm, expected 2026-07-04 -- confirm_anniversary_link must re-derive an already-materialized occasion''s date from the newly-agreed value, not leave it stale',
+      v_occ_r_a, v_occ_date;
   end if;
   v_checks := v_checks + 1;
 
@@ -1366,8 +1479,8 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 50 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 50', v_checks;
+  if v_checks < 53 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 53', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_19_anniversary_link_rpcs');
