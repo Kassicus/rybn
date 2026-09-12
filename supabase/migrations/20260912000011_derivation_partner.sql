@@ -29,11 +29,31 @@
 -- ZERO rows for them instead of the one row they are entitled to. The fix is
 -- the "not (...)" exclusion added to the existing per-person branch: a
 -- person is suppressed from THAT branch only when THIS VIEWER can also see
--- their partner's date -- exactly the condition under which the new couple
--- arm fires instead. Get either direction of that condition wrong and you
--- either double-emit (both arms fire for the same viewer) or hide someone's
--- anniversary from a viewer entitled to see it (neither arm fires). See the
--- task report for the mutation testing that pins this down.
+-- their partner's date.
+--
+-- CORRECTED (20260912000013): the sentence originally here claimed that
+-- visibility condition was "exactly the condition under which the new
+-- couple arm fires instead". That is only ONE direction of an
+-- if-and-only-if, and the false converse shipped a real bug: the couple arm
+-- ALSO requires its own window check (the canonical partner's own date
+-- non-null and due within p_days_ahead, immediately below), which this
+-- exclusion did not originally mirror. A visible, confirmed couple whose
+-- canonical (user_a) date fell outside the window but whose OTHER partner's
+-- date fell inside it hit exactly that gap: this exclusion fired (only ever
+-- checking visibility) and removed the in-window partner's own row, while
+-- the couple arm correctly declined to fire (its own window check failed)
+-- -- so NEITHER arm emitted a row for a viewer entitled to see one. Fixed in
+-- 20260912000013_derivation_window_guard.sql, which is now the live body:
+-- the exclusion's exists() carries the SAME non-null-and-in-window predicate
+-- the couple arm has, computed identically (from the link's canonical
+-- user_a's own profile_info row), making the two conditions genuinely
+-- equivalent rather than merely described as such. Get either direction of
+-- that corrected, now-genuine equivalence wrong and you either double-emit
+-- (both arms fire for the same viewer) or hide someone's anniversary from a
+-- viewer entitled to see it (neither arm fires) -- see the task report for
+-- the mutation testing that pins both directions down, for both this
+-- migration's original visibility-only condition and 20260912000013's
+-- corrected one.
 --
 -- THREE new columns -- partner_id, partner_username, partner_display_name --
 -- appended after celebrant_display_name, per the task brief. Every existing
@@ -118,11 +138,27 @@ begin
     and public.can_view_field(pi.user_id, v_viewer, pi.privacy_settings)
     -- PER-VIEWER collapse. This person is suppressed from this branch ONLY
     -- when a CONFIRMED anniversary link exists AND this viewer can also see
-    -- the partner's own date -- exactly the condition the couple arm below
-    -- requires to emit the merged row in this person's place. A viewer who
-    -- cannot see the partner's date leaves this exists() false, so this row
-    -- stays -- that is what makes a partner-only-visible viewer get exactly
-    -- one (unmerged) row instead of zero.
+    -- the partner's own date. A viewer who cannot see the partner's date
+    -- leaves this exists() false, so this row stays -- that is what makes a
+    -- partner-only-visible viewer get exactly one (unmerged) row instead of
+    -- zero.
+    --
+    -- CORRECTED (20260912000013): this comment originally continued
+    -- "-- exactly the condition the couple arm below requires to emit the
+    -- merged row in this person's place." That overstated it -- the couple
+    -- arm ALSO requires a window check (its own `d.celebration between
+    -- current_date and v_until`, derived from the link's canonical user_a
+    -- only) that this exists() did not mirror, so a visible, confirmed
+    -- couple whose canonical partner's date fell outside the window but
+    -- whose OTHER partner's fell inside it could have BOTH arms decline:
+    -- this one still fired (visibility only) and removed the in-window
+    -- partner's row, while the couple arm below correctly refused (its
+    -- window check failed). Fixed in
+    -- 20260912000013_derivation_window_guard.sql, now the live body: the
+    -- exists() there carries the identical non-null-and-in-window predicate,
+    -- making this condition and the couple arm's actually equivalent rather
+    -- than merely described as such. See that migration's header for the
+    -- full reproduction and fix.
     and not (
       pi.field_name = 'anniversary'
       and exists (

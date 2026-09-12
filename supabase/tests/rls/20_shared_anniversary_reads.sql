@@ -219,6 +219,36 @@
 --       themself, partner_id NULL -- proving the exclusion only ever fires
 --       for someone actually party to a confirmed link.
 --
+-- ROUND-1 REVIEW ADDS ASSERTION 17, for a SECOND failure mode assertions
+-- 13-16 did not cover: the WINDOW axis, not the visibility axis.
+-- get_upcoming_occasions' couple arm requires its own date -- derived
+-- SOLELY from the link's CANONICAL (user_a) partner's profile_info row -- to
+-- be non-null and within p_days_ahead. 20260912000011_derivation_partner.sql
+-- originally shipped the per-person exclusion checking visibility only, with
+-- no equivalent window check, so a confirmed, mutually-visible couple whose
+-- canonical partner's date fell outside the window but whose OTHER
+-- partner's fell inside it could reach a state where NEITHER arm emits: the
+-- exclusion still removed the in-window partner's individual row (visibility
+-- was satisfied), and the couple arm still declined (its own window check on
+-- the canonical partner's date failed). Reproduced end-to-end through the
+-- real request_anniversary_link/confirm_anniversary_link RPCs -- see the
+-- task report -- and fixed at the root (confirm_anniversary_link now
+-- reconciles BOTH partners' dates, 20260912000012) and at the guard
+-- (the exclusion now carries the couple arm's own non-null-and-in-window
+-- predicate, 20260912000013, now the live body of this function).
+--
+--   17. A confirmed couple whose CANONICAL partner's date is OUTSIDE a
+--       bounded window and whose NON-canonical partner's is INSIDE it, for a
+--       viewer who can see both, gets exactly ONE row -- the in-window
+--       partner's own, unmerged, partner_id NULL. Uses offsets from
+--       current_date rather than a fixed calendar anchor, deliberately: the
+--       scenario IS the date's position relative to the window, so a fixed
+--       anchor plus a wide p_days_ahead (this file's own assertions 13-16)
+--       would never be able to construct it. See the fixture's own comment
+--       for why the specific offsets chosen need no "does not run in the
+--       last/first N days of the year" caveat, unlike a fixture that instead
+--       tests the rollover branch by going backward from current_date.
+--
 -- Keep the numbering and structure below easy to extend: add a block, bump
 -- v_checks, bump the floor.
 --
@@ -296,6 +326,29 @@ declare
   v_up_partner       text;
   v_up_partner_uname text;
   v_up_partner_dname text;
+
+  -- Round-1 review, assertion 17 (CRITICAL regression guard, window axis):
+  -- a confirmed couple whose CANONICAL (user_a) date is well OUTSIDE a
+  -- bounded window and whose NON-canonical (user_b) date is well INSIDE it,
+  -- for a viewer who can see both. Offsets from current_date are used
+  -- deliberately here (not a fixed calendar anchor): the entire point of
+  -- this fixture is the date's position RELATIVE to the query window, the
+  -- same technique 12_occasion_derivation.sql's own assertion 6 (year
+  -- rollover) uses for the same reason. Both offsets (+100, +5) are
+  -- comfortably clear of any year-boundary edge case: get_upcoming_
+  -- occasions' own rollover logic always resolves a month-day derived from
+  -- (current_date + N), 0 < N < 366, to exactly current_date + N, regardless
+  -- of which calendar year that falls in -- there is no "does not run in the
+  -- last/first N days of the year" caveat needed here, unlike a fixture that
+  -- tests the rollover branch itself by going BACKWARD from current_date.
+  v_wg_a          text := 'user_shanniv_wg_a';
+  v_wg_b          text := 'user_shanniv_wg_b';
+  v_wg_viewer     text := 'user_shanniv_wg_viewer';
+  v_wg_group_a    uuid;
+  v_wg_group_b    uuid;
+  v_wg_count      int;
+  v_wg_celebrant  text;
+  v_wg_partner    text;
 begin
   select current_user into v_orig_role;
 
@@ -512,6 +565,49 @@ begin
 
   insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date, confirmed_at)
     values (v_up_a, v_up_b, 'confirmed', v_up_a, '1999-11-29', now());
+
+  ---------------------------------------------------------------------------
+  -- Round-1 review fixture (assertion 17, CRITICAL, window axis): a
+  -- confirmed couple whose CANONICAL (v_wg_a) date is well OUTSIDE a bounded
+  -- 30-day window and whose NON-canonical (v_wg_b) date is well INSIDE it,
+  -- for a viewer who can see both dates (two groups, one each, same shape as
+  -- the six-assertion fixture at the top of this file). This is the
+  -- reviewer's exact reproduction: the exclusion in
+  -- 20260912000011_derivation_partner.sql originally checked visibility
+  -- only, with no window check of its own, so it could suppress v_wg_b's
+  -- individual row even though the couple arm (gated on v_wg_a's own date
+  -- being in-window) declines to fire -- neither arm emits, and a
+  -- genuinely-visible, genuinely-upcoming anniversary silently disappears.
+  -- Fixed by 20260912000013_derivation_window_guard.sql (live body).
+  ---------------------------------------------------------------------------
+  insert into user_profiles (id, username, display_name)
+    values (v_wg_a,      'shanwga',   'Shared Anniv WG A'),
+           (v_wg_b,      'shanwgb',   'Shared Anniv WG B'),
+           (v_wg_viewer, 'shanwgv',   'Shared Anniv WG Viewer');
+
+  insert into groups (name, type, invite_code, created_by)
+    values ('Shanniv WG A', 'family', 'SHANWGA1', v_wg_a)
+    returning id into v_wg_group_a;
+
+  insert into groups (name, type, invite_code, created_by)
+    values ('Shanniv WG B', 'friends', 'SHANWGB1', v_wg_b)
+    returning id into v_wg_group_b;
+
+  insert into group_members (group_id, user_id, role)
+    values (v_wg_group_a, v_wg_viewer, 'member'),
+           (v_wg_group_b, v_wg_viewer, 'member')
+    on conflict do nothing;
+
+  -- v_wg_a's date: 100 days out -- outside a 30-day window.
+  -- v_wg_b's date: 5 days out -- inside a 30-day window.
+  insert into profile_info (user_id, category, field_name, field_value, privacy_settings)
+    values (v_wg_a, 'dates', 'anniversary', to_char(current_date + 100, 'YYYY-MM-DD'),
+            '{"visibleToGroupTypes": ["family"], "restrictToGroup": null}'),
+           (v_wg_b, 'dates', 'anniversary', to_char(current_date + 5, 'YYYY-MM-DD'),
+            '{"visibleToGroupTypes": ["friends"], "restrictToGroup": null}');
+
+  insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date, confirmed_at)
+    values (v_wg_a, v_wg_b, 'confirmed', v_wg_a, to_char(current_date + 100, 'YYYY-MM-DD'), now());
 
   ---------------------------------------------------------------------------
   -- Assertion 1: a viewer who can see only the CELEBRANT's date reads the
@@ -1036,8 +1132,50 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 19 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 19', v_checks;
+  ---------------------------------------------------------------------------
+  -- Assertion 17 (CRITICAL, round-1 review, window axis): a confirmed
+  -- couple whose CANONICAL (v_wg_a) date is OUTSIDE a bounded 30-day window
+  -- and whose NON-canonical (v_wg_b) date is INSIDE it, for a viewer who can
+  -- see BOTH. Expect exactly 1 row -- v_wg_b's own, unmerged, celebrant_id =
+  -- v_wg_b, partner_id NULL -- because the couple arm's own window check
+  -- (gated on the CANONICAL partner's date) correctly declines to fire, and
+  -- the per-person exclusion must not remove v_wg_b's row just because a
+  -- confirmed, visible link exists: doing so would leave NEITHER arm
+  -- emitting a row for a viewer entitled to see one.
+  --
+  -- FALSIFIABLE: reverting the live body
+  -- (20260912000013_derivation_window_guard.sql) to
+  -- 20260912000011_derivation_partner.sql's ORIGINAL exclusion -- the one
+  -- without the `d2.celebration is not null and d2.celebration between
+  -- current_date and v_until` conjunct -- makes this fail: the exclusion
+  -- fires on visibility alone (a confirmed link exists and the viewer can
+  -- see v_wg_a's date), removing v_wg_b's row, while the couple arm still
+  -- declines (v_wg_a's own date is 100 days out, outside the 30-day window)
+  -- -- count drops to 0 -- verified by mutation against a scratch copy, see
+  -- the task report. NOT caught by assertion 14 (its fixture uses identical
+  -- dates for both partners, so it never exercises a couple whose two dates
+  -- straddle the window boundary).
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_wg_viewer || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  select count(*), max(celebrant_id), max(partner_id)
+    into v_wg_count, v_wg_celebrant, v_wg_partner
+    from public.get_upcoming_occasions(30)
+   where kind = 'anniversary' and celebrant_id in (v_wg_a, v_wg_b);
+
+  perform set_config('role', v_orig_role, true);
+
+  if v_wg_count <> 1 or v_wg_celebrant is distinct from v_wg_b or v_wg_partner is not null then
+    raise exception
+      'RLS FAIL: viewer % saw % row(s) (celebrant_id=%, partner_id=%) for a couple whose canonical partner''s date is OUT of window and whose other partner''s is IN window, expected exactly 1 row with celebrant_id=% and partner_id NULL -- the window-axis guard must keep the in-window partner''s own row visible when the couple arm cannot fire',
+      v_wg_viewer, v_wg_count, v_wg_celebrant, v_wg_partner, v_wg_b;
+  end if;
+  v_checks := v_checks + 1;
+
+  if v_checks < 20 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 20', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_20_shared_anniversary_reads');
