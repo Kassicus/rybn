@@ -33,6 +33,15 @@ const eqSpy = vi.fn();
  * .order().order().limit()` resolves without a terminal call, while
  * `.maybeSingle()` is its own promise. Responses are queued per table and
  * consumed in call order.
+ *
+ * `.order()` and `.limit()` are NOT no-ops here, unlike invitations.test.ts's
+ * version: they record the requested clauses and, at resolution time, an
+ * array `data` payload is actually sorted (stably, by every recorded clause
+ * in the order requested) and sliced. Without this, getMyAnniversaryLink's
+ * multi-row precedence test below would be pinning whatever order the
+ * fixture array happened to be written in, not the implementation's own
+ * `order by` calls -- exactly the false-falsifiability trap this plan has
+ * shipped before.
  */
 function createSupabaseMock(script: Record<string, unknown[]>) {
   const queues: Record<string, unknown[]> = {};
@@ -50,18 +59,54 @@ function createSupabaseMock(script: Record<string, unknown[]>) {
         return queue.shift();
       };
 
+      const orderClauses: { field: string; ascending: boolean }[] = [];
+      let limitCount: number | undefined;
+
       const chain: Record<string, unknown> = {};
-      for (const method of ["select", "order", "limit"]) {
-        chain[method] = () => chain;
-      }
+      chain.select = () => chain;
+      chain.order = (
+        field: string,
+        opts?: { ascending?: boolean }
+      ) => {
+        orderClauses.push({ field, ascending: opts?.ascending ?? true });
+        return chain;
+      };
+      chain.limit = (count: number) => {
+        limitCount = count;
+        return chain;
+      };
       chain.eq = (...args: unknown[]) => {
         eqSpy(table, ...args);
         return chain;
       };
+
+      const resolveWithOrderAndLimit = (): unknown => {
+        const result = next() as { data: unknown; error: unknown };
+        if (!Array.isArray(result.data) || orderClauses.length === 0) {
+          const data = Array.isArray(result.data) && limitCount !== undefined
+            ? result.data.slice(0, limitCount)
+            : result.data;
+          return { ...result, data };
+        }
+        const rows = [...(result.data as Record<string, unknown>[])];
+        rows.sort((a, b) => {
+          for (const { field, ascending } of orderClauses) {
+            const av = a[field];
+            const bv = b[field];
+            if (av === bv) continue;
+            const cmp = av! < bv! ? -1 : 1;
+            return ascending ? cmp : -cmp;
+          }
+          return 0;
+        });
+        const data = limitCount !== undefined ? rows.slice(0, limitCount) : rows;
+        return { ...result, data };
+      };
+
       chain.maybeSingle = async () => next();
       chain.single = async () => next();
       chain.then = (resolve: (value: unknown) => unknown) =>
-        Promise.resolve(next()).then(resolve);
+        Promise.resolve(resolveWithOrderAndLimit()).then(resolve);
       return chain;
     },
   };
@@ -397,6 +442,93 @@ describe("getMyAnniversaryLink", () => {
       },
     });
     expect(eqSpy).toHaveBeenCalledWith("user_profiles", "id", "user_z_789");
+  });
+
+  // Task 3's review established that pending links are deliberately
+  // unconstrained -- only a CONFIRMED link is limited to one per person
+  // (anniversary_link_members' primary key) -- so a caller can genuinely
+  // hold a confirmed link with one partner and a pending request with a
+  // DIFFERENT person at the same time. getMyAnniversaryLink drives Task 9's
+  // three-way UI state (unlinked / pending-with-cancel /
+  // confirmed-with-unlink), so returning the wrong row here is not cosmetic:
+  // it tells someone with a real partner "you have a pending request,
+  // cancel it?"
+  //
+  // The pending row is placed FIRST in this fixture and the confirmed row
+  // SECOND, deliberately the opposite of the expected output order -- a
+  // test that put them in output order would pass even if the
+  // implementation never ordered anything at all, since createSupabaseMock's
+  // `.limit(1)` would just take the fixture's first element. Only a mock
+  // that actually SORTS on the recorded `.order()` clauses (see
+  // createSupabaseMock above) can fail this test for the right reason.
+  //
+  // Falsifiability, verified by actually breaking the implementation:
+  //   1. Deleting both `.order(...)` calls in getMyAnniversaryLink: this
+  //      test failed, returning the PENDING row (the fixture's raw first
+  //      element) instead of the confirmed one. The "resolves ... user_a"
+  //      and "... user_b" tests above, each single-row, kept passing --
+  //      confirming this scenario needed its own test.
+  //   2. Flipping `.order("status", { ascending: true })` to
+  //      `{ ascending: false }` alone: this test failed the same way
+  //      ("pending" now sorts before "confirmed" descending), while every
+  //      other test in this file kept passing.
+  //   3. Control check for the false-falsifiability trap named above:
+  //      reversing this test's OWN fixture order (confirmed first, pending
+  //      second) against the UNMODIFIED implementation still passed -- as it
+  //      must, since real ordering doesn't care about input order -- proving
+  //      the mock's sort, not incidental fixture placement, is what makes
+  //      this test pass.
+  // All three checks were reverted after observation; the file below is the
+  // shipped version.
+  it("returns the confirmed link over a pending one when the caller holds both", async () => {
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        {
+          data: [
+            {
+              id: "link-pending",
+              user_a: "user_a_123",
+              user_b: "user_x_999",
+              status: "pending",
+              initiated_by: "user_x_999",
+              agreed_date: "2099-12-31",
+              created_at: "2026-06-01T00:00:00Z",
+            },
+            {
+              id: "link-confirmed",
+              user_a: "user_a_123",
+              user_b: "user_c_789",
+              status: "confirmed",
+              initiated_by: "user_a_123",
+              agreed_date: "2018-09-09",
+              created_at: "2020-01-01T00:00:00Z",
+            },
+          ],
+          error: null,
+        },
+      ],
+      user_profiles: [
+        {
+          data: { username: "c-username", display_name: "C Display" },
+          error: null,
+        },
+      ],
+    });
+
+    const result = await getMyAnniversaryLink();
+
+    expect(result).toEqual({
+      data: {
+        id: "link-confirmed",
+        partnerId: "user_c_789",
+        partnerUsername: "c-username",
+        partnerDisplayName: "C Display",
+        status: "confirmed",
+        agreedDate: "2018-09-09",
+        initiatedByMe: true,
+      },
+    });
+    expect(eqSpy).toHaveBeenCalledWith("user_profiles", "id", "user_c_789");
   });
 
   // Falsifiability: change the empty-result branch to fall through instead
