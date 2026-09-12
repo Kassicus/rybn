@@ -243,16 +243,20 @@ export function AnniversaryPartner() {
       )}
 
       {!isLoading && !loadError && link !== null && link.status === "pending" && link.initiatedByMe && (
-        <div className="flex flex-col gap-3 p-4 rounded-lg border border-light-border sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 p-4 rounded-lg border border-light-border sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <Avatar className="shrink-0">
               <AvatarFallback>
                 {partnerLabel(link).charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
+            {/* min-w-0 without truncate: this sentence carries the date the
+                initiator proposed -- the only place they can see it -- so it
+                wraps instead of clipping. Only the name above it (a single
+                token, not load-bearing text) truncates. */}
             <div className="min-w-0">
               <Text className="font-medium truncate">{partnerLabel(link)}</Text>
-              <Text variant="secondary" size="sm" className="truncate">
+              <Text variant="secondary" size="sm">
                 Waiting for them to confirm {formatMonthDay(link.agreedDate)}{" "}
                 as your shared anniversary.
               </Text>
@@ -285,7 +289,10 @@ export function AnniversaryPartner() {
                 {partnerLabel(link).charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
-            <Text className="min-w-0 font-medium truncate">
+            {/* min-w-0 without truncate -- this embeds the partner's name
+                inline in a full sentence rather than isolating it, so there
+                is no fixed-length token to clip; it wraps instead. */}
+            <Text className="min-w-0 font-medium">
               {partnerLabel(link)} wants to share an anniversary with you
             </Text>
           </div>
@@ -322,7 +329,7 @@ export function AnniversaryPartner() {
       )}
 
       {!isLoading && !loadError && link !== null && link.status === "confirmed" && (
-        <div className="flex flex-col gap-3 p-4 rounded-lg border border-light-border sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 p-4 rounded-lg border border-light-border sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <Avatar className="shrink-0">
               <AvatarFallback>

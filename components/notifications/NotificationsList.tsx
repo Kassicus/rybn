@@ -129,7 +129,10 @@ export function NotificationsList({
             <HeartHandshake className="w-5 h-5 text-primary" />
           </div>
           <div className="min-w-0 flex-1 space-y-2">
-            <Text className="truncate">
+            {/* No truncate: the partner's name is embedded in a full
+                sentence here rather than isolated, so there's no
+                fixed-length token to clip -- it wraps instead. */}
+            <Text>
               <span className="font-medium">{partnerLabel}</span> wants to
               share an anniversary with you
             </Text>
