@@ -41,6 +41,35 @@ function presentsCronSecret(provided: string | undefined | null): boolean {
 }
 
 /**
+ * "Alex & Sam" for the surviving reminder of a linked couple.
+ *
+ * Matches occasionLabel's (lib/occasions/display.ts) name resolution on
+ * purpose: display name preferred over username, with "Someone" the same
+ * last-resort floor for a profile row that failed to come back from the
+ * lookup below. occasionLabel itself is not called from here -- it takes an
+ * UpcomingOccasion, which this reminder pipeline (sourced from
+ * get_upcoming_dates_for_notifications, not get_upcoming_occasions) never
+ * constructs -- so the two names are resolved from the same user_profiles
+ * columns by a second, small implementation instead of a shared function.
+ *
+ * Module-private: a "use server" file may export only async functions, and
+ * this is neither exported nor async.
+ */
+function coupleCelebrantName(
+  profilesById: Map<string, { username: string | null; display_name: string | null }>,
+  celebrantId: string,
+  celebrantUsernameFallback: string,
+  partnerId: string
+): string {
+  const celebrant = profilesById.get(celebrantId);
+  const who =
+    celebrant?.display_name ?? celebrant?.username ?? celebrantUsernameFallback;
+  const partner = profilesById.get(partnerId);
+  const partnerWho = partner?.display_name ?? partner?.username ?? "Someone";
+  return `${who} & ${partnerWho}`;
+}
+
+/**
  * Check for upcoming dates and send reminders.
  *
  * THE SECRET IS CHECKED HERE, not only in the route that calls this.
@@ -93,12 +122,118 @@ export async function checkAndSendDateReminders(
     return { sent: 0, message: 'No upcoming dates found' };
   }
 
+  // A confirmed couple's anniversary reaches this RPC as TWO rows -- one per
+  // partner's own profile_info entry -- because get_upcoming_dates_for_
+  // notifications has no notion of anniversary_links; it only knows
+  // profile_info. Left alone, every shared group member is mailed twice for
+  // one event.
+  //
+  // Source of truth for "is this the non-canonical half": anniversary_links
+  // itself, not anniversary_link_members. anniversary_link_members only
+  // records THAT a person is in a confirmed link, not which side -- turning
+  // that into canonical/non-canonical would still mean joining back to
+  // anniversary_links for user_a/user_b. anniversary_links carries both
+  // columns directly, and the same read also gives Step 3b's
+  // canonical -> partner mapping, so one query answers both questions.
+  //
+  // Read as a set/map before the loop rather than per-row: `user_a < user_b`
+  // is a property of the pair, not of any one dateInfo row, so it only needs
+  // to be known once per run, not once per notification.
+  const nonCanonicalCelebrantIds = new Set<string>();
+  const partnerIdByCanonicalCelebrantId = new Map<string, string>();
+
+  if (upcomingDates.some((d) => d.field_name === 'anniversary')) {
+    const { data: confirmedLinks, error: linksError } = await supabase
+      .from('anniversary_links')
+      .select('user_a, user_b')
+      .eq('status', 'confirmed');
+
+    if (linksError) {
+      // Fails OPEN on the dedupe/copy fix, not on sending mail: worst case a
+      // couple gets two reminders this run, which is the pre-existing
+      // behaviour this task improves on, not the reminders outage the
+      // catch-all in getActiveDateReminders below exists to prevent.
+      console.error('Error fetching anniversary links for reminder dedupe:', linksError);
+    }
+
+    for (const link of confirmedLinks ?? []) {
+      nonCanonicalCelebrantIds.add(link.user_b);
+      partnerIdByCanonicalCelebrantId.set(link.user_a, link.user_b);
+    }
+  }
+
+  // Profiles for both halves of every couple actually surviving the dedupe
+  // below, batched into one lookup rather than one query per notification.
+  const coupleProfileIds = new Set<string>();
+  for (const dateInfo of upcomingDates) {
+    const partnerId = partnerIdByCanonicalCelebrantId.get(dateInfo.celebrant_id);
+    if (dateInfo.field_name === 'anniversary' && partnerId) {
+      coupleProfileIds.add(dateInfo.celebrant_id);
+      coupleProfileIds.add(partnerId);
+    }
+  }
+
+  const coupleProfilesById = new Map<
+    string,
+    { username: string | null; display_name: string | null }
+  >();
+
+  if (coupleProfileIds.size > 0) {
+    const { data: coupleProfiles, error: profilesError } = await supabase
+      .from('user_profiles')
+      .select('id, username, display_name')
+      .in('id', Array.from(coupleProfileIds));
+
+    if (profilesError) {
+      // Fails open the same way: coupleCelebrantName falls back to the
+      // RPC-provided username when a profile did not come back.
+      console.error('Error fetching partner profiles for reminder copy:', profilesError);
+    }
+
+    for (const profile of coupleProfiles ?? []) {
+      coupleProfilesById.set(profile.id, {
+        username: profile.username,
+        display_name: profile.display_name,
+      });
+    }
+  }
+
   let sentCount = 0;
   const errors: Array<{ email: string; error: string }> = [];
 
   // Process each notification
   for (const dateInfo of upcomingDates) {
     try {
+      // Step 3: drop the non-canonical half's row before it is ever
+      // inserted -- the canonical half's own row (kept below) stands for
+      // the pair. Gated on field_name === 'anniversary' as well as
+      // membership so that a birthday which happens to share a celebrant_id
+      // with someone's non-canonical anniversary link (not possible today,
+      // but not this check's job to assume) is never touched.
+      if (
+        dateInfo.field_name === 'anniversary' &&
+        nonCanonicalCelebrantIds.has(dateInfo.celebrant_id)
+      ) {
+        continue;
+      }
+
+      // Step 3b: the surviving reminder is keyed to whichever id sorts
+      // smaller, which a recipient has no reason to think of as "the"
+      // anniversary owner. Name both partners, matching occasionLabel's
+      // "Alex & Sam's Anniversary" rendering -- otherwise the dedupe above
+      // makes the email read as one partner's alone for half of every
+      // couple, by construction.
+      const partnerId = partnerIdByCanonicalCelebrantId.get(dateInfo.celebrant_id);
+      const celebrantName =
+        dateInfo.field_name === 'anniversary' && partnerId
+          ? coupleCelebrantName(
+              coupleProfilesById,
+              dateInfo.celebrant_id,
+              dateInfo.celebrant_username,
+              partnerId
+            )
+          : dateInfo.celebrant_username;
+
       // Create notification record first
       const { data: notification, error: notificationError } = await supabase
         .from('date_notifications')
@@ -136,7 +271,7 @@ export async function checkAndSendDateReminders(
         const { error: sendError } = await sendDateReminderEmail({
           toEmail: dateInfo.notified_user_email,
           recipientName: dateInfo.notified_user_email.split('@')[0], // Fallback, could be improved
-          celebrantName: dateInfo.celebrant_username,
+          celebrantName,
           celebrantUsername: dateInfo.celebrant_username,
           celebrantUserId: dateInfo.celebrant_id,
           dateType: dateInfo.field_name as 'birthday' | 'anniversary',
