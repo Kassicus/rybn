@@ -204,14 +204,57 @@ Birthdays and group dates are untouched.
 celebrant is half of a confirmed pair, the row is created or fetched under the
 canonical partner, with `partner_id` set to the other.
 
-Everything already funnels through this function — phase 2's celebrated tagging
-and phase 3's `claimItem` both call it — which is why one resolution point
-covers tagging, claiming and auto-release together.
+**CORRECTED (final whole-branch review, finding I1).** This section originally
+read: "Everything already funnels through this function — phase 2's celebrated
+tagging and phase 3's `claimItem` both call it — which is why one resolution
+point covers tagging, claiming and auto-release together."
+
+Half of that was false, and the repository already said so. **There are two
+materialization functions, not one**, and only `claimItem`
+(`lib/actions/claims.ts`) calls the celebrated one:
+
+- **Claiming** → `get_or_create_celebrated_occasion(p_celebrant_id, p_kind)`,
+  which names a celebrant and carries a `can_view_field` gate.
+- **Tagging** → `get_or_create_occasion(p_kind)`, via
+  `tagItemForMyOccasion` (`lib/actions/item-occasions.ts`). It takes **no
+  celebrant argument at all** — the caller is always the celebrant, because you
+  only tag your own items — which `lib/occasions/taggable.ts`'s own doc comment
+  states plainly.
+
+So one resolution point did **not** cover tagging. Acting on this false premise,
+phase 3 resolved the couple in `get_or_create_celebrated_occasion` only, and a
+couple who tagged before claiming got **two** occasion rows — the exact defect
+this design exists to remove. Both functions now carry the same resolution
+(`20260912000015` and `20260912000016`).
+
+The requirement, stated so it cannot be mislaid again: **every path that
+materializes an anniversary must resolve a confirmed link to the canonical
+partner.** Adding a third such path means adding the resolution to it.
 
 Its existing privacy gate stays: the caller must pass `can_view_field` for the
 celebrant **they asked about**. A caller who can see only Sam's date is entitled
 to act on Sam's anniversary; canonicalisation is an internal storage detail and
 must not become a reason to refuse them.
+
+**ADDED (final whole-branch review, finding I4): the canonical partner's live
+`profile_info` date is authoritative for a partnered occasion.** Both functions
+derived the date from the celebrant the caller named and then upserted under the
+canonical id with `do update set occasion_date = excluded.occasion_date`, which
+made a shared occasion's date last-writer-wins by whoever materialized it most
+recently. That is not cosmetic: claims auto-release once
+`occasion_date < current_date`, so one viewer materializing could free an item
+another viewer had claimed, weeks before the date they were shown — the exact
+failure claiming exists to prevent, with no error anywhere.
+
+Three sources disagreed; they now agree. The derivation's merged arm already
+used `user_a`'s date, so it became consistent for free; both materialization
+functions now do the same; and the confirmed card in `AnniversaryPartner`
+shows the live date rather than `anniversary_links.agreed_date`.
+
+**Rejected — key the occasion off `agreed_date`.** It freezes the occasion at
+confirm time, so a couple who agreed on a genuinely wrong date could never
+correct it. `agreed_date` remains right for the *pending* prompt, which is the
+one thing it describes: what the recipient is being asked to agree to.
 
 ## The RLS widening, and why it is needed
 
