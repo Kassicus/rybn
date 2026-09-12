@@ -177,10 +177,50 @@
 -- unconstructible state would either never run (if written correctly, it
 -- would fail every insert attempt) or silently assert something else.
 --
--- This file grows again in Task 5 (derivation), appending further
--- assertions and raising v_checks' floor to match. Keep the numbering and
--- structure below easy to extend: add a block, bump v_checks, bump the
--- floor.
+-- TASK 5 ADDS ASSERTIONS 13-16, on get_upcoming_occasions() (live body:
+-- 20260912000011_derivation_partner.sql), proving the DERIVED listing
+-- collapses a confirmed couple's anniversary into ONE row PER VIEWER -- not
+-- globally. Task 4's assertions above prove the MATERIALIZED occasion is one
+-- row; these prove the read-time derivation (which never touches the
+-- occasions table unless a row already exists there) agrees.
+--
+-- Fixture: v_up_a / v_up_b, a confirmed couple whose anniversary privacy
+-- DIFFERS by group -- same shape as the six-assertion fixture at the top of
+-- this file, so "can see one but not the other" is a real state. Four
+-- viewers: one in both groups, one in each group alone, and one in neither.
+-- A fifth, unrelated, UNLINKED user stands in for the "no link" baseline.
+-- Dates are pinned to a fixed calendar anchor ('1999-11-29'), not an offset
+-- from current_date, and every call below passes p_days_ahead => 400 (not
+-- the default 30) specifically so that ANY fixed month-day falls inside the
+-- window regardless of what day this suite happens to run -- the same
+-- technique 12_occasion_derivation.sql's own rollover assertion (assertion
+-- 6) uses, for the same reason.
+--
+--   13. v_up_viewer_both (in BOTH groups, sees both dates) gets exactly ONE
+--       anniversary row for the couple, keyed to the canonical partner
+--       (v_up_a), with BOTH partner columns populated (partner_id = v_up_b,
+--       partner_username/partner_display_name matching v_up_b's profile).
+--   14. CRITICAL, both directions. v_up_viewer_a (in v_up_a's group only)
+--       gets exactly ONE row -- v_up_a's own individual row, NOT the merged
+--       row -- with partner_id NULL. v_up_viewer_b (in v_up_b's group only)
+--       is the symmetric case: exactly one row for v_up_b, partner_id NULL.
+--       This is the one assertion a GLOBAL merge (collapsing whenever a
+--       confirmed link exists, rather than whenever THIS VIEWER can see
+--       both dates) fails while passing 13, 15 and 16 -- verified by
+--       mutation against a scratch copy of the function with the per-viewer
+--       can_view_field(partner) gate removed from the exclusion, see the
+--       task report. A viewer who can see only one partner's date must
+--       neither lose that person's row (zero) nor receive the row merged
+--       with data they cannot see.
+--   15. v_up_viewer_neither (in neither group) gets ZERO rows for the
+--       couple.
+--   16. An unrelated, UNLINKED user with their own anniversary on file is
+--       unaffected: their self-view still gets exactly one row, celebrant_id
+--       themself, partner_id NULL -- proving the exclusion only ever fires
+--       for someone actually party to a confirmed link.
+--
+-- Keep the numbering and structure below easy to extend: add a block, bump
+-- v_checks, bump the floor.
 --
 -- Convention: see 00_harness_smoke.sql. Fixture writes happen while
 -- impersonating the connecting (RLS-bypassing) role; role is toggled back to
@@ -236,6 +276,26 @@ declare
   v_pend_b_occasion uuid;
   v_pend_row_celebrant text;
   v_pend_row_partner   text;
+
+  -- Task 5 fixtures (assertions 13-16): get_upcoming_occasions()'s per-viewer
+  -- collapse. v_up_a/v_up_b are a confirmed couple whose anniversary privacy
+  -- differs by group, exactly like the six-assertion fixture at the top of
+  -- this file. v_up_viewer_both/_a/_b/_neither are four distinct viewers;
+  -- v_up_unlinked stands in for the "no link at all" baseline.
+  v_up_a             text := 'user_shanniv_up_a';
+  v_up_b             text := 'user_shanniv_up_b';
+  v_up_viewer_both   text := 'user_shanniv_up_vboth';
+  v_up_viewer_a      text := 'user_shanniv_up_va';
+  v_up_viewer_b      text := 'user_shanniv_up_vb';
+  v_up_viewer_neither text := 'user_shanniv_up_vn';
+  v_up_unlinked      text := 'user_shanniv_up_unlk';
+  v_up_group_a       uuid;
+  v_up_group_b       uuid;
+  v_up_count         int;
+  v_up_celebrant     text;
+  v_up_partner       text;
+  v_up_partner_uname text;
+  v_up_partner_dname text;
 begin
   select current_user into v_orig_role;
 
@@ -399,6 +459,59 @@ begin
 
   insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date)
     values (v_pend_a, v_pend_b, 'pending', v_pend_a, '2022-08-08');
+
+  ---------------------------------------------------------------------------
+  -- Task 5 fixture (assertions 13-16): get_upcoming_occasions()'s per-viewer
+  -- collapse. v_up_a/v_up_b are a CONFIRMED couple whose anniversary privacy
+  -- DIFFERS by group -- same shape as the six-assertion fixture above, so
+  -- "can see one but not the other" is a real state, not a coincidence of
+  -- layout. Four viewers: both groups, family-only, friends-only, neither.
+  -- v_up_unlinked is unrelated to this couple entirely and carries no
+  -- anniversary_links row of any kind -- the "no link" baseline.
+  --
+  -- The date is pinned to a fixed calendar anchor, not an offset from
+  -- current_date; every call against this fixture below passes
+  -- p_days_ahead => 400 specifically so that fixed anchor falls inside the
+  -- window regardless of what day this suite runs (same technique
+  -- 12_occasion_derivation.sql's own rollover assertion uses).
+  ---------------------------------------------------------------------------
+  insert into user_profiles (id, username, display_name)
+    values (v_up_a,              'shanupa',    'Shared Anniv UP A'),
+           (v_up_b,              'shanupb',    'Shared Anniv UP B'),
+           (v_up_viewer_both,    'shanupvboth','Shared Anniv UP Viewer Both'),
+           (v_up_viewer_a,       'shanupva',   'Shared Anniv UP Viewer A'),
+           (v_up_viewer_b,       'shanupvb',   'Shared Anniv UP Viewer B'),
+           (v_up_viewer_neither, 'shanupvn',   'Shared Anniv UP Viewer Neither'),
+           (v_up_unlinked,       'shanupunlk', 'Shared Anniv UP Unlinked');
+
+  insert into groups (name, type, invite_code, created_by)
+    values ('Shanniv UP Family', 'family', 'SHANUPFAM', v_up_a)
+    returning id into v_up_group_a;
+
+  insert into groups (name, type, invite_code, created_by)
+    values ('Shanniv UP Friends', 'friends', 'SHANUPFRD', v_up_b)
+    returning id into v_up_group_b;
+
+  -- add_group_creator_as_owner() already added v_up_a/v_up_b to their own
+  -- groups. v_up_viewer_both joins BOTH; v_up_viewer_a/_b join only their
+  -- namesake's group; v_up_viewer_neither joins neither.
+  insert into group_members (group_id, user_id, role)
+    values (v_up_group_a, v_up_viewer_both, 'member'),
+           (v_up_group_a, v_up_viewer_a,    'member'),
+           (v_up_group_b, v_up_viewer_both, 'member'),
+           (v_up_group_b, v_up_viewer_b,    'member')
+    on conflict do nothing;
+
+  insert into profile_info (user_id, category, field_name, field_value, privacy_settings)
+    values (v_up_a, 'dates', 'anniversary', '1999-11-29',
+            '{"visibleToGroupTypes": ["family"], "restrictToGroup": null}'),
+           (v_up_b, 'dates', 'anniversary', '1999-11-29',
+            '{"visibleToGroupTypes": ["friends"], "restrictToGroup": null}'),
+           (v_up_unlinked, 'dates', 'anniversary', '2003-05-17',
+            '{"visibleToGroupTypes": [], "restrictToGroup": null}');
+
+  insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date, confirmed_at)
+    values (v_up_a, v_up_b, 'confirmed', v_up_a, '1999-11-29', now());
 
   ---------------------------------------------------------------------------
   -- Assertion 1: a viewer who can see only the CELEBRANT's date reads the
@@ -751,8 +864,180 @@ begin
 
   perform set_config('role', v_orig_role, true);
 
-  if v_checks < 14 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 14', v_checks;
+  ---------------------------------------------------------------------------
+  -- Assertion 13: v_up_viewer_both, who can see BOTH v_up_a's and v_up_b's
+  -- anniversary, gets exactly ONE row from get_upcoming_occasions() for the
+  -- couple -- keyed to the canonical partner (v_up_a), with BOTH partner
+  -- columns populated (not null).
+  --
+  -- FALSIFIABLE: deleting the couple arm from the live body
+  -- (20260912000011_derivation_partner.sql) -- leaving only the per-person
+  -- branch (with its exclusion intact) and the group_date branch -- makes
+  -- this fail: the exclusion still suppresses both individual rows (it does
+  -- not depend on a merge arm existing to catch them), so the count drops to
+  -- 0, not 1 -- verified by mutation against a scratch copy, see the task
+  -- report. NOT caught: a couple arm that fires but returns the WRONG
+  -- partner identity (out of scope for a row-count-plus-null-check
+  -- assertion; the partner id/username/display_name equality checks below
+  -- catch a wrong-identity bug directly).
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_up_viewer_both || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  select count(*), max(celebrant_id), max(partner_id),
+         max(partner_username), max(partner_display_name)
+    into v_up_count, v_up_celebrant, v_up_partner,
+         v_up_partner_uname, v_up_partner_dname
+    from public.get_upcoming_occasions(400)
+   where kind = 'anniversary' and celebrant_id in (v_up_a, v_up_b);
+
+  perform set_config('role', v_orig_role, true);
+
+  if v_up_count <> 1
+     or v_up_celebrant is distinct from v_up_a
+     or v_up_partner is distinct from v_up_b
+     or v_up_partner_uname is null
+     or v_up_partner_dname is null
+  then
+    raise exception
+      'RLS FAIL: viewer % who can see BOTH anniversary dates got % row(s) (celebrant_id=%, partner_id=%, partner_username=%, partner_display_name=%), expected exactly 1 row with celebrant_id=%, partner_id=% and both partner name columns populated',
+      v_up_viewer_both, v_up_count, v_up_celebrant, v_up_partner,
+      v_up_partner_uname, v_up_partner_dname, v_up_a, v_up_b;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 14 (CRITICAL, 2 checks, both directions): a viewer who can see
+  -- only ONE partner's date gets exactly ONE row for that person, with
+  -- partner columns NULL -- not the merged row, and not zero rows. This is
+  -- the assertion that proves the collapse is PER VIEWER rather than
+  -- global: an implementation that merges whenever a confirmed link exists
+  -- (rather than whenever THIS VIEWER can see both dates) passes assertions
+  -- 13, 15 and 16 unchanged and fails only this one, because the widened
+  -- exclusion would suppress this person's individual row while the couple
+  -- arm still refuses to fire (it cannot see the other partner's date),
+  -- leaving zero rows for a viewer entitled to exactly one.
+  --
+  -- FALSIFIABLE: widening the live body's
+  -- (20260912000011_derivation_partner.sql) per-person exclusion to drop its
+  -- `public.can_view_field(p2.user_id, v_viewer, p2.privacy_settings)`
+  -- conjunct -- excluding a person whenever ANY confirmed link names them,
+  -- regardless of what this viewer can see -- makes BOTH checks below fail
+  -- (count drops from 1 to 0 in each direction), while leaving assertions
+  -- 13, 15 and 16 passing unchanged -- verified by mutation against a
+  -- scratch copy, see the task report. NOT caught: a couple arm whose OWN
+  -- can_view_field() calls are wrong in a way that happens to still refuse
+  -- to fire here (out of scope; assertion 13 covers the couple arm firing
+  -- correctly when it should).
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_up_viewer_a || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  select count(*), max(celebrant_id), max(partner_id)
+    into v_up_count, v_up_celebrant, v_up_partner
+    from public.get_upcoming_occasions(400)
+   where kind = 'anniversary' and celebrant_id in (v_up_a, v_up_b);
+
+  perform set_config('role', v_orig_role, true);
+
+  if v_up_count <> 1 or v_up_celebrant is distinct from v_up_a or v_up_partner is not null then
+    raise exception
+      'RLS FAIL: viewer % who can see only v_up_a''s date got % row(s) (celebrant_id=%, partner_id=%), expected exactly 1 row with celebrant_id=% and partner_id NULL -- neither merged nor hidden',
+      v_up_viewer_a, v_up_count, v_up_celebrant, v_up_partner, v_up_a;
+  end if;
+  v_checks := v_checks + 1;
+
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_up_viewer_b || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  select count(*), max(celebrant_id), max(partner_id)
+    into v_up_count, v_up_celebrant, v_up_partner
+    from public.get_upcoming_occasions(400)
+   where kind = 'anniversary' and celebrant_id in (v_up_a, v_up_b);
+
+  perform set_config('role', v_orig_role, true);
+
+  if v_up_count <> 1 or v_up_celebrant is distinct from v_up_b or v_up_partner is not null then
+    raise exception
+      'RLS FAIL: viewer % who can see only v_up_b''s date got % row(s) (celebrant_id=%, partner_id=%), expected exactly 1 row with celebrant_id=% and partner_id NULL -- the symmetric direction of the per-viewer collapse',
+      v_up_viewer_b, v_up_count, v_up_celebrant, v_up_partner, v_up_b;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 15: v_up_viewer_neither, who can see NEITHER date, gets ZERO
+  -- rows for the couple.
+  --
+  -- FALSIFIABLE: deleting the live body's
+  -- (20260912000011_derivation_partner.sql) per-person visibility gate
+  -- (`public.can_view_field(pi.user_id, v_viewer, pi.privacy_settings)`)
+  -- makes this fail: the exclusion's own exists() check depends on
+  -- can_view_field(partner), which is also false for this viewer, so it does
+  -- not suppress the leak -- both individual rows appear, count becomes 2
+  -- instead of 0 -- verified by mutation against a scratch copy, see the
+  -- task report. NOT caught: a couple arm that incorrectly fires for this
+  -- viewer (out of scope; the couple arm's own two can_view_field() calls
+  -- are unrelated to the per-person branch's gate this mutation removes).
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_up_viewer_neither || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  select count(*) into v_up_count
+    from public.get_upcoming_occasions(400)
+   where kind = 'anniversary' and celebrant_id in (v_up_a, v_up_b);
+
+  perform set_config('role', v_orig_role, true);
+
+  if v_up_count <> 0 then
+    raise exception
+      'RLS FAIL: viewer % who can see NEITHER anniversary date got % row(s) for the couple, expected 0',
+      v_up_viewer_neither, v_up_count;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 16: an UNLINKED user (no anniversary_links row of any status)
+  -- with their own anniversary on file is unaffected by Task 5's exclusion --
+  -- their self-view still gets exactly one row, celebrant_id themself,
+  -- partner_id NULL.
+  --
+  -- FALSIFIABLE: widening the live body's
+  -- (20260912000011_derivation_partner.sql) exclusion to
+  -- `not (pi.field_name = 'anniversary')` -- dropping the exists(...) check
+  -- against anniversary_links entirely, so every anniversary row is excluded
+  -- unconditionally -- makes this fail: v_up_unlinked's own row disappears
+  -- (count 0, not 1) even though no link of any kind names them, and the
+  -- couple arm has nothing to emit in its place -- verified by mutation
+  -- against a scratch copy, see the task report. NOT caught: an exclusion
+  -- wired to the wrong link STATUS filter (assertion 13/14 would catch a
+  -- status filter broad enough to also affect the confirmed-couple fixture,
+  -- and v_up_unlinked has no anniversary_links row of any status to exercise
+  -- that distinction).
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_up_unlinked || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  select count(*), max(celebrant_id), max(partner_id)
+    into v_up_count, v_up_celebrant, v_up_partner
+    from public.get_upcoming_occasions(400)
+   where kind = 'anniversary' and celebrant_id = v_up_unlinked;
+
+  perform set_config('role', v_orig_role, true);
+
+  if v_up_count <> 1 or v_up_celebrant is distinct from v_up_unlinked or v_up_partner is not null then
+    raise exception
+      'RLS FAIL: unlinked user % got % row(s) (celebrant_id=%, partner_id=%), expected exactly 1 row with celebrant_id=% and partner_id NULL',
+      v_up_unlinked, v_up_count, v_up_celebrant, v_up_partner, v_up_unlinked;
+  end if;
+  v_checks := v_checks + 1;
+
+  if v_checks < 19 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 19', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_20_shared_anniversary_reads');

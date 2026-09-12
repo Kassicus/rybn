@@ -602,6 +602,13 @@ export type Database = {
           occasion_date: string
           occasion_year: number
           celebrant_id: string | null
+          // The confirmed anniversary-link partner sharing this occasion with
+          // celebrant_id, when one exists (Task 2, 20260912000002_occasion_
+          // partner.sql). Nullable, and null for every birthday and
+          // group_date row -- see occasions_partner_requires_celebrant and
+          // occasions_partner_not_self (20260912000004) for the CHECKs that
+          // constrain it.
+          partner_id: string | null
           created_by: string | null
           created_at: string
           updated_at: string
@@ -614,6 +621,7 @@ export type Database = {
           occasion_date: string
           occasion_year?: never
           celebrant_id?: string | null
+          partner_id?: string | null
           created_by?: string | null
           created_at?: string
           updated_at?: string
@@ -626,6 +634,7 @@ export type Database = {
           occasion_date?: string
           occasion_year?: never
           celebrant_id?: string | null
+          partner_id?: string | null
           created_by?: string | null
           created_at?: string
           updated_at?: string
@@ -646,10 +655,117 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "occasions_partner_id_fkey"
+            columns: ["partner_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "occasions_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      // A pair of people who share one anniversary (Task 1,
+      // 20260912000000_anniversary_links.sql). user_a is always the
+      // lexicographically smaller id (CHECK anniversary_links_canonical) --
+      // occasions for the pair materialize under user_a. Only
+      // status = 'confirmed' counts as linked; 'pending' is a request
+      // awaiting the other participant. Readable only by its two
+      // participants (RLS); writes go through the SECURITY DEFINER RPCs
+      // below, never directly.
+      anniversary_links: {
+        Row: {
+          id: string
+          user_a: string
+          user_b: string
+          status: string
+          initiated_by: string
+          agreed_date: string
+          created_at: string
+          confirmed_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_a: string
+          user_b: string
+          status?: string
+          initiated_by: string
+          agreed_date: string
+          created_at?: string
+          confirmed_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_a?: string
+          user_b?: string
+          status?: string
+          initiated_by?: string
+          agreed_date?: string
+          created_at?: string
+          confirmed_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "anniversary_links_user_a_fkey"
+            columns: ["user_a"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "anniversary_links_user_b_fkey"
+            columns: ["user_b"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "anniversary_links_initiated_by_fkey"
+            columns: ["initiated_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      // Membership side table for anniversary_links (Task 1,
+      // 20260912000001_anniversary_link_members.sql): one row per person
+      // currently in a CONFIRMED link. The primary key on user_id enforces
+      // "at most one confirmed link per person, either side" for
+      // authenticated callers, since confirm_anniversary_link is the only
+      // authenticated-reachable writer of anniversary_links.status and
+      // always inserts here in the same transaction as the flip.
+      anniversary_link_members: {
+        Row: {
+          user_id: string
+          link_id: string
+        }
+        Insert: {
+          user_id: string
+          link_id: string
+        }
+        Update: {
+          user_id?: string
+          link_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "anniversary_link_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "anniversary_link_members_link_id_fkey"
+            columns: ["link_id"]
+            isOneToOne: false
+            referencedRelation: "anniversary_links"
             referencedColumns: ["id"]
           }
         ]
@@ -1106,6 +1222,16 @@ export type Database = {
       // when that migration landed; added here so lib/actions/occasions.ts's
       // supabase.rpc() call type-checks against an actual declared function
       // instead of silently widening to `any`.
+      //
+      // Task 5 (20260912000011_derivation_partner.sql) appended the three
+      // partner_* columns after celebrant_display_name: a confirmed
+      // anniversary couple both of whose dates the CALLER can see collapses
+      // to one row, keyed to the canonical partner, with partner_id/
+      // partner_username/partner_display_name populated. Every other row
+      // (birthdays, an anniversary the caller can see only one side of, and
+      // every group_date) carries null in all three -- the collapse is
+      // per-viewer, not global; a caller who can see only one partner's date
+      // still gets that person's own unmerged row instead.
       get_upcoming_occasions: {
         Args: {
           p_days_ahead?: number
@@ -1118,6 +1244,9 @@ export type Database = {
           celebrant_id: string | null
           celebrant_username: string | null
           celebrant_display_name: string | null
+          partner_id: string | null
+          partner_username: string | null
+          partner_display_name: string | null
           group_id: string | null
           group_name: string | null
         }[]
@@ -1200,6 +1329,71 @@ export type Database = {
       release_wishlist_claim: {
         Args: {
           p_item_id: string
+        }
+        Returns: boolean
+      }
+      // Requests sharing one anniversary with p_partner_id, at p_date
+      // (Task 3, 20260912000003_anniversary_link_rpcs.sql). SECURITY
+      // DEFINER, pinned to requesting_user_id() as the caller. Requires a
+      // shared group with the partner and a calendar-usable date; upserts a
+      // PENDING row canonically ordered by (least(caller, partner),
+      // greatest(caller, partner)), refreshing an existing PENDING request
+      // but refusing to touch an already-CONFIRMED one. Returns the link id.
+      //
+      // Error codes, verified against the migration:
+      //   28000 NOT AUTHENTICATED                          -- no Clerk JWT
+      //   22023 you cannot share an anniversary with yourself
+      //   22023 that person is not in any of your groups   -- same message
+      //         whether the user does not exist or shares no group, so this
+      //         is not a probe for which user ids exist
+      //   22023 that is not a usable date
+      //   22023 you already share an anniversary with that person -- a
+      //         CONFIRMED link already exists for this pair
+      request_anniversary_link: {
+        Args: {
+          p_partner_id: string
+          p_date: string
+        }
+        Returns: string
+      }
+      // Confirms a PENDING anniversary link (Task 3,
+      // 20260912000003_anniversary_link_rpcs.sql). SECURITY DEFINER. Flips
+      // anniversary_links.status to 'confirmed' and inserts both
+      // participants into anniversary_link_members in the same transaction
+      // -- the primary key there is what actually enforces "one confirmed
+      // link per person, either side" for authenticated callers.
+      confirm_anniversary_link: {
+        Args: {
+          p_link_id: string
+        }
+        Returns: undefined
+      }
+      // Removes a PENDING anniversary link -- either the recipient
+      // declining or the initiator cancelling their own request, both the
+      // same operation and end state (Task 3 corrections,
+      // 20260912000005_anniversary_link_rpc_corrections.sql). SECURITY
+      // DEFINER. Returns false rather than raising when there was nothing
+      // to decline. A CONFIRMED link is unlink_anniversary's job, not this
+      // one's.
+      decline_anniversary_link: {
+        Args: {
+          p_link_id: string
+        }
+        Returns: boolean
+      }
+      // Removes a CONFIRMED anniversary link, callable by either
+      // participant (Task 3 corrections,
+      // 20260912000005_anniversary_link_rpc_corrections.sql -- live body).
+      // SECURITY DEFINER. The shared occasion row survives with its tags and
+      // claims intact and simply stops being shared: this clears
+      // partner_id, scoped to the SPECIFIC pair the link named
+      // (celebrant_id = the link's canonical user_a AND partner_id = the
+      // link's user_b), not just celebrant_id alone -- see the migration's
+      // header for the cross-user data-corruption path that scoping closes.
+      // Returns false rather than raising when there was nothing to unlink.
+      unlink_anniversary: {
+        Args: {
+          p_link_id: string
         }
         Returns: boolean
       }
