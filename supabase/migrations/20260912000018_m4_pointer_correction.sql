@@ -1,0 +1,71 @@
+-- =============================================================================
+-- rybn: correct the M4 pointer on confirm_anniversary_link
+-- =============================================================================
+--
+-- Comment-only. No executable change, no function body re-issued.
+--
+-- 20260912000017 attached `comment on function` pointers so that a reader who
+-- opens the wrong migration file can still find each function's live body and
+-- the corrections against it -- reachable from the database itself with \df+
+-- or obj_description(), rather than only from whichever file they happened to
+-- open. The pointer on confirm_anniversary_link(uuid) got one of its four
+-- claims wrong, and the artifact whose entire purpose is to stop a reader
+-- being misdirected misdirects.
+--
+-- WHAT IT SAYS (deployed by 20260912000017):
+--
+--   "Live body: 20260912000014_confirm_link_reconciles_occasion_date.sql. ITS
+--    HEADER mis-dates the profile/occasion divergence (finding M2) and names
+--    one of two RLS-bypass mechanisms as the only one (finding M4) ..."
+--
+-- WHY THAT IS WRONG. "Its header" is true of M2 and false of M4.
+--
+--   * M2 IS in 20260912000014's header, at :25-30 -- "this divergence did not
+--     exist before that migration, because before it NEITHER partner's
+--     profile_info reliably changed at confirm time". Verified in the file.
+--   * M4 is NOT. 20260912000014's header runs to :67 and contains no BYPASSRLS
+--     claim at all; its only mention of the mechanism is an inline body
+--     comment at :130-134, which states it plainly and does not overclaim.
+--     The erroneous text is in 20260912000012, at :63-65:
+--
+--       -- ... That works ONLY because this function is `security
+--       -- definer` and therefore runs with its owner's privileges, which
+--       -- include BYPASSRLS -- the same mechanism every other cross-user
+--       -- write ...
+--
+--     20260912000017's own M4 heading names that location correctly
+--     ("20260912000012:63"); only the on-function pointer disagrees with it.
+--
+-- COMPOUNDING IT, and the reason this is worth a migration rather than a
+-- shrug: 20260912000014:132 tells the reader "see 20260912000012's header for
+-- why that is not exploitable", routing them straight into the uncorrected M4
+-- text with nothing on the page saying it was corrected. A reader who follows
+-- the on-function pointer to 20260912000014, then follows :132 onward to
+-- 20260912000012, arrives at the overclaim having been told twice that the
+-- correction lives somewhere else.
+--
+-- THE OTHER THREE POINTERS WERE RE-VERIFIED against the files rather than
+-- assumed, since only M4 had been checked closely:
+--
+--   M2  20260912000014:25-30  -- resolves; text as quoted above.
+--   M3  20260912000013:84     -- resolves; ":84" lands inside "both conjuncts
+--                                must hold simultaneously for this row to
+--                                survive", the inverted reading, which spans
+--                                :84-85. The get_upcoming_occasions pointer is
+--                                correct as shipped.
+--   M5  20260912000000:62     -- resolves; ":62" is "Writes go through the
+--                                SECURITY DEFINER RPCs in 20260912000002",
+--                                and the RPCs are in 20260912000003. M5 is
+--                                stated only in 20260912000017's header, which
+--                                is the honest place for it -- no function
+--                                pointer claims otherwise.
+--
+-- So this file re-issues exactly one comment: confirm_anniversary_link's.
+-- unlink_anniversary's and get_upcoming_occasions' pointers stand as deployed.
+--
+-- Corrective migration rather than an edit to 20260912000017, because
+-- 20260912000017 is applied. That is the practice its own header established,
+-- and the practice this branch broke three times before adopting it.
+
+comment on function public.confirm_anniversary_link(uuid) is
+  'Confirms a pending anniversary link: flips status, inserts both anniversary_link_members rows, adopts agreed_date into BOTH partners'' profile_info, and reconciles already-materialized occasions. Live body: 20260912000014_confirm_link_reconciles_occasion_date.sql. Two corrections apply, and they live in DIFFERENT files: finding M2 (that header, :25-30, mis-dates the profile/occasion divergence -- it predates 20260912000012, which only made it reachable from either side) and finding M4 (20260912000012:63-65, NOT this function''s live body, names BYPASSRLS as the only reason the cross-user profile_info write succeeds; table-owner exemption alone would also suffice, since the definer owner owns profile_info and relforcerowsecurity is false). Both are written up in 20260912000017_comment_corrections.sql. Note that 20260912000014:132 points onward to 20260912000012''s header for the non-exploitability argument, which is the uncorrected M4 text; the argument itself holds, only its "ONLY because" does not. This pointer''s own earlier version attributed M4 to 20260912000014''s header and was corrected by 20260912000018_m4_pointer_correction.sql.';
