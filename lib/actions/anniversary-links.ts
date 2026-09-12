@@ -6,8 +6,9 @@ import { getUserId } from "@/lib/auth/require-auth";
 /**
  * Server actions wrapping the four anniversary-link RPCs (Task 3,
  * 20260912000003_anniversary_link_rpcs.sql and its correction
- * 20260912000005_anniversary_link_rpc_corrections.sql) plus one reader of
- * `anniversary_links` itself.
+ * 20260912000005_anniversary_link_rpc_corrections.sql), one reader of
+ * `anniversary_links` itself, and one reader of `group_members` for the
+ * Task 9 partner picker.
  *
  * Every function here uses the USER-SCOPED client (@/lib/supabase/server),
  * never the admin one: all four RPCs are SECURITY DEFINER and pin themselves
@@ -230,4 +231,83 @@ export async function getMyAnniversaryLink(): Promise<
       initiatedByMe: row.initiated_by === userId,
     },
   };
+}
+
+/** A person the caller could plausibly ask to share an anniversary with. */
+export type AnniversaryPartnerCandidate = {
+  id: string;
+  username: string;
+  displayName: string | null;
+};
+
+/**
+ * People the caller shares at least one group with -- the pool
+ * `AnniversaryPartner`'s picker (Task 9) offers for "Ask to share".
+ *
+ * This is a USABILITY filter, not a security boundary: request_anniversary_
+ * link enforces the same shared-group requirement itself ("that person is
+ * not in any of your groups"), and it is reachable directly through
+ * PostgREST regardless of what this list contains. Narrowing the picker just
+ * keeps someone from choosing a person the RPC would refuse anyway.
+ *
+ * One query, not a group-ids-then-members round trip: group_members' own
+ * SELECT policy ("Users can view members of their groups") already narrows
+ * an unfiltered select to exactly the rows RLS lets the caller see -- every
+ * membership row for every group the caller is in, plus the caller's own
+ * row wherever it lives. `.neq()` below only drops that last one.
+ */
+export async function getAnniversaryPartnerCandidates(): Promise<
+  { data: AnniversaryPartnerCandidate[] } | { error: string }
+> {
+  const userId = await getUserId();
+  if (!userId) {
+    return { error: "Not authenticated" };
+  }
+
+  const supabase = await createClient();
+
+  const { data: memberRows, error: membersError } = await supabase
+    .from("group_members")
+    .select("user_id")
+    .neq("user_id", userId);
+
+  if (membersError) {
+    console.error(
+      "getAnniversaryPartnerCandidates: group_members lookup failed",
+      membersError
+    );
+    return { error: "Failed to load your groupmates. Please try again." };
+  }
+
+  const candidateIds = [
+    ...new Set((memberRows ?? []).map((r) => r.user_id as string)),
+  ];
+  if (candidateIds.length === 0) {
+    return { data: [] };
+  }
+
+  const { data: profiles, error: profilesError } = await supabase
+    .from("user_profiles")
+    .select("id, username, display_name")
+    .in("id", candidateIds);
+
+  if (profilesError) {
+    console.error(
+      "getAnniversaryPartnerCandidates: profile lookup failed",
+      profilesError
+    );
+    return { error: "Failed to load your groupmates. Please try again." };
+  }
+
+  const candidates = (profiles ?? []).map((p) => ({
+    id: p.id,
+    username: p.username,
+    displayName: p.display_name,
+  }));
+
+  candidates.sort((a, b) =>
+    (a.displayName ?? a.username).localeCompare(b.displayName ?? b.username)
+  );
+
+  return { data: candidates };
 }

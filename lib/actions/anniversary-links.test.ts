@@ -26,6 +26,8 @@ vi.mock("@/lib/supabase/admin", () => ({
 
 const rpc = vi.fn();
 const eqSpy = vi.fn();
+const neqSpy = vi.fn();
+const inSpy = vi.fn();
 
 /**
  * Same shape as invitations.test.ts's createSupabaseMock: every chain method
@@ -79,6 +81,14 @@ function createSupabaseMock(script: Record<string, unknown[]>) {
         eqSpy(table, ...args);
         return chain;
       };
+      chain.neq = (...args: unknown[]) => {
+        neqSpy(table, ...args);
+        return chain;
+      };
+      chain.in = (...args: unknown[]) => {
+        inSpy(table, ...args);
+        return chain;
+      };
 
       const resolveWithOrderAndLimit = (): unknown => {
         const result = next() as { data: unknown; error: unknown };
@@ -127,6 +137,7 @@ const {
   declineAnniversaryLink,
   unlinkAnniversary,
   getMyAnniversaryLink,
+  getAnniversaryPartnerCandidates,
 } = await import("./anniversary-links");
 
 beforeEach(() => {
@@ -554,5 +565,88 @@ describe("getMyAnniversaryLink", () => {
     const result = await getMyAnniversaryLink();
 
     expect(result).toEqual({ error: "Not authenticated" });
+  });
+});
+
+describe("getAnniversaryPartnerCandidates", () => {
+  // Falsifiability: drop the `.neq("user_id", userId)` call (querying
+  // group_members unfiltered) and this fails -- the caller's own id would
+  // stay in candidateIds, "group_members" -> user_profiles fixture would
+  // include their row, and the caller would show up in their own picker.
+  it("returns groupmates, deduped, sorted by display name over username", async () => {
+    supabase = createSupabaseMock({
+      group_members: [
+        {
+          data: [
+            { user_id: "user_z_999" },
+            { user_id: "user_b_456" },
+            { user_id: "user_b_456" }, // same person, second shared group
+          ],
+          error: null,
+        },
+      ],
+      user_profiles: [
+        {
+          data: [
+            { id: "user_z_999", username: "zed", display_name: null },
+            { id: "user_b_456", username: "beebee", display_name: "Alex" },
+          ],
+          error: null,
+        },
+      ],
+    });
+
+    const result = await getAnniversaryPartnerCandidates();
+
+    expect(result).toEqual({
+      data: [
+        { id: "user_b_456", username: "beebee", displayName: "Alex" },
+        { id: "user_z_999", username: "zed", displayName: null },
+      ],
+    });
+    expect(neqSpy).toHaveBeenCalledWith(
+      "group_members",
+      "user_id",
+      "user_a_123"
+    );
+    expect(inSpy).toHaveBeenCalledWith("user_profiles", "id", [
+      "user_z_999",
+      "user_b_456",
+    ]);
+  });
+
+  // Falsifiability: remove the `if (candidateIds.length === 0) return { data:
+  // [] }` short-circuit and this fails on a thrown "No scripted Supabase
+  // response left for user_profiles" -- the fixture above deliberately
+  // supplies no user_profiles queue at all, so a fall-through would have
+  // nothing to shift.
+  it("returns an empty list without querying profiles when the caller shares no group", async () => {
+    supabase = createSupabaseMock({
+      group_members: [{ data: [], error: null }],
+    });
+
+    const result = await getAnniversaryPartnerCandidates();
+
+    expect(result).toEqual({ data: [] });
+  });
+
+  it("returns Not authenticated when signed out, without touching the database", async () => {
+    getUserId.mockResolvedValue(null);
+
+    const result = await getAnniversaryPartnerCandidates();
+
+    expect(result).toEqual({ error: "Not authenticated" });
+  });
+
+  it("swaps a group_members failure for a generic message", async () => {
+    supabase = createSupabaseMock({
+      group_members: [{ data: null, error: { message: "boom" } }],
+    });
+
+    const result = await getAnniversaryPartnerCandidates();
+
+    expect(result).toEqual({
+      error: "Failed to load your groupmates. Please try again.",
+    });
   });
 });

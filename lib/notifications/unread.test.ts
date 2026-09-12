@@ -1,5 +1,19 @@
 import { describe, it, expect } from "vitest";
-import { unreadCount, unreadReminders } from "./unread";
+import { unreadCount, unreadReminders, isIncomingAnniversaryRequest } from "./unread";
+import type { AnniversaryLink } from "@/lib/actions/anniversary-links";
+
+const anniversaryLink = (
+  overrides: Partial<AnniversaryLink> = {},
+): AnniversaryLink => ({
+  id: "link-1",
+  partnerId: "partner-1",
+  partnerUsername: "partner",
+  partnerDisplayName: "Partner Name",
+  status: "pending",
+  agreedDate: "2020-06-01",
+  initiatedByMe: false,
+  ...overrides,
+});
 
 /**
  * Small surface, but it is the one deciding whether the bell's badge tells the
@@ -45,5 +59,43 @@ describe("unreadCount", () => {
     expect(unreadReminders(rows)).toEqual([
       { notification_id: "a", banner_dismissed: false },
     ]);
+  });
+
+  // Falsifiability: change `!link.initiatedByMe` to `link.initiatedByMe` (or
+  // drop the status check) and this fails -- a request the caller sent
+  // themselves, or one flip of the polarity, would add to a count meant to
+  // speak only for things the caller still has to act on.
+  it("adds one for an incoming pending anniversary request", () => {
+    expect(unreadCount([], anniversaryLink())).toBe(1);
+    expect(
+      unreadCount([reminder(false)], anniversaryLink()),
+    ).toBe(2);
+  });
+
+  it("does not count a pending request the caller sent themselves", () => {
+    expect(unreadCount([], anniversaryLink({ initiatedByMe: true }))).toBe(0);
+  });
+
+  it("does not count a confirmed link -- nothing left to act on", () => {
+    expect(unreadCount([], anniversaryLink({ status: "confirmed" }))).toBe(0);
+  });
+
+  it("does not count when there is no link at all", () => {
+    expect(unreadCount([], null)).toBe(0);
+    expect(unreadCount([])).toBe(0);
+  });
+});
+
+describe("isIncomingAnniversaryRequest", () => {
+  it("is true only for a pending link the caller did not initiate", () => {
+    expect(isIncomingAnniversaryRequest(anniversaryLink())).toBe(true);
+    expect(
+      isIncomingAnniversaryRequest(anniversaryLink({ initiatedByMe: true })),
+    ).toBe(false);
+    expect(
+      isIncomingAnniversaryRequest(anniversaryLink({ status: "confirmed" })),
+    ).toBe(false);
+    expect(isIncomingAnniversaryRequest(null)).toBe(false);
+    expect(isIncomingAnniversaryRequest(undefined)).toBe(false);
   });
 });

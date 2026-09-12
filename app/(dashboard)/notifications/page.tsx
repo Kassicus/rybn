@@ -3,6 +3,7 @@ import { Heading, Text } from "@/components/ui/text";
 import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { NotificationsList } from "@/components/notifications/NotificationsList";
 import { getActiveDateReminders } from "@/lib/actions/date-reminders";
+import { getMyAnniversaryLink } from "@/lib/actions/anniversary-links";
 import { unreadCount, type DateReminder } from "@/lib/notifications/unread";
 
 /**
@@ -36,9 +37,17 @@ import { unreadCount, type DateReminder } from "@/lib/notifications/unread";
 export const dynamic = "force-dynamic";
 
 export default async function NotificationsPage() {
-  const { data } = await getActiveDateReminders();
+  const [{ data }, anniversaryLinkResult] = await Promise.all([
+    getActiveDateReminders(),
+    getMyAnniversaryLink(),
+  ]);
   const reminders = (data ?? []) as DateReminder[];
-  const unread = unreadCount(reminders);
+  // Same "no `data` key on the error branch" shape as the dashboard layout's
+  // own getMyAnniversaryLink() call -- an error here just means no request
+  // to show, not zero reminders either.
+  const anniversaryLink =
+    "data" in anniversaryLinkResult ? anniversaryLinkResult.data : null;
+  const unread = unreadCount(reminders, anniversaryLink);
 
   return (
     <div className="max-w-3xl mx-auto space-y-8 p-6">
@@ -59,7 +68,7 @@ export default async function NotificationsPage() {
         </Text>
       </div>
 
-      <NotificationsList reminders={reminders} />
+      <NotificationsList reminders={reminders} anniversaryLink={anniversaryLink} />
     </div>
   );
 }

@@ -19,6 +19,7 @@ import { PreferencesSection } from "@/components/profile/sections/PreferencesSec
 import { VehiclesSection } from "@/components/profile/sections/VehiclesSection";
 import { PersonalInfoSection } from "@/components/profile/sections/PersonalInfoSection";
 import { DatesSection } from "@/components/profile/sections/DatesSection";
+import { AnniversaryPartner } from "@/components/profile/AnniversaryPartner";
 
 export default function ProfileEditPage() {
   const router = useRouter();
@@ -109,7 +110,7 @@ export default function ProfileEditPage() {
       </div>
 
       {/* @ts-expect-error - Form submit handler type inference */}
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      <form id="profile-edit-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Error banner */}
         {error && (
           <div className="p-3 rounded bg-error-light border border-error">
@@ -212,21 +213,33 @@ export default function ProfileEditPage() {
         <FormSection title="Important Dates" description="Birthdays and anniversaries">
           <DatesSection register={register} errors={errors} />
         </FormSection>
-
-        {/* Form actions */}
-        <div className="flex gap-3 pt-4">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => router.push("/profile")}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" variant="primary" loading={isLoading} disabled={!isDirty || isLoading}>
-            Save Changes
-          </Button>
-        </div>
       </form>
+
+      {/* The shared-anniversary link is an ACTION against its own server
+          actions, not a field this form submits -- so it sits outside
+          <form>, immediately beneath Important Dates. The Save button below
+          still targets the form by id, since it has to stay visually last. */}
+      <AnniversaryPartner />
+
+      {/* Form actions */}
+      <div className="flex gap-3 pt-4">
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => router.push("/profile")}
+        >
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          form="profile-edit-form"
+          variant="primary"
+          loading={isLoading}
+          disabled={!isDirty || isLoading}
+        >
+          Save Changes
+        </Button>
+      </div>
     </div>
   );
 }

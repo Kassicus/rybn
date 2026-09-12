@@ -7,6 +7,7 @@ import { getUserId } from "@/lib/auth/require-auth";
 import { ensureProfile } from "@/lib/auth/ensure-profile";
 import { redirect } from "next/navigation";
 import { getActiveDateReminders } from "@/lib/actions/date-reminders";
+import { getMyAnniversaryLink } from "@/lib/actions/anniversary-links";
 import { unreadCount } from "@/lib/notifications/unread";
 import { getMyProfile } from "@/lib/actions/profile";
 
@@ -39,8 +40,20 @@ export default async function DashboardLayout({
   // the row therefore ensure it themselves; getMyProfile() does.
   await ensureProfile();
 
-  // Get active date reminders for the user
-  const { data: reminders } = await getActiveDateReminders();
+  // Get active date reminders for the user, and any anniversary link
+  // request sitting in their queue -- run together since neither depends
+  // on the other.
+  const [{ data: reminders }, anniversaryLinkResult] = await Promise.all([
+    getActiveDateReminders(),
+    getMyAnniversaryLink(),
+  ]);
+  // getMyAnniversaryLink()'s error branch carries no `data` key at all (see
+  // its own return type), so this cannot be destructured the way reminders
+  // above can -- an error here just means "nothing to add to the badge",
+  // the same fail-quiet posture getActiveDateReminders() takes on its own
+  // error paths.
+  const anniversaryLink =
+    "data" in anniversaryLinkResult ? anniversaryLinkResult.data : null;
 
   // Get user profile for TopBar
   const { data: profile } = await getMyProfile();
@@ -51,12 +64,13 @@ export default async function DashboardLayout({
 
   return (
     <div className="min-h-screen flex flex-col bg-light-background overflow-x-hidden">
-      {/* Same reminders the banner below renders, counted through the one
-          shared filter so the bell's badge and /notifications agree. */}
+      {/* Same reminders the banner below renders, plus the caller's own
+          anniversary link, counted through the one shared filter so the
+          bell's badge and /notifications agree. */}
       <TopBar
         user={user}
         profile={profile}
-        notificationCount={unreadCount(reminders)}
+        notificationCount={unreadCount(reminders, anniversaryLink)}
       />
       <BreadcrumbProvider>
         <main className="flex-1 px-4 py-6 md:px-8 md:py-8 container mx-auto max-w-screen-2xl">
