@@ -13,6 +13,23 @@ export interface UpcomingOccasion {
   celebrantDisplayName: string | null;
   groupId: string | null;
   groupName: string | null;
+  /**
+   * Set only when the viewer can see BOTH partners' anniversary dates --
+   * get_upcoming_occasions collapses a confirmed couple's anniversary to one
+   * row, per viewer, and leaves these null otherwise. A viewer entitled to
+   * see only one partner gets that person's row with these null, exactly as
+   * before this feature existed -- that is the correct rendering for them,
+   * not a missing-data fallback.
+   *
+   * Optional (rather than required-but-nullable) so that existing
+   * constructors of this type -- lib/actions/occasions.ts's RPC mapper
+   * (Task 8's to wire up) and lib/occasions/taggable.test.ts's fixtures --
+   * do not need touching just to keep typechecking; occasionLabel treats a
+   * missing key the same as an explicit null.
+   */
+  partnerId?: string | null;
+  partnerUsername?: string | null;
+  partnerDisplayName?: string | null;
 }
 
 const KIND_NOUN: Record<Exclude<OccasionKind, "group_date">, string> = {
@@ -35,10 +52,28 @@ export function occasionLabel(o: UpcomingOccasion): string {
   // user_profiles row to source these two columns, so "Someone" is likewise
   // a defensive floor, not a reachable case.
   const who = o.celebrantDisplayName ?? o.celebrantUsername ?? "Someone";
-  // Case-insensitive: display names are free-text user input and can be any
-  // case ("CHRIS", "chris", "Chris"). Testing only the lowercase "s" let
-  // an uppercase-terminal name double up ("CHRIS's Birthday").
-  const possessive = /s$/i.test(who) ? `${who}'` : `${who}'s`;
+
+  // partner_id, partner_username and partner_display_name are set together
+  // or not at all (get_upcoming_occasions' couple arm joins all three from
+  // the same user_profiles row) -- null only when the viewer cannot see
+  // both partners' dates, in which case this is the correct single-name
+  // rendering, not a fallback for missing data. Resolved the same way as
+  // the celebrant, so a partner with a username but no display name renders
+  // consistently with a celebrant in that state.
+  const partnerWho = o.partnerId == null
+    ? null
+    : o.partnerDisplayName ?? o.partnerUsername ?? "Someone";
+
+  const names = partnerWho == null ? who : `${who} & ${partnerWho}`;
+  // Case-insensitive, and applied to the joined string rather than either
+  // name individually: since `names` always ENDS with the second name (or
+  // the only name, when there is no partner), checking the combined
+  // string's tail is equivalent to checking the second name's tail --
+  // "Alex & Sam's", "Alex & CHRIS'" -- without special-casing which half to
+  // test. Display names are free-text user input and can be any case
+  // ("CHRIS", "chris", "Chris"). Testing only the lowercase "s" let an
+  // uppercase-terminal name double up ("CHRIS's Birthday").
+  const possessive = /s$/i.test(names) ? `${names}'` : `${names}'s`;
   return `${possessive} ${KIND_NOUN[o.kind]}`;
 }
 

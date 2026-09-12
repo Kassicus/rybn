@@ -12,6 +12,9 @@ function make(over: Partial<UpcomingOccasion> = {}): UpcomingOccasion {
     celebrantDisplayName: "Mom",
     groupId: null,
     groupName: null,
+    partnerId: null,
+    partnerUsername: null,
+    partnerDisplayName: null,
     ...over,
   };
 }
@@ -48,6 +51,36 @@ describe("occasionLabel", () => {
       celebrantId: null, celebrantUsername: null, celebrantDisplayName: null,
       groupId: "g1", groupName: "The Suchows",
     }))).toBe("Christmas 2026");
+  });
+});
+
+describe("occasionLabel (shared anniversary)", () => {
+  const base = {
+    occasionId: "o1", kind: "anniversary" as const, name: null,
+    occasionDate: "2026-06-12", celebrantId: "u1",
+    celebrantUsername: "alex", celebrantDisplayName: "Alex",
+    groupId: null, groupName: null,
+    partnerId: null, partnerUsername: null, partnerDisplayName: null,
+  };
+
+  it("names both partners when the viewer can see both", () => {
+    // Fails if the partner fields are ignored -- the single-name label is what
+    // shipped before, so it is the wrong answer that looks right.
+    expect(occasionLabel({ ...base, partnerId: "u2",
+      partnerUsername: "sam", partnerDisplayName: "Sam" }))
+      .toBe("Alex & Sam's Anniversary");
+  });
+
+  it("falls back to the single name when there is no partner", () => {
+    expect(occasionLabel(base)).toBe("Alex's Anniversary");
+  });
+
+  it("applies the possessive to the SECOND name only", () => {
+    // "Alex & Chris' Anniversary", not "Alex' & Chris' " or "Alex & Chris's".
+    // The existing rule is case-insensitive because display names are free text.
+    expect(occasionLabel({ ...base, partnerId: "u2",
+      partnerUsername: "chris", partnerDisplayName: "CHRIS" }))
+      .toBe("Alex & CHRIS' Anniversary");
   });
 });
 
