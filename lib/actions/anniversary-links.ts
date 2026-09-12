@@ -41,7 +41,36 @@ export type AnniversaryLink = {
   partnerUsername: string | null;
   partnerDisplayName: string | null;
   status: "pending" | "confirmed";
+  /**
+   * The date captured at REQUEST time. Correct for a pending link -- it is
+   * literally what the recipient is being asked to agree to, and what
+   * confirming will write into their own profile -- and stale for a
+   * confirmed one, which is what `sharedDate` below exists for.
+   */
   agreedDate: string;
+  /**
+   * The couple's date as it stands NOW, for a CONFIRMED link; null for a
+   * pending one, where nothing has been agreed yet.
+   *
+   * FINDING I4. The confirmed card used to render `agreedDate`, a
+   * request-time snapshot that drifts the moment either partner edits their
+   * anniversary. Meanwhile the occasion the couple's claims are scoped to
+   * takes its date from the CANONICAL partner's live profile_info row
+   * (20260912000016_canonical_partner_date_authoritative.sql), and the
+   * listing derives from the same place -- so the one surface that exists to
+   * tell a couple their shared date was the only one showing a different
+   * number.
+   *
+   * Resolved canonical-first, then the caller's own row, then null. The
+   * canonical partner's row is read through the USER-SCOPED client, so
+   * profile_info's own RLS decides whether it comes back: a caller who
+   * cannot see their partner's date falls through to their own, which after
+   * a confirm holds the same value (confirm_anniversary_link writes
+   * agreed_date to BOTH partners, 20260912000012) and which they control
+   * directly. Nothing here can show a viewer a date RLS would not already
+   * hand them.
+   */
+  sharedDate: string | null;
   /** True when the CURRENT user sent the request -- the UI shows "cancel"
    *  rather than "confirm/decline" in that case. */
   initiatedByMe: boolean;
@@ -220,6 +249,44 @@ export async function getMyAnniversaryLink(): Promise<
     return { error: "Failed to load your anniversary link. Please try again." };
   }
 
+  // The couple's LIVE date, for a confirmed link only (finding I4 -- see
+  // AnniversaryLink.sharedDate). One query covering both partners: RLS
+  // returns the caller's own row unconditionally and the partner's only when
+  // can_view_field admits them, so this can come back with two rows, one, or
+  // (if the caller has since deleted their own date and cannot see their
+  // partner's) none.
+  //
+  // A failure here is NOT surfaced as a page error, unlike the partner
+  // profile lookup above: the link itself has loaded, and a card that says
+  // who you share an anniversary with but not on which day is far better
+  // than an error where the card should be. sharedDate falls back to null and
+  // the component falls back to agreedDate.
+  let sharedDate: string | null = null;
+
+  if (row.status === "confirmed") {
+    const { data: dateRows, error: dateError } = await supabase
+      .from("profile_info")
+      .select("user_id, field_value")
+      .in("user_id", [row.user_a, row.user_b])
+      .eq("category", "dates")
+      .eq("field_name", "anniversary");
+
+    if (dateError) {
+      console.error(
+        "getMyAnniversaryLink: shared date lookup failed",
+        dateError
+      );
+    }
+
+    const byUser = new Map(
+      (dateRows ?? []).map((r) => [r.user_id, r.field_value] as const)
+    );
+    // Canonical first: that is the row a partnered occasion's date is
+    // derived from, so it is what a claim scoped to this couple will
+    // actually lapse against.
+    sharedDate = byUser.get(row.user_a) ?? byUser.get(userId) ?? null;
+  }
+
   return {
     data: {
       id: row.id,
@@ -228,6 +295,7 @@ export async function getMyAnniversaryLink(): Promise<
       partnerDisplayName: partnerProfile?.display_name ?? null,
       status: row.status as "pending" | "confirmed",
       agreedDate: row.agreed_date,
+      sharedDate,
       initiatedByMe: row.initiated_by === userId,
     },
   };

@@ -341,8 +341,18 @@ export function AnniversaryPartner() {
                 above it truncates. */}
             <div className="min-w-0">
               <Text className="font-medium truncate">{partnerLabel(link)}</Text>
+              {/* The LIVE date, not link.agreedDate (finding I4).
+                  agreed_date is a request-time snapshot: it stops matching
+                  the couple's actual anniversary the moment either partner
+                  edits their profile, while the occasion their claims are
+                  scoped to follows the canonical partner's live
+                  profile_info row. This card is the one place the couple is
+                  told their shared date, so it has to be the same number.
+                  Falls back to agreedDate only when neither partner's row
+                  came back at all -- see AnniversaryLink.sharedDate. */}
               <Text variant="secondary" size="sm">
-                Shared anniversary: {formatMonthDay(link.agreedDate)}
+                Shared anniversary:{" "}
+                {formatMonthDay(link.sharedDate ?? link.agreedDate)}
               </Text>
             </div>
           </div>

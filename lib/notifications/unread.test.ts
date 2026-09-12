@@ -11,6 +11,10 @@ const anniversaryLink = (
   partnerDisplayName: "Partner Name",
   status: "pending",
   agreedDate: "2020-06-01",
+  // Genuinely null, not omitted: sharedDate is required-but-nullable, and
+  // null is the correct value for the PENDING link this fixture defaults to
+  // -- nothing has been agreed yet, so there is no live shared date.
+  sharedDate: null,
   initiatedByMe: false,
   ...overrides,
 });

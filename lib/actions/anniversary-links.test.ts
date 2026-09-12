@@ -408,6 +408,11 @@ describe("getMyAnniversaryLink", () => {
         partnerDisplayName: "Partner Name",
         status: "pending",
         agreedDate: "2020-06-01",
+        // Null, and no `profile_info` response is scripted above: a PENDING
+        // link has no live shared date, because nothing has been agreed yet.
+        // If the implementation looked one up anyway this test would fail on
+        // "No scripted Supabase response left for profile_info".
+        sharedDate: null,
         initiatedByMe: true,
       },
     });
@@ -437,6 +442,21 @@ describe("getMyAnniversaryLink", () => {
           error: null,
         },
       ],
+      // Both partners' anniversary rows come back, with DIFFERENT values --
+      // the post-confirm drift state. The canonical (user_a) row is the one
+      // that must win: it is what get_or_create_celebrated_occasion derives a
+      // partnered occasion's date from, so it is the date a claim scoped to
+      // this couple actually lapses against. The caller here is user_b, so
+      // "canonical" and "the caller's own" are distinguishable.
+      profile_info: [
+        {
+          data: [
+            { user_id: "user_a_123", field_value: "2019-05-05" },
+            { user_id: "user_z_789", field_value: "2021-11-30" },
+          ],
+          error: null,
+        },
+      ],
     });
 
     const result = await getMyAnniversaryLink();
@@ -449,10 +469,81 @@ describe("getMyAnniversaryLink", () => {
         partnerDisplayName: "Z Display",
         status: "confirmed",
         agreedDate: "2019-05-05",
+        // NOT agreedDate ("2019-05-05") and NOT the caller's own row (also
+        // "2019-05-05"): the canonical partner user_z_789's live value.
+        sharedDate: "2021-11-30",
         initiatedByMe: false,
       },
     });
     expect(eqSpy).toHaveBeenCalledWith("user_profiles", "id", "user_z_789");
+  });
+
+  // FINDING I4, the read half. The confirmed card used to render
+  // link.agreedDate -- a request-time snapshot -- while the occasion a
+  // couple's claims are scoped to follows the CANONICAL partner's live
+  // profile_info row. The two disagree the moment either partner edits their
+  // date, and the card was the only surface showing the stale number.
+  //
+  // Falsifiability, verified by mutation:
+  //   1. Reverting `sharedDate` to `row.agreed_date`: this test fails
+  //      (2019-05-05 received, 2021-11-30 expected), and so does the
+  //      "caller is user_b" test above.
+  //   2. Resolving the CALLER's own row first --
+  //      `byUser.get(userId) ?? byUser.get(row.user_a)` -- this test fails
+  //      while every other test in the file keeps passing, because it is the
+  //      only fixture where the two rows carry different values AND the
+  //      caller is the non-canonical half. That is the mutation a
+  //      "just read my own date" implementation would be, and nothing else
+  //      here catches it.
+  //   3. Dropping the `status === "confirmed"` guard: the PENDING test above
+  //      fails on an unscripted profile_info response.
+  // NOT caught here: whether the RLS-invisible case degrades correctly --
+  // that is the next test's job.
+  it("falls back to the caller's own date when the canonical partner's row is not visible", async () => {
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        {
+          data: [
+            {
+              id: "link-3",
+              user_a: "user_z_789",
+              user_b: "user_a_123", // the CALLER
+              status: "confirmed",
+              initiated_by: "user_z_789",
+              agreed_date: "2019-05-05",
+            },
+          ],
+          error: null,
+        },
+      ],
+      user_profiles: [
+        {
+          data: { username: "z-username", display_name: "Z Display" },
+          error: null,
+        },
+      ],
+      // Only the caller's own row comes back. This is what profile_info's RLS
+      // produces for a caller whose partner's anniversary privacy excludes
+      // them -- the read is user-scoped precisely so the database, not this
+      // code, decides that.
+      profile_info: [
+        {
+          data: [{ user_id: "user_a_123", field_value: "2022-04-04" }],
+          error: null,
+        },
+      ],
+    });
+
+    const result = await getMyAnniversaryLink();
+
+    expect(result).toMatchObject({
+      data: { sharedDate: "2022-04-04" },
+    });
+
+    // Falsifiable by: dropping the `?? byUser.get(userId)` fallback, which
+    // makes this null and shows the couple no date at all. NOT caught: the
+    // canonical-first precedence, which the test above pins -- this fixture
+    // has only one row, so either resolution order would pass it.
   });
 
   // Task 3's review established that pending links are deliberately
@@ -524,6 +615,18 @@ describe("getMyAnniversaryLink", () => {
           error: null,
         },
       ],
+      // The surviving row is CONFIRMED, so the live-date lookup runs. Here
+      // the caller IS the canonical partner, so their own row is also the
+      // authoritative one.
+      profile_info: [
+        {
+          data: [
+            { user_id: "user_a_123", field_value: "2018-09-09" },
+            { user_id: "user_c_789", field_value: "2018-09-09" },
+          ],
+          error: null,
+        },
+      ],
     });
 
     const result = await getMyAnniversaryLink();
@@ -536,6 +639,7 @@ describe("getMyAnniversaryLink", () => {
         partnerDisplayName: "C Display",
         status: "confirmed",
         agreedDate: "2018-09-09",
+        sharedDate: "2018-09-09",
         initiatedByMe: true,
       },
     });
