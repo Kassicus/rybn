@@ -37,12 +37,21 @@
 -- Latent today (0 partnered occasions on the live project), but Task 4
 -- starts writing partner_id for real, so this is fixed now rather than
 -- deferred. Fix: scope the clear to the SPECIFIC pair this link named,
--- `and partner_id = v_link.user_b`. This is complete, not merely
--- narrowed: anniversary_links_pair permits at most one row per
--- (user_a, user_b) pair, so a link's own user_b can never coincide with a
--- DIFFERENT couple's actual partner_id -- there is no second link through
--- which the same (user_a, wrong partner_id) combination could still slip
--- through.
+-- `and partner_id = v_link.user_b`. This is complete, not merely narrowed --
+-- CORRECTED (round-2 review): the mechanism that makes it so is
+-- anniversary_links_one_confirmed_a/_b (20260912000000), NOT
+-- anniversary_links_pair. anniversary_links_pair only forbids a SECOND row
+-- for the exact same (user_a, user_b) tuple, which says nothing about
+-- whether celebrant x_a could hold confirmed relationships with two
+-- DIFFERENT partners. What actually closes that: anniversary_links_
+-- one_confirmed_a guarantees at most one CONFIRMED row can ever name a
+-- given person as user_a, so a celebrant's occasion.partner_id can only
+-- ever reflect the ONE confirmed relationship that celebrant currently
+-- holds -- there is no second, simultaneously-confirmed relationship whose
+-- partner_id the conjunct could be mistaken for. Any OTHER link sharing
+-- that celebrant (like an unrelated pending one) necessarily names a
+-- DIFFERENT partner, which `and partner_id = v_link.user_b` excludes on
+-- plain inequality, not on any constraint at all.
 --
 -- IMPORTANT, ruled on separately: unlink_anniversary carried no `status`
 -- filter, so an INITIATOR of a still-pending request -- deliberately denied
@@ -157,10 +166,13 @@ begin
   -- entirely unrelated one the caller is a participant in, sharing nothing
   -- with the couple whose occasion this is -- resolved to the same
   -- celebrant_id and cleared the real couple's partner_id. See this
-  -- migration's header for the full reproduction. anniversary_links_pair
-  -- permits at most one row per (user_a, user_b), so this link's own
-  -- user_b can never coincide with a different couple's actual partner_id,
-  -- which is what makes this scoping complete rather than merely narrower.
+  -- migration's header for the full reproduction, and its CORRECTED note
+  -- for why this is complete: anniversary_links_one_confirmed_a guarantees
+  -- at most one CONFIRMED relationship per celebrant, so partner_id here is
+  -- never ambiguous between two simultaneously-confirmed couples -- not
+  -- anniversary_links_pair, which only forbids a duplicate row for the
+  -- exact same (user_a, user_b) tuple and says nothing about a different
+  -- partner.
   update public.occasions
      set partner_id = null
    where kind = 'anniversary'

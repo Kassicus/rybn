@@ -188,6 +188,18 @@ declare
   v_link_x_pending   uuid;
   v_occ_x  uuid;
 
+  -- assertion 4c: isolates the partner_id conjunct itself, via a SYNTHETIC
+  -- occasion row no authenticated-reachable path can produce (same
+  -- technique as 16_claim_visibility.sql's owner-blindness fixture). y_a is
+  -- confirmed-linked to y_b; a SEPARATE occasion also names y_a as celebrant
+  -- but carries partner_id = y_z, a person y_a has no link with at all.
+  v_y_a     text := 'user_annrpc_y_a';
+  v_y_b     text := 'user_annrpc_y_b';
+  v_y_z     text := 'user_annrpc_y_z';
+  v_link_y  uuid;
+  v_occ_y_real uuid;
+  v_occ_y_synthetic uuid;
+
   -- assertion 5: confirm by the recipient, overwriting a prior date
   v_c5_a   text := 'user_annrpc_c5_a';
   v_c5_b   text := 'user_annrpc_c5_b';
@@ -239,7 +251,10 @@ begin
     (v_u4c_b,  'annrpcu4cb',  'AnnRPC U4C B'),
     (v_x_a,    'annrpcxa',    'AnnRPC X A'),
     (v_x_b,    'annrpcxb',    'AnnRPC X B'),
-    (v_x_c,    'annrpcxc',    'AnnRPC X C');
+    (v_x_c,    'annrpcxc',    'AnnRPC X C'),
+    (v_y_a,    'annrpcya',    'AnnRPC Y A'),
+    (v_y_b,    'annrpcyb',    'AnnRPC Y B'),
+    (v_y_z,    'annrpcyz',    'AnnRPC Y Z');
 
   insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date)
     values (v_d1_a, v_d1_b, 'pending', v_d1_a, '2011-01-01')
@@ -334,6 +349,38 @@ begin
   insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date)
     values (v_x_a, v_x_c, 'pending', v_x_c, '2023-08-08')
     returning id into v_link_x_pending;
+
+  -- Fixture for assertion 4c: isolates the `and partner_id = v_link.user_b`
+  -- conjunct on its own, independent of the status filter. y_a is
+  -- confirmed-linked to y_b (real occasion, year 2026). A SECOND occasion --
+  -- a DIFFERENT year, so occasions_celebrant_identity does not collide --
+  -- also names y_a as celebrant but carries partner_id = y_z, a person y_a
+  -- has no anniversary_links row with at all.
+  --
+  -- This second row is a SYNTHETIC state: no authenticated-reachable path
+  -- can produce it. occasions.partner_id is set only by confirm_anniversary_
+  -- link's own final UPDATE, scoped to `celebrant_id = v_link.user_a` for
+  -- the CALLER's own just-confirmed link, and anniversary_link_members'
+  -- primary key means y_a can hold at most one CONFIRMED link at a time --
+  -- so y_a's occasion(s) can only ever carry a partner_id matching whoever
+  -- y_a is (or was) actually confirmed-linked to, never an arbitrary third
+  -- party. Written directly as the connecting role for exactly that reason
+  -- -- the same precedent 16_claim_visibility.sql's owner-blindness fixture
+  -- follows for a row no application path can produce.
+  insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date, confirmed_at)
+    values (v_y_a, v_y_b, 'confirmed', v_y_a, '2024-09-09', now())
+    returning id into v_link_y;
+
+  insert into anniversary_link_members (user_id, link_id)
+    values (v_y_a, v_link_y), (v_y_b, v_link_y);
+
+  insert into occasions (celebrant_id, partner_id, kind, occasion_date)
+    values (v_y_a, v_y_b, 'anniversary', '2026-09-09')
+    returning id into v_occ_y_real;
+
+  insert into occasions (celebrant_id, partner_id, kind, occasion_date)
+    values (v_y_a, v_y_z, 'anniversary', '2027-09-09')
+    returning id into v_occ_y_synthetic;
 
   ---------------------------------------------------------------------------
   -- Assertion 1 (2 checks): decline_anniversary_link by the RECIPIENT
@@ -593,27 +640,32 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 4b (4 checks, CRITICAL fix regression guard): cross-link
-  -- isolation. x_c -- who shares nothing with the x_a/x_b couple beyond a
-  -- pending link naming x_a -- calls unlink_anniversary on THAT pending
-  -- link. This is the exact reproduction from 20260912000005's migration
-  -- header: before the fix, unlink_anniversary's occasion UPDATE was scoped
-  -- only by `celebrant_id = v_link.user_a`, so ANY link naming x_a as its
-  -- canonical id -- confirmed or not, related to the real couple or not --
-  -- cleared the real couple's partner_id. Confirmed against BOTH versions
-  -- live (see the task report): this exact fixture fails against the
-  -- unfixed function (occ_partner clears to NULL despite x_c never being
-  -- part of the x_a/x_b link) and passes against the fixed one.
+  -- Assertion 4b (4 checks): end-to-end reproduction of the reviewer's
+  -- ORIGINAL exploit shape. x_c -- who shares nothing with the x_a/x_b
+  -- couple beyond a pending link naming x_a -- calls unlink_anniversary on
+  -- THAT pending link. Confirmed against both versions live (see the task
+  -- report): fails against the fully unfixed function (occ_x clears to NULL
+  -- despite x_c never being part of the x_a/x_b link) and passes against
+  -- the fixed one.
   --
-  -- FALSIFIABLE: remove the `and partner_id = v_link.user_b` conjunct from
-  -- unlink_anniversary's occasion UPDATE and check (b) fails -- x_a/x_b's
-  -- occasion loses its partner_id through a link neither of them confirmed.
-  -- Re-add a status filter regression (drop `status = 'confirmed'` from the
-  -- SELECT) and this ALSO independently makes the unlink call itself
-  -- return true and delete the pending row, changing check (a) too. NOT
-  -- caught: a version that clears partner_id for the CORRECT couple but
-  -- ALSO leaves some other unrelated occasion mutated -- nothing here scans
-  -- occasions beyond v_occ_x.
+  -- CORRECTED (round 2 review): the FALSIFIABLE claim this comment
+  -- previously made -- "remove the `and partner_id = v_link.user_b`
+  -- conjunct ... and check (b) fails" -- is false, and was shown false by
+  -- mutation: with `status = 'confirmed'` still in place, unlink_anniversary
+  -- returns false on this PENDING link before ever reaching the occasion
+  -- UPDATE, so removing the partner_id conjunct alone changes nothing this
+  -- assertion observes. What checks (a)-(d) below actually establish is
+  -- narrower: the reproduction fails end-to-end when EITHER the whole
+  -- unlink_anniversary fix is reverted, OR the status filter alone is
+  -- reverted (which puts the pending link back within unlink's reach) --
+  -- they duplicate assertion 3's pending-link check (19:489-ish) for that
+  -- second case rather than adding independent coverage of it. They do NOT
+  -- isolate the partner_id conjunct while the status filter is intact,
+  -- because no ordinary (authenticated-reachable) fixture can put the
+  -- conjunct in play without ALSO satisfying the status filter, at which
+  -- point the real bug it guards against needs a synthetic state to reach
+  -- at all -- see assertion 4c immediately below, which is what actually
+  -- isolates it.
   ---------------------------------------------------------------------------
   perform set_config('request.jwt.claims',
     '{"sub":"' || v_x_c || '","role":"authenticated"}', true);
@@ -652,6 +704,70 @@ begin
     raise exception
       'RPC FAIL: the unrelated pending link % is gone after a denied unlink attempt, expected 1 (untouched)',
       v_link_x_pending;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 4c (3 checks, ROUND 2 FIX): isolates the
+  -- `and partner_id = v_link.user_b` conjunct itself, independent of the
+  -- status filter -- what assertion 4b's comment previously, and wrongly,
+  -- claimed to do. y_b (an actual participant of the CONFIRMED y_a/y_b
+  -- link) calls unlink_anniversary on that real link, so the status filter
+  -- is satisfied and the occasion UPDATE is genuinely reached this time.
+  --
+  -- Without the conjunct, the UPDATE's WHERE clause would read only
+  -- `celebrant_id = v_link.user_a` (y_a), matching BOTH of y_a's occasion
+  -- rows -- the real one (partner_id = y_b) AND the synthetic one
+  -- (partner_id = y_z) -- and clear partner_id on both. WITH the conjunct,
+  -- only the row where partner_id ALSO equals v_link.user_b (y_b) matches,
+  -- so the synthetic row is untouched.
+  --
+  -- FALSIFIABLE: remove the `and partner_id = v_link.user_b` conjunct (the
+  -- one actual regression this checks) and check (c) fails -- the synthetic
+  -- row's partner_id (y_z) is cleared to NULL alongside the real one, since
+  -- both share celebrant_id = y_a. NOT caught: a version that replaces the
+  -- conjunct with some OTHER condition that happens to also exclude the
+  -- synthetic row for an unrelated reason (e.g. `partner_id is not null`,
+  -- which is true for both rows here and would not distinguish them) --
+  -- this checks the OUTCOME (the synthetic row survives), not the literal
+  -- WHERE clause text.
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_y_b || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  select public.unlink_anniversary(v_link_y) into v_bool;
+
+  perform set_config('role', v_orig_role, true);
+
+  if v_bool is distinct from true then
+    raise exception
+      'RPC FAIL: unlink_anniversary by participant % on the real confirmed link returned %, expected true',
+      v_y_b, v_bool;
+  end if;
+  v_checks := v_checks + 1;
+
+  -- (b) not-vacuous: the REAL occasion's partner_id is correctly cleared --
+  -- proves the UPDATE genuinely ran and matched the intended row, so
+  -- check (c) below is not passing merely because the UPDATE never fired
+  -- at all.
+  select count(*) into v_count
+    from occasions where id = v_occ_y_real and partner_id is null;
+  if v_count <> 1 then
+    raise exception
+      'HARNESS FAIL: the real occasion % does not have partner_id cleared after unlink (% matching row(s), expected 1) -- assertion 4c''s conjunct isolation would be vacuous if the UPDATE never ran',
+      v_occ_y_real, v_count;
+  end if;
+  v_checks := v_checks + 1;
+
+  -- (c) THE ISOLATION: the SYNTHETIC occasion, sharing celebrant_id = y_a
+  -- but carrying a DIFFERENT partner_id (y_z), must be completely untouched.
+  select count(*) into v_count
+    from occasions where id = v_occ_y_synthetic and partner_id = v_y_z;
+  if v_count <> 1 then
+    raise exception
+      'CRITICAL FAIL: synthetic occasion % (celebrant %, unrelated partner %) had its partner_id changed by an unlink call on a DIFFERENT link that only shares the same celebrant -- the partner_id conjunct is not doing its job',
+      v_occ_y_synthetic, v_y_a, v_y_z;
   end if;
   v_checks := v_checks + 1;
 
@@ -1250,8 +1366,8 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 47 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 47', v_checks;
+  if v_checks < 50 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 50', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_19_anniversary_link_rpcs');

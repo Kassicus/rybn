@@ -1,0 +1,26 @@
+-- =============================================================================
+-- rybn: correct the live table comment on anniversary_link_members
+-- =============================================================================
+--
+-- CORRECTIVE MIGRATION for 20260912000001_anniversary_link_members.sql,
+-- which is edited in place for its prose (its own header now carries a
+-- `-- CORRECTED (20260912000006):` note explaining this, the same marker
+-- style commit 803ce42 used to correct 20260912000000's comment) -- but a
+-- `comment on table ...` is not prose, it is a database object recorded in
+-- pg_description, and editing the source file alone does not change what is
+-- already live. This migration re-issues it.
+--
+-- The live comment (and the migration file's own copy, before this task)
+-- read: '... The primary key on user_id is what actually enforces "at most
+-- one confirmed link per person, either side" ...' -- stated unconditionally.
+-- That overstates it the same way the header paragraph above it did: the
+-- primary key constrains only this table. The invariant holds for
+-- `authenticated` callers because confirm_anniversary_link (Task 3,
+-- 20260912000003) is the only authenticated-reachable writer of
+-- anniversary_links.status and always inserts here in the same transaction
+-- as the flip -- not because this table's primary key reaches
+-- anniversary_links directly. A service_role UPDATE that sets
+-- anniversary_links.status = 'confirmed' on its own, bypassing that RPC,
+-- writes nothing here and is not caught by this constraint at all.
+comment on table public.anniversary_link_members is
+  'Membership side table for anniversary_links: one row per person currently in a CONFIRMED link. The primary key on user_id enforces "at most one confirmed link per person, either side" for authenticated callers, because confirm_anniversary_link is the only authenticated-reachable writer of anniversary_links.status and always inserts here in the same transaction as the flip. It does not reach service_role: a direct status update there, bypassing that RPC, writes nothing here.';

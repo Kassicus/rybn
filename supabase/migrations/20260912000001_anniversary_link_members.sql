@@ -17,8 +17,27 @@
 -- One confirmed link per person, enforced by a PRIMARY KEY rather than by two
 -- partial indexes that can only see one column each. A person appears here at
 -- most once, so a second confirmed link for them is impossible no matter which
--- side of the pair they are on -- including for service_role and for any
--- future backfill, which an application-level check would not cover.
+-- side of the pair they are on.
+--
+-- CORRECTED (20260912000006): this paragraph originally continued
+-- "...including for service_role and for any future backfill, which an
+-- application-level check would not cover." That overstates it, and was
+-- caught the same way the paragraph above it was: the primary key
+-- constrains only THIS table. Nothing ties anniversary_links.status =
+-- 'confirmed' to a row existing here, so the either-side invariant holds
+-- for `authenticated` callers specifically BECAUSE confirm_anniversary_link
+-- (Task 3, 20260912000003) is the only authenticated-reachable writer of
+-- anniversary_links.status, and it always inserts into this table in the
+-- same transaction as the flip -- not because the primary key reaches
+-- anniversary_links directly. A service_role UPDATE that sets
+-- anniversary_links.status = 'confirmed' on its own, bypassing
+-- confirm_anniversary_link entirely, writes nothing here and is not caught
+-- by this constraint at all. (The SAME-side case is different:
+-- anniversary_links_one_confirmed_a/_b, the partial indexes above, DO
+-- block a second same-side confirmed row for any writer, service_role
+-- included, because a unique index is a property of the table itself, not
+-- of a particular caller. It is only the EITHER-side case -- the one this
+-- table exists for -- that depends on which writer is doing the confirming.)
 --
 -- A trigger would express the same rule but not race-free: under READ
 -- COMMITTED two concurrent confirms would not see each other's uncommitted
@@ -34,8 +53,14 @@ create table public.anniversary_link_members (
   link_id  uuid not null references public.anniversary_links(id) on delete cascade
 );
 
+-- CORRECTED (20260912000006): the object comment below originally read
+-- unconditionally, the same overclaim as the prose paragraph above it --
+-- see that correction for the full reasoning. Fixed here for a fresh
+-- database applying this migration from scratch; 20260912000006 additionally
+-- re-issues a corrected `comment on table` for databases where this
+-- migration already ran and the old text is live in pg_description.
 comment on table public.anniversary_link_members is
-  'Membership side table for anniversary_links: one row per person currently in a CONFIRMED link. The primary key on user_id is what actually enforces "at most one confirmed link per person, either side" -- anniversary_links'' own partial unique indexes only cover the same-side case.';
+  'Membership side table for anniversary_links: one row per person currently in a CONFIRMED link. The primary key on user_id enforces "at most one confirmed link per person, either side" for authenticated callers, because confirm_anniversary_link is the only authenticated-reachable writer of anniversary_links.status and always inserts here in the same transaction as the flip. It does not reach service_role: a direct status update there, bypassing that RPC, writes nothing here.';
 
 alter table public.anniversary_link_members enable row level security;
 
