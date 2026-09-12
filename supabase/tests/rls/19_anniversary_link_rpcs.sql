@@ -84,6 +84,42 @@
 -- WHOLE table, not scoped to one fixture, so two confirms sharing a user
 -- anywhere in this transaction would collide with each other, not just with
 -- the case under test.
+--
+-- ROUND-1 REVIEW FIXES, all against 20260912000005_anniversary_link_rpc_
+-- corrections.sql (which supersedes decline_anniversary_link and
+-- unlink_anniversary from 20260912000003 -- see that migration's header for
+-- the full reproduction and ruling):
+--
+--   CRITICAL: unlink_anniversary's occasion UPDATE was scoped only by
+--   `celebrant_id = v_link.user_a`, with no `partner_id` check, so ANY link
+--   naming a celebrant as its canonical id -- including one an unrelated
+--   third party merely shares a GROUP with, entirely outside the real
+--   couple -- could silently clear that couple's partner_id through granted
+--   RPCs alone. Fixed by scoping to `and partner_id = v_link.user_b` too.
+--   The new cross-link isolation assertion below constructs exactly this
+--   shape and was confirmed failing against the unfixed function and
+--   passing against the fixed one (task report has the transcript).
+--
+--   RULING: one function per status, both callable by EITHER participant.
+--   decline_anniversary_link now accepts either participant on a PENDING
+--   row (the initiator exclusion is dropped -- Task 9's UI lets the
+--   initiator cancel); unlink_anniversary now only reaches CONFIRMED rows
+--   (`and status = 'confirmed'`), which independently closes the
+--   reproduction above at its root. Assertion 2 is rewritten to match, and
+--   assertion 3's fixture moved from pending to confirmed so its
+--   non-participant check still exercises the participant guard rather
+--   than being satisfied by the status filter alone; a new sub-assertion
+--   covers "unlink on a still-pending row returns false" as its own
+--   dedicated regression guard for the status filter specifically.
+--
+--   MINOR: assertions 9 and 10 now match each guard's condition and its
+--   raise as ONE contiguous multi-line pattern (matching assertion 11's
+--   style already), rather than ANDing two independent regexes that could
+--   each match while disassociated from each other.
+--
+--   MINOR: assertion 4's fixture-1 comment claimed anniversary_link_members
+--   cascades on unlink; a check reading that table after unlink now backs
+--   the claim.
 
 create temp table _harness_result (token text);
 
@@ -106,16 +142,28 @@ declare
   v_d1_b   text := 'user_annrpc_d1_b';
   v_link_d1 uuid;
 
-  -- assertion 2: decline by the initiator
+  -- assertion 2: decline by the initiator (now succeeds -- see ruling), plus
+  -- a separate fixture for decline by a non-participant (still denied).
   v_d2_a   text := 'user_annrpc_d2_a';
   v_d2_b   text := 'user_annrpc_d2_b';
   v_link_d2 uuid;
 
-  -- assertion 3: unlink by a non-participant
+  v_d2n_a   text := 'user_annrpc_d2n_a';
+  v_d2n_b   text := 'user_annrpc_d2n_b';
+  v_d2n_out text := 'user_annrpc_d2n_out';
+  v_link_d2n uuid;
+
+  -- assertion 3: unlink by a non-participant on a CONFIRMED link, plus
+  -- unlink attempted on a still-PENDING link (must return false -- that is
+  -- decline's job now, not unlink's).
   v_u3_a   text := 'user_annrpc_u3_a';
   v_u3_b   text := 'user_annrpc_u3_b';
   v_u3_out text := 'user_annrpc_u3_out';
   v_link_u3 uuid;
+
+  v_u3p_a  text := 'user_annrpc_u3p_a';
+  v_u3p_b  text := 'user_annrpc_u3p_b';
+  v_link_u3p uuid;
 
   -- assertion 4: unlink by either partner (two fixtures, opposite sides)
   v_u4_a    text := 'user_annrpc_u4_a';
@@ -127,6 +175,18 @@ declare
   v_u4c_a    text := 'user_annrpc_u4c_a';
   v_u4c_b    text := 'user_annrpc_u4c_b';
   v_link_u4c uuid;
+
+  -- cross-link isolation (Critical 2): a CONFIRMED couple (x_a, x_b) and a
+  -- separate PENDING link sharing x_a with a third person x_c. x_a is
+  -- deliberately the lexicographically smaller id in BOTH links (see the
+  -- fixture comment below), matching the exact shape the reviewer's
+  -- reproduction used.
+  v_x_a    text := 'user_annrpc_x_a';
+  v_x_b    text := 'user_annrpc_x_b';
+  v_x_c    text := 'user_annrpc_x_c';
+  v_link_x_confirmed uuid;
+  v_link_x_pending   uuid;
+  v_occ_x  uuid;
 
   -- assertion 5: confirm by the recipient, overwriting a prior date
   v_c5_a   text := 'user_annrpc_c5_a';
@@ -165,13 +225,21 @@ begin
     (v_d1_b,   'annrpcd1b',   'AnnRPC D1 B'),
     (v_d2_a,   'annrpcd2a',   'AnnRPC D2 A'),
     (v_d2_b,   'annrpcd2b',   'AnnRPC D2 B'),
+    (v_d2n_a,   'annrpcd2na',   'AnnRPC D2N A'),
+    (v_d2n_b,   'annrpcd2nb',   'AnnRPC D2N B'),
+    (v_d2n_out, 'annrpcd2nout', 'AnnRPC D2N Outsider'),
     (v_u3_a,   'annrpcu3a',   'AnnRPC U3 A'),
     (v_u3_b,   'annrpcu3b',   'AnnRPC U3 B'),
     (v_u3_out, 'annrpcu3out', 'AnnRPC U3 Outsider'),
+    (v_u3p_a,  'annrpcu3pa',  'AnnRPC U3P A'),
+    (v_u3p_b,  'annrpcu3pb',  'AnnRPC U3P B'),
     (v_u4_a,   'annrpcu4a',   'AnnRPC U4 A'),
     (v_u4_b,   'annrpcu4b',   'AnnRPC U4 B'),
     (v_u4c_a,  'annrpcu4ca',  'AnnRPC U4C A'),
-    (v_u4c_b,  'annrpcu4cb',  'AnnRPC U4C B');
+    (v_u4c_b,  'annrpcu4cb',  'AnnRPC U4C B'),
+    (v_x_a,    'annrpcxa',    'AnnRPC X A'),
+    (v_x_b,    'annrpcxb',    'AnnRPC X B'),
+    (v_x_c,    'annrpcxc',    'AnnRPC X C');
 
   insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date)
     values (v_d1_a, v_d1_b, 'pending', v_d1_a, '2011-01-01')
@@ -182,16 +250,35 @@ begin
     returning id into v_link_d2;
 
   insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date)
-    values (v_u3_a, v_u3_b, 'pending', v_u3_a, '2013-03-03')
+    values (v_d2n_a, v_d2n_b, 'pending', v_d2n_a, '2012-03-03')
+    returning id into v_link_d2n;
+
+  -- assertion 3's non-participant fixture is now a CONFIRMED link (with its
+  -- membership rows), not pending -- unlink_anniversary no longer reaches a
+  -- pending row at all (see the ruling above), so a pending fixture here
+  -- would make the non-participant check pass for the wrong reason (the
+  -- status filter, not the participant guard).
+  insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date, confirmed_at)
+    values (v_u3_a, v_u3_b, 'confirmed', v_u3_a, '2013-03-03', now())
     returning id into v_link_u3;
+
+  insert into anniversary_link_members (user_id, link_id)
+    values (v_u3_a, v_link_u3), (v_u3_b, v_link_u3);
+
+  -- assertion 3's second fixture: a genuinely PENDING link, to prove unlink
+  -- returns false on it (decline_anniversary_link is what handles pending
+  -- rows now).
+  insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date)
+    values (v_u3p_a, v_u3p_b, 'pending', v_u3p_a, '2013-04-04')
+    returning id into v_link_u3p;
 
   -- assertion 4, fixture 1: a genuinely CONFIRMED link with a real occasion,
   -- partner_id set, and one tag -- so "leaves the occasion and its tags in
   -- place" is checked against something that actually exists, not an absence
   -- that would pass regardless. Inserted directly (status='confirmed') along
-  -- with its anniversary_link_members rows: unlink_anniversary never reads
-  -- that table, but it must not leave it inconsistent, and the FK's ON
-  -- DELETE CASCADE is what this fixture proves against below.
+  -- with its anniversary_link_members rows: unlink_anniversary never writes
+  -- to that table directly, but deleting the link must cascade-clear it, and
+  -- the FK's ON DELETE CASCADE is what this fixture proves against below.
   insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date, confirmed_at)
     values (v_u4_a, v_u4_b, 'confirmed', v_u4_a, '2020-05-05', now())
     returning id into v_link_u4;
@@ -224,15 +311,40 @@ begin
   insert into anniversary_link_members (user_id, link_id)
     values (v_u4c_a, v_link_u4c), (v_u4c_b, v_link_u4c);
 
+  -- Cross-link isolation fixture (Critical 2): a CONFIRMED couple (x_a, x_b)
+  -- with a real, partner-carrying occasion, and a SEPARATE PENDING link
+  -- naming x_a and a third person x_c. x_a is lexicographically the smaller
+  -- id in BOTH pairs (annrpc_x_a < annrpc_x_b and < annrpc_x_c), so both
+  -- links resolve to the SAME v_link.user_a -- exactly the shape that let an
+  -- unrelated pending link's unlink call reach and clear the real couple's
+  -- occasion before this round's fix.
+  insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date, confirmed_at)
+    values (v_x_a, v_x_b, 'confirmed', v_x_a, '2022-07-07', now())
+    returning id into v_link_x_confirmed;
+
+  insert into anniversary_link_members (user_id, link_id)
+    values (v_x_a, v_link_x_confirmed), (v_x_b, v_link_x_confirmed);
+
+  insert into occasions (celebrant_id, partner_id, kind, occasion_date)
+    values (v_x_a, v_x_b, 'anniversary', '2026-07-07')
+    returning id into v_occ_x;
+
+  -- x_c shares nothing with the x_a/x_b couple beyond having asked x_a for a
+  -- link of their own -- never confirmed, so x_a never agreed to it.
+  insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date)
+    values (v_x_a, v_x_c, 'pending', v_x_c, '2023-08-08')
+    returning id into v_link_x_pending;
+
   ---------------------------------------------------------------------------
   -- Assertion 1 (2 checks): decline_anniversary_link by the RECIPIENT
   -- returns true, and the row is gone.
   --
-  -- FALSIFIABLE: flip the DELETE's `initiated_by <> v_caller` to `=`, or drop
-  -- it, and this fails (the recipient would be denied, or an unrelated
-  -- caller would delete it -- either way the return value and/or the
-  -- survival check changes). NOT caught: reordering decline's other
-  -- predicates, or a message-text change on an unrelated raise.
+  -- FALSIFIABLE: narrow `v_caller in (user_a, user_b)` to exclude the
+  -- recipient specifically (or require `v_caller = initiated_by`, the
+  -- opposite of the current rule) and this fails -- the recipient could no
+  -- longer decline their own incoming request. NOT caught: reordering
+  -- decline's other predicates, or a message-text change on an unrelated
+  -- raise.
   ---------------------------------------------------------------------------
   perform set_config('request.jwt.claims',
     '{"sub":"' || v_d1_b || '","role":"authenticated"}', true);
@@ -258,15 +370,21 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 2 (2 checks): decline_anniversary_link by the INITIATOR
-  -- returns false, and the row survives, still pending. Only the recipient
-  -- may decline.
+  -- Assertion 2 (4 checks): RULING (see file header and 20260912000005's
+  -- migration header) -- either participant may remove a PENDING link, so
+  -- decline_anniversary_link by the INITIATOR now also returns true and
+  -- deletes the row (2a); a NON-PARTICIPANT is still denied, returns false,
+  -- and the row survives, still pending (2b) -- that half is what was
+  -- actually protecting anything, and it is kept.
   --
-  -- FALSIFIABLE: drop the `initiated_by <> v_caller` predicate and this
-  -- fails (the initiator could delete their own outgoing request). NOT
-  -- caught: an initiator-decline that raises instead of returning false --
-  -- the function's own header rules that out as a design choice, not
-  -- something this assertion re-verifies.
+  -- FALSIFIABLE (2a): reintroduce an initiator exclusion (e.g.
+  -- `initiated_by <> v_caller`) and this fails -- Task 9's UI lets the
+  -- initiator cancel a pending request, so this must succeed. NOT caught:
+  -- an initiator-decline that raises instead of returning true.
+  -- FALSIFIABLE (2b): drop `v_caller in (user_a, user_b)` (return true for
+  -- anyone) and this fails -- any authenticated caller could delete any
+  -- pending link. NOT caught: a non-participant call that raises instead of
+  -- returning false.
   ---------------------------------------------------------------------------
   perform set_config('request.jwt.claims',
     '{"sub":"' || v_d2_a || '","role":"authenticated"}', true);
@@ -276,29 +394,64 @@ begin
 
   perform set_config('role', v_orig_role, true);
 
-  if v_bool is distinct from false then
+  if v_bool is distinct from true then
     raise exception
-      'RPC FAIL: decline_anniversary_link by the initiator % returned %, expected false -- only the recipient may decline',
+      'RPC FAIL: decline_anniversary_link by the initiator % returned %, expected true -- either participant may cancel a pending link',
       v_d2_a, v_bool;
   end if;
   v_checks := v_checks + 1;
 
-  select status into v_status from anniversary_links where id = v_link_d2;
+  select count(*) into v_count from anniversary_links where id = v_link_d2;
+  if v_count <> 0 then
+    raise exception
+      'RPC FAIL: anniversary_links still has % row(s) for id % after the initiator declined, expected 0',
+      v_count, v_link_d2;
+  end if;
+  v_checks := v_checks + 1;
+
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_d2n_out || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  select public.decline_anniversary_link(v_link_d2n) into v_bool;
+
+  perform set_config('role', v_orig_role, true);
+
+  if v_bool is distinct from false then
+    raise exception
+      'RPC FAIL: decline_anniversary_link by non-participant % returned %, expected false',
+      v_d2n_out, v_bool;
+  end if;
+  v_checks := v_checks + 1;
+
+  select status into v_status from anniversary_links where id = v_link_d2n;
   if v_status is distinct from 'pending' then
     raise exception
-      'RPC FAIL: anniversary_links row % has status % after a denied decline, expected it untouched at pending',
-      v_link_d2, v_status;
+      'RPC FAIL: anniversary_links row % has status % after a denied decline by a non-participant, expected it untouched at pending',
+      v_link_d2n, v_status;
   end if;
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 3 (2 checks): unlink_anniversary by a NON-PARTICIPANT returns
-  -- false, and the row survives.
+  -- Assertion 3 (4 checks): (3a) unlink_anniversary by a NON-PARTICIPANT on
+  -- a CONFIRMED link returns false and the row survives; (3b) unlink on a
+  -- still-PENDING link -- by an actual participant, so only the status
+  -- filter is in play -- also returns false, with the row untouched. (3a)'s
+  -- fixture is deliberately CONFIRMED (not pending, per the ruling): a
+  -- pending fixture there would make the non-participant check pass because
+  -- of the status filter alone, not because the participant guard fired.
   --
-  -- FALSIFIABLE: drop the `v_caller not in (...)` guard (return false only
-  -- when v_link is null) and this fails -- any authenticated caller could
-  -- unlink any pair. NOT caught: a non-participant call that raises instead
-  -- of returning false.
+  -- FALSIFIABLE (3a): drop the `v_caller not in (...)` guard (return false
+  -- only when v_link is null) and this fails -- any authenticated caller
+  -- could unlink any confirmed pair. NOT caught: a non-participant call
+  -- that raises instead of returning false.
+  -- FALSIFIABLE (3b): drop the `status = 'confirmed'` filter from the
+  -- SELECT and this fails -- a pending link's own participant could remove
+  -- it via unlink_anniversary again, bypassing decline_anniversary_link
+  -- entirely (the exact sibling-RPC bypass the ruling closes). NOT caught:
+  -- a version that still filters on status but uses the wrong literal
+  -- (e.g. checks for anything other than 'confirmed') -- that would also
+  -- fail 3b, but this file does not separately pin the literal's spelling.
   ---------------------------------------------------------------------------
   perform set_config('request.jwt.claims',
     '{"sub":"' || v_u3_out || '","role":"authenticated"}', true);
@@ -323,8 +476,31 @@ begin
   end if;
   v_checks := v_checks + 1;
 
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_u3p_a || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  select public.unlink_anniversary(v_link_u3p) into v_bool;
+
+  perform set_config('role', v_orig_role, true);
+
+  if v_bool is distinct from false then
+    raise exception
+      'RPC FAIL: unlink_anniversary on a still-pending link, called by participant %, returned %, expected false -- unlink_anniversary must only reach CONFIRMED links',
+      v_u3p_a, v_bool;
+  end if;
+  v_checks := v_checks + 1;
+
+  select count(*) into v_count from anniversary_links where id = v_link_u3p;
+  if v_count <> 1 then
+    raise exception
+      'RPC FAIL: anniversary_links has % row(s) for the pending link % after a denied unlink attempt, expected 1 (untouched)',
+      v_count, v_link_u3p;
+  end if;
+  v_checks := v_checks + 1;
+
   ---------------------------------------------------------------------------
-  -- Assertion 4 (6 checks): unlink_anniversary by EITHER partner returns
+  -- Assertion 4 (7 checks): unlink_anniversary by EITHER partner returns
   -- true, clears partner_id, and leaves the occasion row and its tags in
   -- place. Fixture 1 is called by user_b (non-canonical); fixture 2 by
   -- user_a (canonical) -- see the fixture comments above for why both sides
@@ -382,6 +558,17 @@ begin
   end if;
   v_checks := v_checks + 1;
 
+  -- Minor fix: this fixture's own comment claims anniversary_link_members
+  -- cascades away when the link is deleted -- back that claim with a check.
+  select count(*) into v_count
+    from anniversary_link_members where link_id = v_link_u4;
+  if v_count <> 0 then
+    raise exception
+      'RPC FAIL: anniversary_link_members still has % row(s) for deleted link %, expected 0 -- the FK''s ON DELETE CASCADE should have cleared both membership rows',
+      v_count, v_link_u4;
+  end if;
+  v_checks := v_checks + 1;
+
   perform set_config('request.jwt.claims',
     '{"sub":"' || v_u4c_a || '","role":"authenticated"}', true);
   perform set_config('role', 'authenticated', true);
@@ -402,6 +589,69 @@ begin
     raise exception
       'RPC FAIL: anniversary_links still has % row(s) for id % after unlink by the canonical partner, expected 0',
       v_count, v_link_u4c;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 4b (4 checks, CRITICAL fix regression guard): cross-link
+  -- isolation. x_c -- who shares nothing with the x_a/x_b couple beyond a
+  -- pending link naming x_a -- calls unlink_anniversary on THAT pending
+  -- link. This is the exact reproduction from 20260912000005's migration
+  -- header: before the fix, unlink_anniversary's occasion UPDATE was scoped
+  -- only by `celebrant_id = v_link.user_a`, so ANY link naming x_a as its
+  -- canonical id -- confirmed or not, related to the real couple or not --
+  -- cleared the real couple's partner_id. Confirmed against BOTH versions
+  -- live (see the task report): this exact fixture fails against the
+  -- unfixed function (occ_partner clears to NULL despite x_c never being
+  -- part of the x_a/x_b link) and passes against the fixed one.
+  --
+  -- FALSIFIABLE: remove the `and partner_id = v_link.user_b` conjunct from
+  -- unlink_anniversary's occasion UPDATE and check (b) fails -- x_a/x_b's
+  -- occasion loses its partner_id through a link neither of them confirmed.
+  -- Re-add a status filter regression (drop `status = 'confirmed'` from the
+  -- SELECT) and this ALSO independently makes the unlink call itself
+  -- return true and delete the pending row, changing check (a) too. NOT
+  -- caught: a version that clears partner_id for the CORRECT couple but
+  -- ALSO leaves some other unrelated occasion mutated -- nothing here scans
+  -- occasions beyond v_occ_x.
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_x_c || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  select public.unlink_anniversary(v_link_x_pending) into v_bool;
+
+  perform set_config('role', v_orig_role, true);
+
+  if v_bool is distinct from false then
+    raise exception
+      'RPC FAIL: unlink_anniversary on the unrelated pending link % (called by %) returned %, expected false -- it is still pending, not confirmed',
+      v_link_x_pending, v_x_c, v_bool;
+  end if;
+  v_checks := v_checks + 1;
+
+  select count(*) into v_count
+    from occasions where id = v_occ_x and partner_id = v_x_b;
+  if v_count <> 1 then
+    raise exception
+      'CRITICAL FAIL: the x_a/x_b couple''s occasion % lost partner_id=% after an unrelated pending link (%, sharing only x_a) was unlinked by a third party -- this is the cross-user corruption 20260912000005 fixes',
+      v_occ_x, v_x_b, v_link_x_pending;
+  end if;
+  v_checks := v_checks + 1;
+
+  select count(*) into v_count from anniversary_links where id = v_link_x_confirmed and status = 'confirmed';
+  if v_count <> 1 then
+    raise exception
+      'RPC FAIL: the x_a/x_b confirmed link % does not resolve to exactly 1 confirmed row after the unrelated pending unlink, expected it entirely untouched',
+      v_link_x_confirmed;
+  end if;
+  v_checks := v_checks + 1;
+
+  select count(*) into v_count from anniversary_links where id = v_link_x_pending;
+  if v_count <> 1 then
+    raise exception
+      'RPC FAIL: the unrelated pending link % is gone after a denied unlink attempt, expected 1 (untouched)',
+      v_link_x_pending;
   end if;
   v_checks := v_checks + 1;
 
@@ -768,25 +1018,37 @@ begin
   -- raise aborts this file's batch, so they are anchored source checks
   -- rather than live calls (see file header).
   --
-  -- FALSIFIABLE (each of the three): comment out that guard's `if` line, or
-  -- change its raise message/errcode, and that guard's count drops to 0.
-  -- NOT caught: the three guards being present but reordered relative to
-  -- each other (guard ORDERING is out of scope -- reordering changes which
-  -- message a caller tripping two guards at once sees, not whether the
-  -- request is ultimately denied), or a guard whose condition was replaced
-  -- by a functionally-different one that happens to keep the same `if`
-  -- line's exact text while its raise fires on different inputs (an
-  -- exact-text check cannot see behavioural drift, only textual absence).
+  -- MINOR FIX (round 1 review): each guard is now matched as ONE contiguous
+  -- multi-line pattern (condition through `end if;`), not two independently
+  -- ANDed regexes. Two independent regexes can each match while
+  -- disassociated from each other -- e.g. the condition line surviving
+  -- somewhere while its `raise` was moved elsewhere entirely -- and a
+  -- contiguous pattern closes exactly that gap, the same way assertion 11
+  -- already did. Confirmed contiguous patterns still match today for all
+  -- three guards here and the one in assertion 10.
+  --
+  -- FALSIFIABLE (each of the three): comment out that guard's `if` line, its
+  -- `raise`, or its `end if;`, or disassociate the condition from its raise
+  -- (e.g. move the raise outside the if-block), and that guard's count drops
+  -- to 0. NOT caught: the three guards being present but reordered relative
+  -- to each other (guard ORDERING is out of scope -- reordering changes
+  -- which message a caller tripping two guards at once sees, not whether
+  -- the request is ultimately denied), or a guard whose condition was
+  -- replaced by a functionally-different one that happens to keep the same
+  -- exact text while firing on different inputs (an exact-text check cannot
+  -- see behavioural drift, only textual absence/disassociation).
   ---------------------------------------------------------------------------
   select count(*) into v_guard_defs
     from pg_proc p
    where p.oid = 'public.request_anniversary_link(text, text)'::regprocedure
-     and pg_get_functiondef(p.oid) ~ '(?n)^\s*if p_partner_id = v_caller then$'
      and pg_get_functiondef(p.oid) ~
-       '(?n)^\s*raise exception ''you cannot share an anniversary with yourself''\n\s*using errcode = ''22023'';$';
+       ('(?n)^\s*if p_partner_id = v_caller then$'
+        || E'\n' || '\s*raise exception ''you cannot share an anniversary with yourself'''
+        || E'\n' || '\s*using errcode = ''22023'';$'
+        || E'\n' || '\s*end if;$');
   if v_guard_defs <> 1 then
     raise exception
-      'GUARD FAIL: request_anniversary_link no longer contains its self-link guard, uncommented, with its errcode intact (matched % definition(s), expected 1)',
+      'GUARD FAIL: request_anniversary_link no longer contains its self-link guard, uncommented, with its errcode intact and wired to its own end if (matched % definition(s), expected 1)',
       v_guard_defs;
   end if;
   v_checks := v_checks + 1;
@@ -795,12 +1057,13 @@ begin
     from pg_proc p
    where p.oid = 'public.request_anniversary_link(text, text)'::regprocedure
      and pg_get_functiondef(p.oid) ~
-       '(?n)^\s*if not exists \(select 1 from public\.get_shared_groups\(v_caller, p_partner_id\)\) then$'
-     and pg_get_functiondef(p.oid) ~
-       '(?n)^\s*raise exception ''that person is not in any of your groups''\n\s*using errcode = ''22023'';$';
+       ('(?n)^\s*if not exists \(select 1 from public\.get_shared_groups\(v_caller, p_partner_id\)\) then$'
+        || E'\n' || '\s*raise exception ''that person is not in any of your groups'''
+        || E'\n' || '\s*using errcode = ''22023'';$'
+        || E'\n' || '\s*end if;$');
   if v_guard_defs <> 1 then
     raise exception
-      'GUARD FAIL: request_anniversary_link no longer contains its shared-group guard, uncommented, with its errcode intact (matched % definition(s), expected 1) -- this is the guard the brief specifically requires be enforced here, not only in the picker',
+      'GUARD FAIL: request_anniversary_link no longer contains its shared-group guard, uncommented, with its errcode intact and wired to its own end if (matched % definition(s), expected 1) -- this is the guard the brief specifically requires be enforced here, not only in the picker',
       v_guard_defs;
   end if;
   v_checks := v_checks + 1;
@@ -809,26 +1072,33 @@ begin
     from pg_proc p
    where p.oid = 'public.request_anniversary_link(text, text)'::regprocedure
      and pg_get_functiondef(p.oid) ~
-       '(?n)^\s*if public\.celebration_date_in_year\($\n\s*p_date, extract\(year from current_date\)::integer\) is null then$'
-     and pg_get_functiondef(p.oid) ~
-       '(?n)^\s*raise exception ''that is not a usable date'' using errcode = ''22023'';$';
+       ('(?n)^\s*if public\.celebration_date_in_year\($'
+        || E'\n' || '\s*p_date, extract\(year from current_date\)::integer\) is null then$'
+        || E'\n' || '\s*raise exception ''that is not a usable date'' using errcode = ''22023'';$'
+        || E'\n' || '\s*end if;$');
   if v_guard_defs <> 1 then
     raise exception
-      'GUARD FAIL: request_anniversary_link no longer contains its date-validity guard, uncommented, with its errcode intact (matched % definition(s), expected 1)',
+      'GUARD FAIL: request_anniversary_link no longer contains its date-validity guard, uncommented, with its errcode intact and wired to its own end if (matched % definition(s), expected 1)',
       v_guard_defs;
   end if;
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 10 (2 checks): confirm_anniversary_link's recipient guard --
-  -- specifically the `v_caller = v_link.initiated_by` conjunct that stops
-  -- the INITIATOR from confirming their own request. Also a raising path
-  -- (aborts the whole `if v_link is null or ... then raise` on match), so
-  -- anchored rather than live.
+  -- Assertion 10 (1 check): confirm_anniversary_link's recipient guard,
+  -- matched as ONE contiguous pattern from `if v_link is null` through its
+  -- `end if;` -- specifically covering the `v_caller = v_link.initiated_by`
+  -- conjunct that stops the INITIATOR from confirming their own request.
+  -- Also a raising path (aborts the whole `if v_link is null or ... then
+  -- raise` on match), so anchored rather than live.
+  --
+  -- MINOR FIX (round 1 review): previously two independently ANDed regexes
+  -- (the `or v_caller = v_link.initiated_by` line, and the raise+errcode),
+  -- which could each match while disassociated from each other. Merged into
+  -- one contiguous pattern, same fix as assertion 9.
   --
   -- FALSIFIABLE: delete the `or v_caller = v_link.initiated_by` line (the
-  -- exact residue this correction calls out) and check (a) drops to 0
-  -- immediately, independent of check (b). NOT caught: reordering the three
+  -- exact residue this correction calls out), or disassociate it from the
+  -- raise that follows, and this fails. NOT caught: reordering the three
   -- OR'd conditions relative to each other (their combination is
   -- commutative, so this would not change behaviour, and this file does not
   -- claim to check ordering).
@@ -836,22 +1106,17 @@ begin
   select count(*) into v_guard_defs
     from pg_proc p
    where p.oid = 'public.confirm_anniversary_link(uuid)'::regprocedure
-     and pg_get_functiondef(p.oid) ~ '(?n)^\s*or v_caller = v_link\.initiated_by$';
-  if v_guard_defs <> 1 then
-    raise exception
-      'GUARD FAIL: confirm_anniversary_link no longer contains its initiator-exclusion conjunct (v_caller = v_link.initiated_by), uncommented (matched % definition(s), expected 1) -- an initiator could confirm their own request',
-      v_guard_defs;
-  end if;
-  v_checks := v_checks + 1;
-
-  select count(*) into v_guard_defs
-    from pg_proc p
-   where p.oid = 'public.confirm_anniversary_link(uuid)'::regprocedure
      and pg_get_functiondef(p.oid) ~
-       '(?n)^\s*raise exception ''no anniversary request for you to confirm''\n\s*using errcode = ''22023'';$';
+       ('(?n)^\s*if v_link is null$'
+        || E'\n' || '\s*or v_caller not in \(v_link\.user_a, v_link\.user_b\)$'
+        || E'\n' || '\s*or v_caller = v_link\.initiated_by$'
+        || E'\n' || '\s*then$'
+        || E'\n' || '\s*raise exception ''no anniversary request for you to confirm'''
+        || E'\n' || '\s*using errcode = ''22023'';$'
+        || E'\n' || '\s*end if;$');
   if v_guard_defs <> 1 then
     raise exception
-      'GUARD FAIL: confirm_anniversary_link no longer raises its recipient-guard message with its errcode intact (matched % definition(s), expected 1)',
+      'GUARD FAIL: confirm_anniversary_link no longer contains its recipient guard (including the v_caller = v_link.initiated_by conjunct), uncommented, wired to its message, errcode and end if (matched % definition(s), expected 1) -- an initiator could confirm their own request',
       v_guard_defs;
   end if;
   v_checks := v_checks + 1;
@@ -985,8 +1250,8 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 39 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 39', v_checks;
+  if v_checks < 47 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 47', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_19_anniversary_link_rpcs');
