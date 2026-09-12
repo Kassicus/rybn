@@ -250,6 +250,88 @@ export async function checkAndSendDateReminders(
   const recipientSeesPartner = (recipientId: string, partnerId: string) =>
     nonCanonicalRowKeys.has(`${recipientId}|${partnerId}`);
 
+  // FINDING R1 -- the dedupe's re-run idempotence, which keying it to THIS
+  // run's rows quietly gave away.
+  //
+  // get_upcoming_dates_for_notifications suppresses any row it has already
+  // notified on (`not exists (select 1 from date_notifications dn where
+  // dn.celebrant_id = pi.user_id and dn.notified_user_id = gm.user_id and
+  // dn.field_name = pi.field_name and dn.notification_year = target_year and
+  // dn.group_id = g.id)`). So run 1 inserts the canonical row's notification
+  // and drops the non-canonical row; on any LATER invocation while the date
+  // is still in window the RPC excludes the canonical row -- its notification
+  // exists now -- and returns the non-canonical row alone. canonicalRowKeys is
+  // empty for that pair, the drop condition below is false, and the couple
+  // sends a SECOND email for one event, naming only the non-canonical half.
+  // The global dedupe this replaced was immune because it never asked what
+  // else the run contained.
+  //
+  // Fix: "this recipient already HAS a canonical reminder for this couple
+  // this year" counts the same as "the canonical row is present in this run".
+  // Both mean the same thing to the recipient -- the merged reminder has been
+  // or is being sent -- and the second is simply the first, one run earlier.
+  //
+  // Presence of the row is the test, not email_sent: that is exactly what the
+  // RPC's own not-exists guard keys on, so anything stricter here would
+  // disagree with the guard that produced these rows. Group-agnostic, matching
+  // the drop key, which is per (recipient, couple) rather than per group.
+  //
+  // Only asked for pairs this run's own rows cannot already answer, so the
+  // ordinary case -- both halves in one run -- issues no query at all.
+  const alreadyNotifiedCanonicalKeys = new Set<string>();
+  const priorLookupRecipients = new Set<string>();
+  const priorLookupCanonicalIds = new Set<string>();
+
+  for (const dateInfo of upcomingDates) {
+    if (dateInfo.field_name !== 'anniversary') continue;
+    const canonicalId = canonicalIdByNonCanonicalCelebrantId.get(
+      dateInfo.celebrant_id
+    );
+    if (!canonicalId) continue;
+    if (canonicalRowKeys.has(`${dateInfo.notified_user_id}|${canonicalId}`)) {
+      continue;
+    }
+    priorLookupRecipients.add(dateInfo.notified_user_id);
+    priorLookupCanonicalIds.add(canonicalId);
+  }
+
+  if (priorLookupRecipients.size > 0) {
+    const { data: priorNotifications, error: priorError } = await supabase
+      .from('date_notifications')
+      .select('notified_user_id, celebrant_id')
+      .eq('field_name', 'anniversary')
+      .eq('notification_year', currentYear)
+      .in('notified_user_id', Array.from(priorLookupRecipients))
+      .in('celebrant_id', Array.from(priorLookupCanonicalIds));
+
+    if (priorError) {
+      // Fails OPEN, like the links read above, and for the sharper of the two
+      // reasons: failing closed here would treat every partner-side-only
+      // recipient as already reminded and withdraw the one reminder finding
+      // I3 exists to preserve. A duplicate email is a nuisance; silently
+      // taking away a reminder someone had before this feature existed is the
+      // spec's explicitly rejected option.
+      console.error(
+        'Error reading prior anniversary notifications for re-run dedupe:',
+        priorError
+      );
+    }
+
+    for (const prior of priorNotifications ?? []) {
+      alreadyNotifiedCanonicalKeys.add(
+        `${prior.notified_user_id}|${prior.celebrant_id}`
+      );
+    }
+  }
+
+  /**
+   * Whether the canonical half's reminder already stands for this recipient --
+   * either produced by this run, or inserted by an earlier one this year.
+   */
+  const canonicalReminderStandsFor = (recipientId: string, canonicalId: string) =>
+    canonicalRowKeys.has(`${recipientId}|${canonicalId}`) ||
+    alreadyNotifiedCanonicalKeys.has(`${recipientId}|${canonicalId}`);
+
   // Profiles for both halves of every couple whose combined copy will actually
   // be rendered, batched into one lookup rather than one query per
   // notification. Narrowed by the same gate as the copy itself: a name no
@@ -305,15 +387,20 @@ export async function checkAndSendDateReminders(
       //
       // PER RECIPIENT, not globally (finding I3, see the canonicalRowKeys
       // note above): the row is dropped only when THIS notified_user_id is
-      // also getting the canonical partner's row in this same run. A
-      // recipient who can see only the non-canonical partner's date has no
-      // canonical row to stand in for it, so theirs survives and they keep
-      // the one reminder they had before this feature existed.
+      // also getting the canonical partner's row in this same run -- or
+      // already got it in an earlier run this year (finding R1). A recipient
+      // who can see only the non-canonical partner's date has neither, so
+      // theirs survives and they keep the one reminder they had before this
+      // feature existed.
+      const canonicalIdForThisRow = canonicalIdByNonCanonicalCelebrantId.get(
+        dateInfo.celebrant_id
+      );
       if (
         dateInfo.field_name === 'anniversary' &&
-        nonCanonicalCelebrantIds.has(dateInfo.celebrant_id) &&
-        canonicalRowKeys.has(
-          `${dateInfo.notified_user_id}|${canonicalIdByNonCanonicalCelebrantId.get(dateInfo.celebrant_id)}`
+        canonicalIdForThisRow &&
+        canonicalReminderStandsFor(
+          dateInfo.notified_user_id,
+          canonicalIdForThisRow
         )
       ) {
         continue;

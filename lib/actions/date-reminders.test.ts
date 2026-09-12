@@ -275,6 +275,11 @@ describe("checkAndSendDateReminders: couple dedupe", () => {
       // did, this test would fail on "No scripted Supabase response left for
       // user_profiles".
       date_notifications: [
+        // The prior-notification lookup (finding R1): this recipient has NOT
+        // been reminded about user_alex this year, so nothing stands in for
+        // their user_sam row and it must survive. This is the lookup's
+        // must-not-over-suppress direction.
+        { data: [], error: null },
         { data: { id: "notification-2" }, error: null },
         { data: null, error: null },
       ],
@@ -351,6 +356,10 @@ describe("checkAndSendDateReminders: couple dedupe", () => {
         },
       ],
       date_notifications: [
+        // notified-2's user_sam row is not covered by any canonical row in
+        // THIS run, so the prior-notification lookup (finding R1) runs; nobody
+        // has been reminded yet, so it changes nothing here.
+        { data: [], error: null },
         { data: { id: "notification-1" }, error: null },
         { data: null, error: null },
         { data: { id: "notification-2" }, error: null },
@@ -379,6 +388,85 @@ describe("checkAndSendDateReminders: couple dedupe", () => {
     // "notified-1:user_sam", the double-email this step exists to prevent.
     // NOT caught: the email COPY for either survivor, which the
     // "couple reminder copy" block below covers.
+  });
+
+  // FINDING R1 (re-review finding 1). The per-recipient dedupe restored a
+  // reminder the global dedupe wrongly withdrew, but lost the pipeline's
+  // RE-RUN idempotence in the process.
+  //
+  // get_upcoming_dates_for_notifications suppresses any row it has already
+  // notified on:
+  //
+  //   and not exists (select 1 from date_notifications dn
+  //     where dn.celebrant_id = pi.user_id and dn.notified_user_id = gm.user_id
+  //       and dn.field_name = pi.field_name
+  //       and dn.notification_year = target_year and dn.group_id = g.id)
+  //
+  // So run 1 inserts (recipient, user_alex, anniversary, Y, G) and drops the
+  // user_sam row. On ANY later invocation while the date is still in window
+  // the RPC excludes the user_alex row -- its notification now exists -- and
+  // returns the user_sam row ALONE. canonicalRowKeys is then empty for that
+  // pair, the drop condition is false, the row survives, and the couple's
+  // second email goes out naming only the non-canonical partner. The global
+  // dedupe this replaced was immune, because it never asked what else the
+  // run contained.
+  //
+  // A second same-day invocation is reachable: vercel.json schedules one run
+  // a day and route.ts pins daysAhead = 0 in production, but Vercel does not
+  // guarantee exactly-once cron delivery, the secret-gated manual trigger is
+  // a second door, and a run that dies mid-loop leaves exactly this state
+  // (the notification row is inserted BEFORE the send). Outside production
+  // `?days=N` widens it to N+1 consecutive runs.
+  it("does not send a SECOND email on a re-run once the canonical reminder already exists -- finding R1", async () => {
+    rpc.mockResolvedValueOnce({
+      data: [
+        // The whole of run 2: the RPC suppressed user_alex's row because run
+        // 1 already notified this recipient about it, leaving the
+        // non-canonical half standing alone.
+        dateRow({
+          celebrant_id: "user_sam",
+          celebrant_username: "sam",
+          notified_user_id: "notified-1",
+        }),
+      ],
+      error: null,
+    });
+
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        { data: [{ user_a: "user_alex", user_b: "user_sam" }], error: null },
+      ],
+      date_notifications: [
+        // Run 1's row, which is exactly what the RPC's own not-exists guard
+        // saw. It stands in for the missing canonical row.
+        {
+          data: [{ notified_user_id: "notified-1", celebrant_id: "user_alex" }],
+          error: null,
+        },
+        // Scripted so the PRE-FIX code fails on the assertions below rather
+        // than on an exhausted queue: without the lookup these two are what
+        // the duplicate insert + update consume.
+        { data: { id: "notification-dupe" }, error: null },
+        { data: null, error: null },
+      ],
+    });
+
+    const result = await checkAndSendDateReminders(CRON_SECRET);
+
+    const notificationInserts = insertSpy.mock.calls.filter(
+      ([table]) => table === "date_notifications"
+    );
+    expect(notificationInserts).toHaveLength(0);
+    expect(sendDateReminderEmail).not.toHaveBeenCalled();
+    expect(result.sent).toBe(0);
+
+    // Falsifiable by: removing the alreadyNotifiedCanonicalKeys conjunct from
+    // the drop condition in date-reminders.ts -- verified by removing it,
+    // which inserts one row and sends one email, failing at
+    // `toHaveLength(0)`. NOT caught by this test alone: that the lookup does
+    // not OVER-suppress -- the I3 test above scripts an empty result for the
+    // same lookup and still requires its one reminder to go out, which is the
+    // property the fix must not trade away.
   });
 });
 
