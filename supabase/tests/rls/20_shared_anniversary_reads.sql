@@ -72,10 +72,15 @@
 --      same limitation 15_celebrated_materialization.sql's header documents
 --      for a raising denial -- so existence and exact text stand in instead.
 --
--- TASK 4 ADDS FOUR MORE ASSERTIONS (7-10), proving get_or_create_celebrated_
--- occasion (20260912000007_canonical_anniversary.sql) resolves a linked
--- couple to the one shared row this file's first six assertions already
--- established is readable by both partners:
+-- TASK 4 ADDS ASSERTIONS 7-12, proving get_or_create_celebrated_occasion
+-- (live body: 20260912000010_canonical_anniversary_deterministic_order.sql
+-- -- 20260912000007_canonical_anniversary.sql introduced the resolution but
+-- shipped a self-referencing-partner_id bug, corrected by ...0008, which
+-- ...0010 then layers a deterministic ORDER BY onto (round-1 review, M3);
+-- every pointer in this file to "the live body" below names ...0010, not
+-- ...0007 or ...0008) resolves a linked couple to the one shared row this
+-- file's first six
+-- assertions already established is readable by both partners:
 --
 --   7. get_or_create_celebrated_occasion(user_a, 'anniversary') and
 --      get_or_create_celebrated_occasion(user_b, 'anniversary') -- called by
@@ -89,7 +94,8 @@
 --      SEPARATE conditions so a swap (celebrant_id/partner_id reversed) is
 --      visible as its own failure, not hidden behind "some row with the
 --      right two ids exists". The direction matters beyond cosmetics: see
---      canonical_anniversary.sql's header for why a mirror row (keyed to the
+--      20260912000010_canonical_anniversary_deterministic_order.sql's header (the
+--      live body) for why a mirror row (keyed to the
 --      non-canonical partner) would leave unlink_anniversary's own
 --      `celebrant_id = v_link.user_a` scoping unable to find it, stranding a
 --      stale partner_id after a breakup.
@@ -102,8 +108,36 @@
 --      NULL -- proving the couple resolution is scoped to kind = 'anniversary'
 --      and does not leak into an unrelated kind for the same person.
 --
--- WHY THERE IS NO ELEVENTH ASSERTION FOR THE MIS-PARENTHESISED POLICY, even
--- though Task 4 is the task that was supposed to make one constructible.
+-- ROUND-1 REVIEW ADDS ASSERTIONS 11-12, for two gaps this file's first pass
+-- left uncovered:
+--
+--   11. CRITICAL. A caller who can see only the NON-canonical partner's date
+--      (and shares no group at all with the canonical partner) both
+--      materializes the shared occasion AND successfully claims an item
+--      tagged to it. claim_wishlist_item's own occasion gate
+--      (20260911100002_claim_rpcs.sql) checked celebrant_id only, with no
+--      partner branch, unlike the occasions SELECT policy Task 2 widened --
+--      so a partner-side viewer admitted by that widened policy could SEE
+--      the shared occasion and still be refused CLAIMING against it. Latent
+--      until this task started canonicalizing a couple's occasion under one
+--      row for real. Fixed by 20260912000009_claim_partner_gate.sql, which
+--      adds the missing partner branch; this assertion is the regression
+--      guard, since the flow it covers (claim a gift for a couple's shared
+--      anniversary, from the non-canonical side) had no coverage at all
+--      before this round.
+--   12. IMPORTANT. A PENDING (not yet confirmed) anniversary link does not
+--      merge the two occasions -- the requested partner's occasion still
+--      shows partner_id NULL. Consent is the whole point of the confirm
+--      step; a resolution that fired on a mere request would let one person
+--      unilaterally attach themself to the other's occasion before the
+--      other ever agreed. Assertions 7-8 cannot cover this (they use an
+--      already-CONFIRMED link and pass unchanged under any widening of the
+--      status filter), and v_mat_unlinked has no anniversary_links row of
+--      any status, so it cannot exercise "pending is not confirmed" either
+--      -- this needed its own fixture.
+--
+-- WHY THERE IS NO ASSERTION FOR THE MIS-PARENTHESISED POLICY, even though
+-- Task 4 is the task that was supposed to make one constructible.
 --
 -- Task 2's reviewer proved, on a local Postgres, that assertion 4 above
 -- passes identically whether the occasions SELECT policy reads (as shipped)
@@ -143,6 +177,11 @@
 -- unconstructible state would either never run (if written correctly, it
 -- would fail every insert attempt) or silently assert something else.
 --
+-- This file grows again in Task 5 (derivation), appending further
+-- assertions and raising v_checks' floor to match. Keep the numbering and
+-- structure below easy to extend: add a block, bump v_checks, bump the
+-- floor.
+--
 -- Convention: see 00_harness_smoke.sql. Fixture writes happen while
 -- impersonating the connecting (RLS-bypassing) role; role is toggled back to
 -- `authenticated` for each viewer's SELECT and restored to the captured
@@ -179,6 +218,24 @@ declare
   v_mat_bday_id     uuid;
   v_mat_row_celebrant text;
   v_mat_row_partner   text;
+
+  -- Round-1 review, assertion 11 (CRITICAL): partner-side claim.
+  v_pc_canon      text := 'user_shanniv_pc_canon';   -- canonical, family-only anniversary
+  v_pc_noncanon   text := 'user_shanniv_pc_noncanon'; -- non-canonical, friends-only anniversary, item owner
+  v_pc_gifter     text := 'user_shanniv_pc_gifter';   -- friends group only, shares nothing with v_pc_canon
+  v_pc_group_family uuid;
+  v_pc_group_friends uuid;
+  v_pc_occasion   uuid;
+  v_pc_item       uuid;
+  v_pc_claim      uuid;
+  v_pc_active_claims int;
+
+  -- Round-1 review, assertion 12 (IMPORTANT): a PENDING link must not merge.
+  v_pend_a        text := 'user_shanniv_pend_a';
+  v_pend_b        text := 'user_shanniv_pend_b';
+  v_pend_b_occasion uuid;
+  v_pend_row_celebrant text;
+  v_pend_row_partner   text;
 begin
   select current_user into v_orig_role;
 
@@ -277,6 +334,71 @@ begin
 
   insert into anniversary_link_members (user_id, link_id)
     values (v_mat_a, v_mat_link), (v_mat_b, v_mat_link);
+
+  ---------------------------------------------------------------------------
+  -- Round-1 review, assertion 11 fixture (CRITICAL): a confirmed couple
+  -- whose anniversary privacy DIFFERS by group (same shape as the six-
+  -- assertion fixture above, so "can see one but not the other" is real),
+  -- plus a gifter who shares a group with the NON-canonical partner (and
+  -- thus owns the item, since can_view_wishlist_item requires a group
+  -- shared with the ITEM'S OWNER) but shares NOTHING with the canonical
+  -- celebrant. This is the reviewer's exact reproduction shape.
+  ---------------------------------------------------------------------------
+  insert into user_profiles (id, username, display_name)
+    values (v_pc_canon,    'shanpccanon', 'Shared Anniv PC Canon'),
+           (v_pc_noncanon, 'shanpcnoncanon', 'Shared Anniv PC Non-canon'),
+           (v_pc_gifter,   'shanpcgifter', 'Shared Anniv PC Gifter');
+
+  insert into groups (name, type, invite_code, created_by)
+    values ('Shanniv PC Family', 'family', 'SHANPCF1', v_pc_canon)
+    returning id into v_pc_group_family;
+
+  insert into groups (name, type, invite_code, created_by)
+    values ('Shanniv PC Friends', 'friends', 'SHANPCFR', v_pc_noncanon)
+    returning id into v_pc_group_friends;
+
+  -- v_pc_gifter joins ONLY the friends group (created by, and shared with,
+  -- the NON-canonical partner). v_pc_canon has no group in common with
+  -- v_pc_gifter at all.
+  insert into group_members (group_id, user_id, role)
+    values (v_pc_group_friends, v_pc_gifter, 'member') on conflict do nothing;
+
+  insert into profile_info (user_id, category, field_name, field_value, privacy_settings)
+    values
+      (v_pc_canon, 'dates', 'anniversary', '2020-06-15',
+       '{"visibleToGroupTypes": ["family"], "restrictToGroup": null}'),
+      (v_pc_noncanon, 'dates', 'anniversary', '2020-06-15',
+       '{"visibleToGroupTypes": ["friends"], "restrictToGroup": null}');
+
+  insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date, confirmed_at)
+    values (v_pc_canon, v_pc_noncanon, 'confirmed', v_pc_canon, '2020-06-15', now());
+
+  -- The item belongs to the NON-canonical partner -- can_view_wishlist_item
+  -- requires a group shared with the item's OWNER, so this is what lets the
+  -- gifter see the item at all.
+  insert into wishlist_items (user_id, title, privacy_settings)
+    values (v_pc_noncanon, 'Shared Anniv PC Item',
+            '{"visibleToGroupTypes": ["friends"], "restrictToGroup": null}')
+    returning id into v_pc_item;
+
+  ---------------------------------------------------------------------------
+  -- Round-1 review, assertion 12 fixture (IMPORTANT): a PENDING (not yet
+  -- confirmed) anniversary link. v_pend_b is the recipient who has not
+  -- accepted -- calling for them must NOT resolve onto v_pend_a's occasion.
+  ---------------------------------------------------------------------------
+  insert into user_profiles (id, username, display_name)
+    values (v_pend_a, 'shanpenda', 'Shared Anniv Pending A'),
+           (v_pend_b, 'shanpendb', 'Shared Anniv Pending B');
+
+  insert into profile_info (user_id, category, field_name, field_value, privacy_settings)
+    values
+      (v_pend_a, 'dates', 'anniversary', '2022-08-08',
+       '{"visibleToGroupTypes": [], "restrictToGroup": null}'),
+      (v_pend_b, 'dates', 'anniversary', '2022-08-08',
+       '{"visibleToGroupTypes": [], "restrictToGroup": null}');
+
+  insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date)
+    values (v_pend_a, v_pend_b, 'pending', v_pend_a, '2022-08-08');
 
   ---------------------------------------------------------------------------
   -- Assertion 1: a viewer who can see only the CELEBRANT's date reads the
@@ -415,11 +537,12 @@ begin
   -- partners' calls.
   --
   -- FALSIFIABLE: deleting the `if p_kind = 'anniversary' then ... end if;`
-  -- resolution block in canonical_anniversary.sql (so the function always
-  -- materializes under p_celebrant_id, the pre-Task-4 behaviour) makes this
-  -- fail -- verified by mutation against a scratch copy, see the task
-  -- report. NOT caught: a resolution that fires but picks the WRONG
-  -- canonical id consistently for both calls (assertion 8 catches that).
+  -- resolution block in 20260912000010_canonical_anniversary_deterministic_order.sql
+  -- (the live body -- so the function always materializes under
+  -- p_celebrant_id, the pre-Task-4 behaviour) makes this fail -- verified by
+  -- mutation against a scratch copy, see the task report. NOT caught: a
+  -- resolution that fires but picks the WRONG canonical id consistently for
+  -- both calls (assertion 8 catches that).
   ---------------------------------------------------------------------------
   perform set_config('request.jwt.claims',
     '{"sub":"' || v_mat_a || '","role":"authenticated"}', true);
@@ -447,8 +570,10 @@ begin
   -- -- checked as two SEPARATE conditions so a swap is its own visible
   -- failure, not folded into "some row with the right two ids exists".
   --
-  -- FALSIFIABLE: reversing canonical_anniversary.sql's assignment (storing
-  -- under the NON-canonical id, with the canonical one as partner_id) makes
+  -- FALSIFIABLE: reversing the live body's
+  -- (20260912000010_canonical_anniversary_deterministic_order.sql) assignment
+  -- (storing under the NON-canonical id, with the canonical one as
+  -- partner_id) makes
   -- BOTH of these fail -- verified by mutation against a scratch copy, see
   -- the task report, which also traces the consequence for
   -- unlink_anniversary a reversed direction would cause. NOT caught: a
@@ -464,7 +589,7 @@ begin
 
   if v_mat_row_celebrant is distinct from v_mat_a then
     raise exception
-      'RLS FAIL: shared anniversary occasion has celebrant_id=%, expected the CANONICAL (lexicographically smaller) partner % -- a mirror row keyed to the non-canonical partner would leave unlink_anniversary unable to find it (see canonical_anniversary.sql''s header)',
+      'RLS FAIL: shared anniversary occasion has celebrant_id=%, expected the CANONICAL (lexicographically smaller) partner % -- a mirror row keyed to the non-canonical partner would leave unlink_anniversary unable to find it (see 20260912000010_canonical_anniversary_deterministic_order.sql''s header, the live body)',
       v_mat_row_celebrant, v_mat_a;
   end if;
   v_checks := v_checks + 1;
@@ -514,7 +639,8 @@ begin
   -- resolution is scoped to kind = 'anniversary' and does not leak into an
   -- unrelated kind for the same person.
   --
-  -- FALSIFIABLE: widening canonical_anniversary.sql's `if p_kind =
+  -- FALSIFIABLE: widening the live body's
+  -- (20260912000010_canonical_anniversary_deterministic_order.sql) `if p_kind =
   -- 'anniversary' then` guard to run unconditionally (for every kind) makes
   -- this fail -- v_mat_a has a confirmed anniversary link, so the birthday
   -- row would pick up partner_id = v_mat_b -- verified by mutation against a
@@ -539,10 +665,94 @@ begin
   end if;
   v_checks := v_checks + 1;
 
+  ---------------------------------------------------------------------------
+  -- Assertion 11 (CRITICAL, round-1 review, 2 checks): a viewer who shares
+  -- NO group with the canonical celebrant, but shares a group with (and
+  -- therefore owns the item belonging to) the NON-canonical partner, both
+  -- materializes the shared occasion and successfully CLAIMS against it.
+  --
+  -- FALSIFIABLE: removing the partner `union all` arm from claim_wishlist_
+  -- item's occasion gate (reverting to the pre-round-1 body,
+  -- 20260911100002_claim_rpcs.sql, celebrant-and-group-date arms only)
+  -- makes the claim call below RAISE 'that occasion is not available' --
+  -- verified by mutation against a scratch copy, see the task report. NOT
+  -- caught: a claim gate that admits every occasion unconditionally (out of
+  -- scope -- 16_claim_visibility.sql and 17_claim_lifecycle.sql cover the
+  -- celebrant and group_date arms' own necessity).
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_pc_noncanon || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  select public.get_or_create_celebrated_occasion(v_pc_noncanon, 'anniversary')
+    into v_pc_occasion;
+
   perform set_config('role', v_orig_role, true);
 
-  if v_checks < 11 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 11', v_checks;
+  insert into wishlist_item_occasions (item_id, occasion_id)
+    values (v_pc_item, v_pc_occasion);
+
+  if v_pc_occasion is null then
+    raise exception
+      'RLS FAIL: materializing the shared anniversary occasion from the non-canonical partner % returned NULL',
+      v_pc_noncanon;
+  end if;
+  v_checks := v_checks + 1;
+
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_pc_gifter || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  select public.claim_wishlist_item(v_pc_item, v_pc_occasion) into v_pc_claim;
+
+  perform set_config('role', v_orig_role, true);
+
+  select count(*) into v_pc_active_claims
+    from wishlist_claims
+   where item_id = v_pc_item and claimed_by = v_pc_gifter and released_at is null;
+
+  if v_pc_claim is null or v_pc_active_claims <> 1 then
+    raise exception
+      'RLS FAIL: partner-side gifter % claiming item % against shared occasion % returned claim_id=% with % active claim row(s) on file, expected a non-null id and exactly 1 -- the claim gate''s partner branch must admit a viewer who can see only the partner''s date',
+      v_pc_gifter, v_pc_item, v_pc_occasion, v_pc_claim, v_pc_active_claims;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 12 (IMPORTANT, round-1 review, 1 check): a PENDING anniversary
+  -- link must not merge the two occasions. Calling for the RECIPIENT (who
+  -- has not confirmed) must still return a row with partner_id NULL.
+  --
+  -- FALSIFIABLE: widening the resolution's `where l.status = 'confirmed'`
+  -- to `where l.status in ('confirmed', 'pending')` makes this fail --
+  -- v_pend_b would resolve onto v_pend_a's occasion before ever accepting
+  -- the request -- verified by mutation against a scratch copy, see the
+  -- task report. NOT caught by assertions 7/8 (both use an already-
+  -- CONFIRMED link and pass unchanged under this widening) or by assertion
+  -- 9 (v_mat_unlinked has no anniversary_links row of any status, so it
+  -- cannot exercise "pending is not confirmed" either).
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_pend_b || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  select public.get_or_create_celebrated_occasion(v_pend_b, 'anniversary')
+    into v_pend_b_occasion;
+
+  select celebrant_id, partner_id into v_pend_row_celebrant, v_pend_row_partner
+    from public.occasions where id = v_pend_b_occasion;
+
+  if v_pend_row_celebrant is distinct from v_pend_b or v_pend_row_partner is not null then
+    raise exception
+      'RLS FAIL: recipient % of a still-PENDING anniversary link has celebrant_id=%, partner_id=%, expected celebrant_id=% and partner_id NULL -- a pending (not yet confirmed) link must not merge the two occasions',
+      v_pend_b, v_pend_row_celebrant, v_pend_row_partner, v_pend_b;
+  end if;
+  v_checks := v_checks + 1;
+
+  perform set_config('role', v_orig_role, true);
+
+  if v_checks < 14 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 14', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_20_shared_anniversary_reads');

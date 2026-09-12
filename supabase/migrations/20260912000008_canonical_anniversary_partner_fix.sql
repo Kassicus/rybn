@@ -43,6 +43,24 @@
 -- p_celebrant_id equal to either partner now produces the identical
 -- (celebrant_id = user_a, partner_id = user_b) row, with no self-reference
 -- in either direction.
+--
+-- CANONICAL DIRECTION REMAINS LOAD-BEARING here, unaffected by the CASE fix
+-- above (restated here, not only in 20260912000007's header, because THIS
+-- file is the live body a reader following a "see the resolution's header"
+-- pointer will open). v_target is always l.user_a -- never reversed. If it
+-- were, this function would materialize celebrant_id = user_b / partner_id
+-- = user_a instead -- a mirror row. unlink_anniversary (20260912000005)
+-- clears an occasion's partner_id with
+-- `where celebrant_id = v_link.user_a and partner_id = v_link.user_b`; a
+-- mirror row satisfies NEITHER equality, so unlink_anniversary would report
+-- success (it still deletes the real anniversary_links row) while leaving
+-- the mirror row's partner_id untouched -- a stale reference that keeps the
+-- occasions SELECT policy's partner branch admitting a viewer who can see
+-- the old partner's date, on an occasion whose couple no longer exists,
+-- indefinitely, with no error anywhere. Reproduced live against a reversed
+-- scratch copy of this function plus the real unlink_anniversary RPC (task
+-- report has the transcript): unlink returned true and the link was
+-- genuinely gone, but the mirror occasion's partner_id survived unchanged.
 create or replace function public.get_or_create_celebrated_occasion(
   p_celebrant_id text,
   p_kind public.occasion_kind
