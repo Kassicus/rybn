@@ -235,6 +235,149 @@ describe("checkAndSendDateReminders: couple dedupe", () => {
     // about which id a *linked* couple's survivor is keyed to -- that is
     // what the test above pins down.
   });
+
+  // FINDING I3. The dedupe dropped EVERY anniversary row whose celebrant was
+  // any confirmed link's user_b, globally, without checking that the same
+  // RECIPIENT was also getting the user_a row meant to stand in for it.
+  //
+  // Every source row is independently gated on
+  // can_view_field(celebrant, notified_user, ...) inside
+  // get_upcoming_dates_for_notifications, so a recipient who can see only
+  // the non-canonical partner's date gets the user_b row and no user_a row
+  // at all -- and the global dedupe deleted the only reminder they were ever
+  // going to get. They received one before this branch existed. That is the
+  // spec's explicitly REJECTED option ("hide unless both are visible ...
+  // takes away access a viewer already legitimately had") arriving through
+  // the reminder path.
+  it("still reminds a recipient who can see ONLY the non-canonical partner -- finding I3", async () => {
+    rpc.mockResolvedValueOnce({
+      data: [
+        // The only row this recipient's visibility produces: the
+        // non-canonical half. There is no user_alex row for notified-2.
+        dateRow({
+          celebrant_id: "user_sam",
+          celebrant_username: "sam",
+          notified_user_id: "notified-2",
+          notified_user_email: "partner-side@example.com",
+        }),
+      ],
+      error: null,
+    });
+
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        { data: [{ user_a: "user_alex", user_b: "user_sam" }], error: null },
+      ],
+      // No user_profiles entry is scripted: user_sam is not a canonical
+      // celebrant, so the couple-copy path must not fire for this row. If it
+      // did, this test would fail on "No scripted Supabase response left for
+      // user_profiles".
+      date_notifications: [
+        { data: { id: "notification-2" }, error: null },
+        { data: null, error: null },
+      ],
+    });
+
+    const result = await checkAndSendDateReminders(CRON_SECRET);
+
+    const notificationInserts = insertSpy.mock.calls.filter(
+      ([table]) => table === "date_notifications"
+    );
+    expect(notificationInserts).toHaveLength(1);
+    expect(notificationInserts[0][1]).toMatchObject({
+      celebrant_id: "user_sam",
+      notified_user_id: "notified-2",
+    });
+    expect(result.sent).toBe(1);
+    // Single name, not "Alex & Sam": this recipient cannot see user_alex's
+    // date, which is why they never received that row.
+    expect(sendDateReminderEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ celebrantName: "sam" })
+    );
+
+    // Falsifiable by: reverting the drop condition to the global form
+    // (`nonCanonicalCelebrantIds.has(dateInfo.celebrant_id)` with no
+    // canonicalRowKeys conjunct) -- verified by making that revert, which
+    // sends ZERO reminders and fails at `toHaveLength(1)` with 0.
+    // NOT caught by this test alone: whether a recipient who sees BOTH
+    // partners still gets exactly one -- that is the first test in this
+    // describe block, which the per-recipient key must not regress.
+  });
+
+  it("dedupes per recipient, not globally -- two recipients, different visibility", async () => {
+    // The two halves in one run, which is the state that makes the global
+    // dedupe and the per-recipient dedupe visibly different:
+    //   notified-1 sees both partners -> gets user_alex AND user_sam rows
+    //   notified-2 sees only user_sam -> gets the user_sam row alone
+    // Correct outcome: TWO inserts -- one merged couple reminder keyed to
+    // user_alex for notified-1, and one single-name reminder keyed to
+    // user_sam for notified-2. The global dedupe produced ONE (notified-2's
+    // row was collateral damage of notified-1 having a canonical row).
+    rpc.mockResolvedValueOnce({
+      data: [
+        dateRow({
+          celebrant_id: "user_alex",
+          celebrant_username: "alex",
+          notified_user_id: "notified-1",
+        }),
+        dateRow({
+          celebrant_id: "user_sam",
+          celebrant_username: "sam",
+          notified_user_id: "notified-1",
+        }),
+        dateRow({
+          celebrant_id: "user_sam",
+          celebrant_username: "sam",
+          notified_user_id: "notified-2",
+          notified_user_email: "partner-side@example.com",
+        }),
+      ],
+      error: null,
+    });
+
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        { data: [{ user_a: "user_alex", user_b: "user_sam" }], error: null },
+      ],
+      user_profiles: [
+        {
+          data: [
+            { id: "user_alex", username: "alex", display_name: "Alex" },
+            { id: "user_sam", username: "sam", display_name: "Sam" },
+          ],
+          error: null,
+        },
+      ],
+      date_notifications: [
+        { data: { id: "notification-1" }, error: null },
+        { data: null, error: null },
+        { data: { id: "notification-2" }, error: null },
+        { data: null, error: null },
+      ],
+    });
+
+    const result = await checkAndSendDateReminders(CRON_SECRET);
+
+    const notificationInserts = insertSpy.mock.calls.filter(
+      ([table]) => table === "date_notifications"
+    );
+    expect(
+      notificationInserts.map(([, payload]) => {
+        const p = payload as { celebrant_id: string; notified_user_id: string };
+        return `${p.notified_user_id}:${p.celebrant_id}`;
+      })
+    ).toEqual(["notified-1:user_alex", "notified-2:user_sam"]);
+    expect(result.sent).toBe(2);
+
+    // Falsifiable by: reverting to the global dedupe, which drops
+    // notified-2's row and leaves only ["notified-1:user_alex"] -- verified
+    // by making that revert and watching this assertion fail with a
+    // one-element array. Also falsifiable in the other direction: removing
+    // the dedupe entirely produces three inserts including
+    // "notified-1:user_sam", the double-email this step exists to prevent.
+    // NOT caught: the email COPY for either survivor, which the
+    // "couple reminder copy" block below covers.
+  });
 });
 
 describe("checkAndSendDateReminders: couple reminder copy", () => {

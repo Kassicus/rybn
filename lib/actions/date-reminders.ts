@@ -44,9 +44,19 @@ function presentsCronSecret(provided: string | undefined | null): boolean {
  * "Alex & Sam" for the surviving reminder of a linked couple.
  *
  * Matches occasionLabel's (lib/occasions/display.ts) name resolution on
- * purpose: display name preferred over username, with "Someone" the same
- * last-resort floor for a profile row that failed to come back from the
- * lookup below. occasionLabel itself is not called from here -- it takes an
+ * purpose: display name preferred over username.
+ *
+ * The two halves do NOT share a last-resort floor, and an earlier version of
+ * this comment claimed they did. The CELEBRANT falls back to
+ * `celebrantUsernameFallback` -- the username the reminder RPC already
+ * returned on the row -- and only the PARTNER, who has no such row and is
+ * known solely through the batched lookup below, falls back to "Someone".
+ * The asymmetry is deliberate and better than the symmetry it was described
+ * as having: real data is preferred over a placeholder wherever real data is
+ * in hand. "Someone" is reached only when a profile row failed to come back
+ * for the partner.
+ *
+ * occasionLabel itself is not called from here -- it takes an
  * UpcomingOccasion, which this reminder pipeline (sourced from
  * get_upcoming_dates_for_notifications, not get_upcoming_occasions) never
  * constructs -- so the two names are resolved from the same user_profiles
@@ -141,6 +151,7 @@ export async function checkAndSendDateReminders(
   // to be known once per run, not once per notification.
   const nonCanonicalCelebrantIds = new Set<string>();
   const partnerIdByCanonicalCelebrantId = new Map<string, string>();
+  const canonicalIdByNonCanonicalCelebrantId = new Map<string, string>();
 
   if (upcomingDates.some((d) => d.field_name === 'anniversary')) {
     const { data: confirmedLinks, error: linksError } = await supabase
@@ -159,7 +170,44 @@ export async function checkAndSendDateReminders(
     for (const link of confirmedLinks ?? []) {
       nonCanonicalCelebrantIds.add(link.user_b);
       partnerIdByCanonicalCelebrantId.set(link.user_a, link.user_b);
+      canonicalIdByNonCanonicalCelebrantId.set(link.user_b, link.user_a);
     }
+  }
+
+  // Which (recipient, canonical celebrant) anniversary pairs this run
+  // actually produced -- the dedupe's missing half.
+  //
+  // FINDING I3. The dedupe used to drop EVERY anniversary row whose celebrant
+  // was any confirmed link's user_b, globally, without checking that the same
+  // recipient was also getting the user_a row that is supposed to stand in
+  // for it. But every source row is independently gated on
+  // can_view_field(celebrant, notified_user, ...) inside
+  // get_upcoming_dates_for_notifications -- so a recipient who can see only
+  // the NON-canonical partner's date received the user_b row and no user_a
+  // row at all, and the global dedupe then deleted the only reminder they
+  // were ever going to get:
+  //
+  //   source rows:  user_b -> recipient_1,  user_b -> recipient_2
+  //   after dedupe: (none)
+  //
+  // recipient_2 got a reminder before this feature existed. Silently
+  // withdrawing it is the spec's explicitly REJECTED option -- "hide unless
+  // both are visible ... takes away access a viewer already legitimately
+  // had" -- arriving through the reminder path instead of the read path.
+  //
+  // Keyed on the pair rather than on the celebrant alone, and built from the
+  // same `upcomingDates` the loop below iterates, so "does this recipient
+  // also have the canonical row" is answered from THIS run's rows rather than
+  // from what some other recipient received. The `|` separator cannot
+  // occur inside a Clerk user id, so two different pairs cannot collide on
+  // one key.
+  const canonicalRowKeys = new Set<string>();
+  for (const dateInfo of upcomingDates) {
+    if (dateInfo.field_name !== 'anniversary') continue;
+    if (!partnerIdByCanonicalCelebrantId.has(dateInfo.celebrant_id)) continue;
+    canonicalRowKeys.add(
+      `${dateInfo.notified_user_id}|${dateInfo.celebrant_id}`
+    );
   }
 
   // Profiles for both halves of every couple actually surviving the dedupe
@@ -205,14 +253,24 @@ export async function checkAndSendDateReminders(
   for (const dateInfo of upcomingDates) {
     try {
       // Step 3: drop the non-canonical half's row before it is ever
-      // inserted -- the canonical half's own row (kept below) stands for
-      // the pair. Gated on field_name === 'anniversary' as well as
-      // membership so that a birthday which happens to share a celebrant_id
-      // with someone's non-canonical anniversary link (not possible today,
-      // but not this check's job to assume) is never touched.
+      // inserted -- the canonical half's own row stands for the pair. Gated
+      // on field_name === 'anniversary' as well as membership so that a
+      // birthday which happens to share a celebrant_id with someone's
+      // non-canonical anniversary link (not possible today, but not this
+      // check's job to assume) is never touched.
+      //
+      // PER RECIPIENT, not globally (finding I3, see the canonicalRowKeys
+      // note above): the row is dropped only when THIS notified_user_id is
+      // also getting the canonical partner's row in this same run. A
+      // recipient who can see only the non-canonical partner's date has no
+      // canonical row to stand in for it, so theirs survives and they keep
+      // the one reminder they had before this feature existed.
       if (
         dateInfo.field_name === 'anniversary' &&
-        nonCanonicalCelebrantIds.has(dateInfo.celebrant_id)
+        nonCanonicalCelebrantIds.has(dateInfo.celebrant_id) &&
+        canonicalRowKeys.has(
+          `${dateInfo.notified_user_id}|${canonicalIdByNonCanonicalCelebrantId.get(dateInfo.celebrant_id)}`
+        )
       ) {
         continue;
       }
