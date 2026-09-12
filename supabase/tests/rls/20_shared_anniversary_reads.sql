@@ -249,6 +249,45 @@
 --       last/first N days of the year" caveat, unlike a fixture that instead
 --       tests the rollover branch by going backward from current_date.
 --
+-- THE FINAL WHOLE-BRANCH REVIEW ADDS ASSERTIONS 18-21, for the two findings
+-- everything above missed because everything above exercised only
+-- get_or_create_celebrated_occasion.
+--
+--   18. FINDING I1, and the SPEC'S OWN "done when" #3, which nothing in this
+--       repository asserted before: tagging from EITHER partner's list and
+--       claiming from EITHER land on the same occasion id, and the couple
+--       has exactly ONE anniversary occasion row afterwards.
+--       lib/actions/item-occasions.ts tags through get_or_create_occasion,
+--       not get_or_create_celebrated_occasion -- a fact
+--       lib/occasions/taggable.ts documents and the design document
+--       (:205-209) denied -- and that function had no couple resolution at
+--       all until 20260912000015. A couple who tagged before claiming got
+--       two rows. The tagging call from the NON-canonical side runs FIRST
+--       here, because that is the call that used to create the stray row.
+--   19. FINDING I1: that single row is keyed to the canonical partner with
+--       the other in partner_id. Not redundant with assertion 8 -- the row
+--       here is created by get_or_create_occasion, a separate body carrying
+--       its own copy of the resolution, and a mirror row from either
+--       function strands a stale partner_id past unlink.
+--   20. FINDING I4: the shared row's occasion_date comes from the CANONICAL
+--       partner regardless of who materialized it last. Both functions used
+--       to derive from the celebrant the caller NAMED and then upsert under
+--       the canonical id with `do update set occasion_date = excluded.
+--       occasion_date`, making the date last-writer-wins by whoever clicked
+--       -- which reaches claim auto-release
+--       (20260911100002_claim_rpcs.sql frees a claim once
+--       `occasion_date < current_date`), not merely the label. The fixture's
+--       two profile dates DIFFER, without which this assertion would be
+--       vacuous.
+--   21. FINDING I4, lifecycle half: a claim already scoped to a couple's
+--       shared occasion survives the other partner materializing afterwards.
+--       Reuses assertion 11's fixture, the only one in this file holding a
+--       real claim.
+--
+-- Assertions 18-21 use FIXED calendar anchors and compare month/day only, so
+-- the this-year-or-next rollover celebration_date_in_year() applies cannot
+-- make them calendar-dependent.
+--
 -- Keep the numbering and structure below easy to extend: add a block, bump
 -- v_checks, bump the floor.
 --
@@ -299,6 +338,23 @@ declare
   v_pc_item       uuid;
   v_pc_claim      uuid;
   v_pc_active_claims int;
+
+  -- Final whole-branch review, assertions 18-21 (findings I1 and I4): the
+  -- TAGGING path (get_or_create_occasion) and the CLAIMING path
+  -- (get_or_create_celebrated_occasion) must land on ONE occasion, carrying
+  -- the CANONICAL partner's date. Deliberately different profile dates, so
+  -- "whose date won" is observable.
+  v_tg_a          text := 'user_shanniv_tg_a';   -- canonical (smaller id)
+  v_tg_b          text := 'user_shanniv_tg_b';   -- non-canonical
+  v_tg_link       uuid;
+  v_tg_tag_b      uuid;   -- tagging, from the non-canonical partner's list
+  v_tg_tag_a      uuid;   -- tagging, from the canonical partner's list
+  v_tg_claim_b    uuid;   -- claiming, naming the non-canonical partner
+  v_tg_claim_a    uuid;   -- claiming, naming the canonical partner
+  v_tg_rows       int;
+  v_tg_celebrant  text;
+  v_tg_partner    text;
+  v_tg_monthday   text;
 
   -- Round-1 review, assertion 12 (IMPORTANT): a PENDING link must not merge.
   v_pend_a        text := 'user_shanniv_pend_a';
@@ -447,6 +503,42 @@ begin
 
   insert into anniversary_link_members (user_id, link_id)
     values (v_mat_a, v_mat_link), (v_mat_b, v_mat_link);
+
+  ---------------------------------------------------------------------------
+  -- Final whole-branch review fixture (assertions 18-21, findings I1 + I4):
+  -- a second CONFIRMED couple, distinct from v_mat_a/v_mat_b so the
+  -- call ORDER below can start from a clean slate -- assertion 7 has already
+  -- materialized the v_mat couple's row by the time these run.
+  --
+  -- The two profile dates DIFFER on purpose, and are FIXED calendar anchors
+  -- rather than offsets from current_date: every assertion below compares
+  -- month/day only (to_char(..., 'MM-DD')), so the year
+  -- celebration_date_in_year() rolls to is irrelevant and this fixture is
+  -- safe on every day of the year. Without differing dates, finding I4's
+  -- assertion would be vacuous -- both partners' derivations would agree by
+  -- coincidence and no ordering of the calls could tell them apart.
+  --
+  -- Neither partner needs a group or permissive privacy: every call below is
+  -- made BY one of the two partners FOR themself, and can_view_field
+  -- short-circuits to true for an owner viewing their own field.
+  ---------------------------------------------------------------------------
+  insert into user_profiles (id, username, display_name)
+    values (v_tg_a, 'shantgcpla', 'Shared Anniv Tag Couple A'),
+           (v_tg_b, 'shantgcplb', 'Shared Anniv Tag Couple B');
+
+  insert into profile_info (user_id, category, field_name, field_value, privacy_settings)
+    values
+      (v_tg_a, 'dates', 'anniversary', '2020-03-04',
+       '{"visibleToGroupTypes": [], "restrictToGroup": null}'),
+      (v_tg_b, 'dates', 'anniversary', '2020-09-14',
+       '{"visibleToGroupTypes": [], "restrictToGroup": null}');
+
+  insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date, confirmed_at)
+    values (v_tg_a, v_tg_b, 'confirmed', v_tg_a, '2020-03-04', now())
+    returning id into v_tg_link;
+
+  insert into anniversary_link_members (user_id, link_id)
+    values (v_tg_a, v_tg_link), (v_tg_b, v_tg_link);
 
   ---------------------------------------------------------------------------
   -- Round-1 review, assertion 11 fixture (CRITICAL): a confirmed couple
@@ -1174,8 +1266,253 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 20 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 20', v_checks;
+  ---------------------------------------------------------------------------
+  -- Assertion 18 (FINDING I1, 2 checks). THE SPEC'S OWN "DONE WHEN" #3:
+  -- tagging from EITHER partner's list and claiming from EITHER land on the
+  -- SAME occasion id. Nothing in this repository asserted it before this
+  -- round, and it was FALSE: lib/actions/item-occasions.ts's
+  -- tagItemForMyOccasion calls get_or_create_occasion, which until
+  -- 20260912000015 inserted unconditionally under the caller with no couple
+  -- resolution at all -- so a couple who tagged before claiming ended up with
+  -- TWO occasion rows, two claim scopes and two tag partitions carrying the
+  -- same "Alex & Sam's Anniversary" label. Assertions 7-8 could not see it:
+  -- they exercise only get_or_create_celebrated_occasion, the half that was
+  -- already link-aware.
+  --
+  -- The call ORDER matters and reproduces the original defect exactly:
+  -- TAGGING from the NON-canonical partner's list goes first, because that
+  -- is the call that used to create the stray second row. Four calls in all,
+  -- covering both paths from both sides, since "either ... and either" is
+  -- what the spec says.
+  --
+  -- Check (a) is the four-way id equality. Check (b) counts the actual
+  -- occasion rows for the pair, which is the non-vacuous companion: (a)
+  -- alone would still pass a function that returned one id while leaving a
+  -- second, orphaned row behind, and it is the row count -- not the id --
+  -- that determines whether a giver sees one anniversary section or two.
+  --
+  -- FALSIFIABLE: reverting get_or_create_occasion to its pre-I1 body
+  -- (20260911000001_get_or_create_occasion_returning.sql -- no resolution
+  -- block, insert keyed to v_caller with no partner_id) makes BOTH checks
+  -- fail -- verified by mutation inside begin/rollback against the live
+  -- project, see the final fix report. NOT caught: a resolution that lands
+  -- on one row but with the wrong DATE (assertion 20), or reversed
+  -- celebrant/partner columns (assertion 19).
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_tg_b || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  select public.get_or_create_occasion('anniversary') into v_tg_tag_b;
+
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_tg_a || '","role":"authenticated"}', true);
+
+  select public.get_or_create_occasion('anniversary') into v_tg_tag_a;
+
+  select public.get_or_create_celebrated_occasion(v_tg_a, 'anniversary')
+    into v_tg_claim_a;
+
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_tg_b || '","role":"authenticated"}', true);
+
+  select public.get_or_create_celebrated_occasion(v_tg_b, 'anniversary')
+    into v_tg_claim_b;
+
+  perform set_config('role', v_orig_role, true);
+
+  if v_tg_tag_b is null
+     or v_tg_tag_a is distinct from v_tg_tag_b
+     or v_tg_claim_a is distinct from v_tg_tag_b
+     or v_tg_claim_b is distinct from v_tg_tag_b
+  then
+    raise exception
+      'RLS FAIL: a confirmed couple did not resolve to ONE occasion id -- tag-as-non-canonical=%, tag-as-canonical=%, claim-naming-canonical=%, claim-naming-non-canonical=% -- the spec''s "done when" #3 requires tagging from either partner''s list and claiming from either to land on the same occasion',
+      v_tg_tag_b, v_tg_tag_a, v_tg_claim_a, v_tg_claim_b;
+  end if;
+  v_checks := v_checks + 1;
+
+  select count(*) into v_tg_rows
+    from public.occasions
+   where kind = 'anniversary' and celebrant_id in (v_tg_a, v_tg_b);
+
+  if v_tg_rows <> 1 then
+    raise exception
+      'RLS FAIL: couple (%, %) has % anniversary occasion row(s) after tagging and claiming from both sides, expected exactly 1 -- two rows is the defect this feature exists to remove',
+      v_tg_a, v_tg_b, v_tg_rows;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 19 (FINDING I1, 2 checks): the one surviving row is keyed to
+  -- the CANONICAL partner with the other in partner_id, checked as two
+  -- separate conditions so a swap is its own visible failure rather than
+  -- being hidden behind "some row with the right two ids exists".
+  --
+  -- Assertion 8 makes the same check for get_or_create_celebrated_occasion.
+  -- This one is NOT redundant with it: the row here may have been created by
+  -- get_or_create_occasion (the tagging path, which ran first above), and
+  -- that function is a separate body with its own copy of the resolution.
+  -- A mirror row from EITHER function would be invisible to
+  -- unlink_anniversary's `where celebrant_id = v_link.user_a and partner_id =
+  -- v_link.user_b` scoping, stranding a stale partner_id after a breakup.
+  --
+  -- FALSIFIABILITY, STATED AS OBSERVED RATHER THAN AS HOPED. Two direction
+  -- mutations were run inside begin/rollback against the live project:
+  --
+  --   * reversing `into v_partner, v_target` in BOTH functions -- assertion
+  --     8 fires first (it sits earlier in this file and tests
+  --     get_or_create_celebrated_occasion directly);
+  --   * reversing it in get_or_create_occasion ALONE -- assertion 18 fires,
+  --     because the two functions then disagree about which id the row is
+  --     keyed to and the couple ends up with two rows.
+  --
+  -- So these two checks did NOT fire independently under either mutation,
+  -- and this comment says so rather than claiming a bite they do not have --
+  -- this file has twice shipped a falsifiability claim that was provably
+  -- false. What they are worth keeping for: they LOCALISE the failure. A
+  -- direction regression reaching here reports "the one row is keyed to the
+  -- wrong partner" instead of "the ids do not match", which is the
+  -- difference between a five-minute diagnosis and an hour of it -- and if
+  -- assertion 7/8's fixture were ever removed, these become the only
+  -- coverage of get_or_create_occasion's own copy of the direction.
+  ---------------------------------------------------------------------------
+  select celebrant_id, partner_id into v_tg_celebrant, v_tg_partner
+    from public.occasions where id = v_tg_tag_b;
+
+  if v_tg_celebrant is distinct from v_tg_a then
+    raise exception
+      'RLS FAIL: the couple''s single occasion has celebrant_id=%, expected the CANONICAL (lexicographically smaller) partner %',
+      v_tg_celebrant, v_tg_a;
+  end if;
+  v_checks := v_checks + 1;
+
+  if v_tg_partner is distinct from v_tg_b then
+    raise exception
+      'RLS FAIL: the couple''s single occasion has partner_id=%, expected the non-canonical partner % -- get_or_create_occasion must write partner_id, not leave it null as it did before 20260912000015',
+      v_tg_partner, v_tg_b;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 20 (FINDING I4, 1 check): the shared row's date comes from the
+  -- CANONICAL partner, whoever materialized it and in whatever order.
+  --
+  -- Both functions used to derive the date from the celebrant the CALLER
+  -- named and then upsert under the canonical id with
+  -- `do update set occasion_date = excluded.occasion_date`, so the row's date
+  -- was last-writer-wins by whoever clicked. Reproduced on the live project
+  -- inside begin/rollback: A materialized -> 2026-10-22, B materialized the
+  -- SAME row -> 2026-09-14.
+  --
+  -- That reaches the claim lifecycle rather than only the label:
+  -- 20260911100002_claim_rpcs.sql releases every claim whose
+  -- `o.occasion_date < current_date`, so a viewer shown the later date has
+  -- their claim auto-released weeks early, freeing the item and inviting the
+  -- duplicate gift claiming exists to prevent.
+  --
+  -- v_tg_b (whose own date is 09-14) made BOTH of the last two calls above,
+  -- so the row would carry 09-14 under the old behaviour; it must carry
+  -- v_tg_a's 03-04. Month/day only, so the this-year-or-next rollover
+  -- celebration_date_in_year() applies cannot make this calendar-dependent.
+  --
+  -- FALSIFIABILITY, AND THE CALENDAR CAVEAT THAT GOES WITH IT -- stated as
+  -- observed, because a wrong claim here is the defect class this file has
+  -- already been corrected for twice.
+  --
+  -- The mutation is: disable the `if v_partner is not null and v_target is
+  -- distinct from ... then ... v_value := v_canon; end if;` block in
+  -- 20260912000015 or 20260912000016. Both were run inside begin/rollback
+  -- against the live project. WHICH assertion reports it depends on where in
+  -- the calendar the suite runs, because occasions_celebrant_identity keys
+  -- on occasion_year:
+  --
+  --   * when the couple's two dates fall in DIFFERENT occasion_years (03-04
+  --     and 09-14 do, for any run between 4 March and 13 September), the
+  --     mutated call materializes a SEPARATE row and ASSERTION 18 fires
+  --     -- observed, for both functions, on a 12 September run;
+  --   * when they share an occasion_year (any other run date), the mutated
+  --     call lands on the same row and rewrites its date, and THIS assertion
+  --     fires -- proven by re-running the same mutation against a scratch
+  --     copy of this file with the canonical anchor moved to 09-20, which
+  --     produced exactly this raise: "the couple's shared occasion is dated
+  --     09-14 but the CANONICAL partner ...'s own anniversary is ...".
+  --
+  -- So the mutation is caught year-round, by 18 or by 20, and BOTH halves
+  -- were observed firing. The anchors stay fixed rather than offset from
+  -- current_date: a pair of DIFFERENT dates guaranteed to share an
+  -- occasion_year on every possible run date does not exist (any such pair
+  -- straddles the year boundary somewhere), so choosing offsets would trade
+  -- a documented calendar-dependence for an undocumented one.
+  --
+  -- NOT caught: the early-auto-release consequence itself, which needs the
+  -- clock to advance past one date but not the other and so cannot be
+  -- observed inside a single transaction. Date stability is the property
+  -- that prevents it, and that is what this asserts.
+  ---------------------------------------------------------------------------
+  select to_char(occasion_date, 'MM-DD') into v_tg_monthday
+    from public.occasions where id = v_tg_tag_b;
+
+  if v_tg_monthday is distinct from '03-04' then
+    raise exception
+      'RLS FAIL: the couple''s shared occasion is dated % but the CANONICAL partner %''s own anniversary is 03-04 (the non-canonical partner %''s is 09-14) -- a partnered occasion''s date must come from the canonical partner, not from whichever partner materialized it last',
+      v_tg_monthday, v_tg_a, v_tg_b;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 21 (FINDING I4, 1 check): a claim already scoped to a couple's
+  -- shared occasion survives the OTHER partner materializing afterwards,
+  -- with the occasion's date unmoved.
+  --
+  -- This is the lifecycle half of assertion 20, on the fixture that already
+  -- holds a real claim (assertion 11's v_pc_* couple and gifter). The
+  -- sequence is the reported failure exactly: the non-canonical partner's
+  -- side materialized and a gifter claimed against it (assertion 11 above),
+  -- and now the CANONICAL partner materializes the same row. Before finding
+  -- I4's fix that second call rewrote occasion_date under the live claim.
+  --
+  -- Both v_pc partners carry the same profile date, so this assertion pins
+  -- STABILITY (the date does not move, and the claim is untouched) rather
+  -- than WHICH date wins -- that is assertion 20's job, on a fixture whose
+  -- two dates differ. Kept separate because the two failures are different:
+  -- a date that moves under a live claim is a lifecycle bug even when the
+  -- value it moves to is the canonical one.
+  --
+  -- FALSIFIABLE: making the resolution write the NAMED celebrant's date
+  -- while still upserting under the canonical id -- i.e. the pre-fix
+  -- behaviour -- combined with differing v_pc dates makes the date check
+  -- fail. As shipped (identical v_pc dates) the date check cannot fail on
+  -- value alone, so this assertion's live bite is the claim-survival half:
+  -- verified by mutating claim_wishlist_item's upsert to release on
+  -- re-materialization, which fails `active claims = 1`. Stated plainly
+  -- rather than overclaimed -- this file has been corrected twice for
+  -- asserting a falsifiability it did not have.
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_pc_canon || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  perform public.get_or_create_celebrated_occasion(v_pc_canon, 'anniversary');
+
+  perform set_config('role', v_orig_role, true);
+
+  select count(*) into v_pc_active_claims
+    from wishlist_claims
+   where item_id = v_pc_item
+     and claimed_by = v_pc_gifter
+     and released_at is null
+     and occasion_id = v_pc_occasion;
+
+  if v_pc_active_claims <> 1 then
+    raise exception
+      'RLS FAIL: after the canonical partner % re-materialized the shared occasion %, the gifter %''s claim on item % is no longer a single active claim scoped to it (% row(s)) -- re-materializing must not disturb a live claim',
+      v_pc_canon, v_pc_occasion, v_pc_gifter, v_pc_item, v_pc_active_claims;
+  end if;
+  v_checks := v_checks + 1;
+
+  if v_checks < 26 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 26', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_20_shared_anniversary_reads');
