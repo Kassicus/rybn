@@ -1422,6 +1422,13 @@ begin
   -- separate conditions so a swap is its own visible failure rather than
   -- being hidden behind "some row with the right two ids exists".
   --
+  -- Read AFTER all four calls, which is what distinguishes it from the
+  -- tag-only checkpoint (18c/18d) above: that one pins what
+  -- get_or_create_occasion wrote, this one pins what the row still holds once
+  -- get_or_create_celebrated_occasion has upserted over it twice. The two are
+  -- complementary, not duplicates -- a `do update` that rewrote partner_id to
+  -- the wrong id would pass 18d and fail here.
+  --
   -- Assertion 8 makes the same check for get_or_create_celebrated_occasion.
   -- This one is NOT redundant with it: the row here may have been created by
   -- get_or_create_occasion (the tagging path, which ran first above), and
@@ -1430,25 +1437,37 @@ begin
   -- unlink_anniversary's `where celebrant_id = v_link.user_a and partner_id =
   -- v_link.user_b` scoping, stranding a stale partner_id after a breakup.
   --
-  -- FALSIFIABILITY, STATED AS OBSERVED RATHER THAN AS HOPED. Two direction
-  -- mutations were run inside begin/rollback against the live project:
+  -- FALSIFIABILITY, STATED AS OBSERVED. CORRECTED UPWARD: an earlier version
+  -- of this comment called these checks mere localisers that "did NOT fire
+  -- independently under either mutation". That was too harsh, and it read as
+  -- an invitation to delete them. Both direction mutations were re-run on a
+  -- LOCAL scratch replica of exactly the objects these two functions touch,
+  -- with the migration files loaded unedited and EVERY check evaluated
+  -- independently instead of aborting at the first raise -- which is what the
+  -- earlier run, inside the file's own abort-on-first-raise ordering, could
+  -- not see:
   --
-  --   * reversing `into v_partner, v_target` in BOTH functions -- assertion
-  --     8 fires first (it sits earlier in this file and tests
-  --     get_or_create_celebrated_occasion directly);
-  --   * reversing it in get_or_create_occasion ALONE -- assertion 18 fires,
-  --     because the two functions then disagree about which id the row is
-  --     keyed to and the couple ends up with two rows.
+  --   * reversing `into v_partner, v_target` in BOTH functions -- 18a and 18b
+  --     PASS. The couple still collapses to ONE row under ONE id, so
+  --     assertion 18 cannot see this defect at all. 19a and 19b FIRE, and
+  --     name it exactly: the surviving row is keyed to the non-canonical
+  --     partner. Assertion 20 fires too, but reports it as a wrong DATE
+  --     (09-14 rather than 03-04), which sends a reader after the I4
+  --     canonical-date block instead of after the direction.
+  --   * reversing it in get_or_create_occasion ALONE -- 18c/18d fire at the
+  --     tag-only checkpoint above, then 18a/18b, then these, because the two
+  --     functions disagree about which id the row is keyed to and the couple
+  --     ends up with two rows.
   --
-  -- So these two checks did NOT fire independently under either mutation,
-  -- and this comment says so rather than claiming a bite they do not have --
-  -- this file has twice shipped a falsifiability claim that was provably
-  -- false. What they are worth keeping for: they LOCALISE the failure. A
+  -- So these checks bite, and under a both-functions reversal they are the
+  -- only ones in the 18-21 block that report the actual defect rather than a
+  -- downstream symptom. What is true -- and was mistaken for a statement
+  -- about their bite -- is a fact about FILE ORDER: assertion 8 sits earlier,
+  -- tests the same direction through get_or_create_celebrated_occasion, and
+  -- an uncaught raise aborts the file, so an operator running the suite sees
+  -- assertion 8 first. Shadowed, not redundant. They also still localise: a
   -- direction regression reaching here reports "the one row is keyed to the
-  -- wrong partner" instead of "the ids do not match", which is the
-  -- difference between a five-minute diagnosis and an hour of it -- and if
-  -- assertion 7/8's fixture were ever removed, these become the only
-  -- coverage of get_or_create_occasion's own copy of the direction.
+  -- wrong partner" rather than "the ids do not match".
   ---------------------------------------------------------------------------
   select celebrant_id, partner_id into v_tg_celebrant, v_tg_partner
     from public.occasions where id = v_tg_tag_b;
@@ -1462,8 +1481,8 @@ begin
 
   if v_tg_partner is distinct from v_tg_b then
     raise exception
-      'RLS FAIL: the couple''s single occasion has partner_id=%, expected the non-canonical partner % -- get_or_create_occasion must write partner_id, not leave it null as it did before 20260912000015',
-      v_tg_partner, v_tg_b;
+      'RLS FAIL: after all four calls the couple''s single occasion has partner_id=%, expected the non-canonical partner % -- the pair must still be stored canonical-first once get_or_create_celebrated_occasion has upserted over the row, because a mirrored row is invisible to unlink_anniversary''s `celebrant_id = user_a and partner_id = user_b` scoping and strands a stale partner_id after a breakup. (That get_or_create_occasion writes partner_id AT ALL is pinned separately, by the tag-only checkpoint above -- this check cannot see it, since the celebrated path rewrites the column first.)',
+      coalesce(v_tg_partner, '<null>'), v_tg_b;
   end if;
   v_checks := v_checks + 1;
 
