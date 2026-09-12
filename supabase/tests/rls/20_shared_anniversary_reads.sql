@@ -355,6 +355,10 @@ declare
   v_tg_celebrant  text;
   v_tg_partner    text;
   v_tg_monthday   text;
+  -- Read at the TAG-ONLY checkpoint (assertion 18c/18d), before either
+  -- get_or_create_celebrated_occasion call can overwrite these two columns.
+  v_tg_tag_celebrant text;
+  v_tg_tag_partner   text;
 
   -- Round-1 review, assertion 12 (IMPORTANT): a PENDING link must not merge.
   v_pend_a        text := 'user_shanniv_pend_a';
@@ -1285,6 +1289,12 @@ begin
   -- covering both paths from both sides, since "either ... and either" is
   -- what the spec says.
   --
+  -- FOUR checks, and TWO of them run mid-sequence. Checks (c) and (d) are
+  -- the TAG-ONLY CHECKPOINT, physically placed between the two tagging calls
+  -- and the two claiming calls below, because that is the only point at which
+  -- get_or_create_occasion's own work is observable -- see their own comment
+  -- for what was wrong with reading those columns only at the end.
+  --
   -- Check (a) is the four-way id equality. Check (b) counts the actual
   -- occasion rows for the pair, which is the non-vacuous companion: (a)
   -- alone would still pass a function that returned one id while leaving a
@@ -1309,6 +1319,69 @@ begin
     '{"sub":"' || v_tg_a || '","role":"authenticated"}', true);
 
   select public.get_or_create_occasion('anniversary') into v_tg_tag_a;
+
+  perform set_config('role', v_orig_role, true);
+
+  ---------------------------------------------------------------------------
+  -- Assertion 18c/18d (RE-REVIEW FINDING 3, 2 checks). THE TAG-ONLY
+  -- CHECKPOINT -- get_or_create_occasion's own celebrant_id and partner_id,
+  -- read HERE because by the end of this block they are no longer its work.
+  --
+  -- WHAT WAS UNCOVERED, AND HOW IT WAS FOUND. Strip partner_id out of
+  -- get_or_create_occasion's insert and its `do update` -- the exact
+  -- pre-20260912000015 shape, celebrant resolution left in place -- and
+  -- assertions 18a, 18b, 19a, 19b and 20 ALL still pass. The fourth call in
+  -- this sequence is get_or_create_celebrated_occasion, whose
+  -- `do update set ... partner_id = excluded.partner_id` writes the correct
+  -- partner_id onto the same row before assertion 19 ever reads it. So the
+  -- file asserted a property of the row, not a property of the function that
+  -- created it, and 19b's error message named a regression the file could not
+  -- catch. Reproduced on a LOCAL scratch replica of these two functions'
+  -- objects, loaded from the migration files unedited, on a 2026-09-12 run:
+  --
+  --   BASELINE        18c passes  18d passes  18a/18b/19a/19b/20 pass
+  --   partner stripped 18c passes 18d FIRES   18a/18b/19a/19b/20 ALL PASS
+  --
+  -- WHY THE ROW MUST ALREADY BE RIGHT AT THIS POINT, rather than merely right
+  -- eventually. lib/actions/item-occasions.ts:44's tagItemForMyOccasion calls
+  -- get_or_create_occasion and NOT the celebrated variant -- that asymmetry is
+  -- the root of finding I1 -- so a couple who only ever tags leaves this row
+  -- exactly as this function wrote it, with no later call to repair it. A row
+  -- with celebrant_id set but partner_id null is invisible to the `occasions`
+  -- SELECT policy's partner branch (the partner-side viewer never sees the
+  -- shared occasion), never renders both names, and cannot be found by
+  -- unlink_anniversary's `where celebrant_id = v_link.user_a and partner_id =
+  -- v_link.user_b` cleanup after a breakup.
+  --
+  -- ALSO OBSERVED on the same replica, as a bonus rather than as the purpose:
+  -- reversing `into v_partner, v_target` in get_or_create_occasion alone fires
+  -- 18c and 18d here, ahead of assertion 18a -- the failure is reported
+  -- against the function that caused it instead of against the pair's id
+  -- count several calls later.
+  --
+  -- Role is restored for the read and re-taken afterwards, matching how every
+  -- other assertion in this file reads tables back.
+  ---------------------------------------------------------------------------
+  select celebrant_id, partner_id into v_tg_tag_celebrant, v_tg_tag_partner
+    from public.occasions where id = v_tg_tag_b;
+
+  if v_tg_tag_celebrant is distinct from v_tg_a then
+    raise exception
+      'RLS FAIL: after TAGGING alone -- no claim call has run yet -- the couple''s occasion has celebrant_id=%, expected the CANONICAL (lexicographically smaller) partner % -- get_or_create_occasion must resolve the couple in its own body',
+      v_tg_tag_celebrant, v_tg_a;
+  end if;
+  v_checks := v_checks + 1;
+
+  if v_tg_tag_partner is distinct from v_tg_b then
+    raise exception
+      'RLS FAIL: after TAGGING alone -- no claim call has run yet -- the couple''s occasion has partner_id=%, expected the non-canonical partner % -- get_or_create_occasion must write partner_id ITSELF, as it did not before 20260912000015; a tag-first couple never calls get_or_create_celebrated_occasion, so nothing later repairs this row',
+      coalesce(v_tg_tag_partner, '<null>'), v_tg_b;
+  end if;
+  v_checks := v_checks + 1;
+
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_tg_a || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
 
   select public.get_or_create_celebrated_occasion(v_tg_a, 'anniversary')
     into v_tg_claim_a;
@@ -1511,8 +1584,8 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 26 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 26', v_checks;
+  if v_checks < 28 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 28', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_20_shared_anniversary_reads');
