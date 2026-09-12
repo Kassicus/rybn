@@ -49,6 +49,12 @@ export async function getUpcomingOccasions(
     celebrant_display_name: string | null;
     group_id: string | null;
     group_name: string | null;
+    // Set only when the viewer can see BOTH partners' anniversary dates --
+    // get_upcoming_occasions collapses a confirmed couple's anniversary to
+    // one row, per viewer, and leaves these null otherwise.
+    partner_id: string | null;
+    partner_username: string | null;
+    partner_display_name: string | null;
   }>;
 
   return {
@@ -62,6 +68,9 @@ export async function getUpcomingOccasions(
       celebrantDisplayName: r.celebrant_display_name,
       groupId: r.group_id,
       groupName: r.group_name,
+      partnerId: r.partner_id,
+      partnerUsername: r.partner_username,
+      partnerDisplayName: r.partner_display_name,
     })),
   };
 }

@@ -21,6 +21,9 @@ function birthday(over: Partial<UpcomingOccasion> = {}): UpcomingOccasion {
     celebrantDisplayName: "Kason",
     groupId: null,
     groupName: null,
+    partnerId: null,
+    partnerUsername: null,
+    partnerDisplayName: null,
     ...over,
   };
 }
@@ -36,6 +39,9 @@ function groupDate(over: Partial<UpcomingOccasion> = {}): UpcomingOccasion {
     celebrantDisplayName: null,
     groupId: "group-1",
     groupName: "The Family",
+    partnerId: null,
+    partnerUsername: null,
+    partnerDisplayName: null,
     ...over,
   };
 }

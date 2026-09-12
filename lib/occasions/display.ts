@@ -21,15 +21,16 @@ export interface UpcomingOccasion {
    * before this feature existed -- that is the correct rendering for them,
    * not a missing-data fallback.
    *
-   * Optional (rather than required-but-nullable) so that existing
-   * constructors of this type -- lib/actions/occasions.ts's RPC mapper
-   * (Task 8's to wire up) and lib/occasions/taggable.test.ts's fixtures --
-   * do not need touching just to keep typechecking; occasionLabel treats a
-   * missing key the same as an explicit null.
+   * Required (not optional): the single-name rendering below is the correct
+   * output for a viewer who can see only one partner, which makes it
+   * INDISTINGUISHABLE from the output of a construction site that simply
+   * forgot to pass the partner along. An optional field would let that
+   * mistake type-check; a required-but-nullable one forces every
+   * constructor of this type to say explicitly which case it means.
    */
-  partnerId?: string | null;
-  partnerUsername?: string | null;
-  partnerDisplayName?: string | null;
+  partnerId: string | null;
+  partnerUsername: string | null;
+  partnerDisplayName: string | null;
 }
 
 const KIND_NOUN: Record<Exclude<OccasionKind, "group_date">, string> = {

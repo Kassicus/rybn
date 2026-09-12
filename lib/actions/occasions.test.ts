@@ -3,10 +3,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 /**
  * getUpcomingOccasions() is a thin mapper: get_upcoming_occasions() does all
  * the real work (privacy, derivation, the union) inside the database, so the
- * one thing this action can get wrong on its own is the 9-column
- * snake_case -> camelCase row mapping. That is exactly the kind of bug that
- * type-checks cleanly -- swapping celebrant_username and
- * celebrant_display_name, say, both `string | null` -- and would ship
+ * one thing this action can get wrong on its own is the 12-column
+ * snake_case -> camelCase row mapping (9 original plus the 3 partner_*
+ * columns added when a couple's anniversary can be shown as one row). That
+ * is exactly the kind of bug that type-checks cleanly -- swapping
+ * celebrant_username and celebrant_display_name, say, both `string | null`,
+ * or silently dropping partner_id into a hardcoded null -- and would ship
  * silently without a test pinning the mapping column by column.
  *
  * Follows the mocking pattern established in ./invitations.test.ts: mock
@@ -115,11 +117,20 @@ beforeEach(() => {
 });
 
 describe("getUpcomingOccasions", () => {
-  it("maps every one of the 9 RPC columns to the right camelCase field", async () => {
+  it("maps every one of the 12 RPC columns to the right camelCase field", async () => {
     // Every column gets a distinct, identifiable value -- not all-nulls --
     // so a transposition between two same-typed columns (e.g. the two
     // celebrant name columns, or occasion_id/group_id, both uuid-shaped)
     // fails loudly instead of type-checking its way into production.
+    //
+    // The three partner_* columns are exercised the same way and are the
+    // one thing this test exists to pin down beyond the original 9: a
+    // mapper that drops them (returns partnerId: null regardless of the RPC
+    // row) would still type-check -- null is a valid UpcomingOccasion value
+    // -- and would render a viewer entitled to see both partners as if they
+    // could see only one, with no error anywhere. Distinct, non-null values
+    // here mean this test FAILS on that exact silent failure, not just on a
+    // gross wiring break.
     rpc.mockResolvedValue({
       data: [
         {
@@ -132,6 +143,9 @@ describe("getUpcomingOccasions", () => {
           celebrant_display_name: "celebrant-display-name-1",
           group_id: "group-id-1",
           group_name: "group-name-1",
+          partner_id: "partner-id-1",
+          partner_username: "partner-username-1",
+          partner_display_name: "partner-display-name-1",
         },
       ],
       error: null,
@@ -151,6 +165,9 @@ describe("getUpcomingOccasions", () => {
         celebrantDisplayName: "celebrant-display-name-1",
         groupId: "group-id-1",
         groupName: "group-name-1",
+        partnerId: "partner-id-1",
+        partnerUsername: "partner-username-1",
+        partnerDisplayName: "partner-display-name-1",
       },
     ]);
   });
@@ -182,6 +199,9 @@ describe("getUpcomingOccasions", () => {
           celebrant_display_name: "celebrant-display-name-2",
           group_id: null,
           group_name: null,
+          partner_id: null,
+          partner_username: null,
+          partner_display_name: null,
         },
       ],
       error: null,
@@ -200,6 +220,9 @@ describe("getUpcomingOccasions", () => {
         celebrantDisplayName: "celebrant-display-name-2",
         groupId: null,
         groupName: null,
+        partnerId: null,
+        partnerUsername: null,
+        partnerDisplayName: null,
       },
     ]);
   });
@@ -217,6 +240,9 @@ describe("getUpcomingOccasions", () => {
           celebrant_display_name: null,
           group_id: "group-id-3",
           group_name: "group-name-3",
+          partner_id: null,
+          partner_username: null,
+          partner_display_name: null,
         },
       ],
       error: null,
@@ -235,6 +261,9 @@ describe("getUpcomingOccasions", () => {
         celebrantDisplayName: null,
         groupId: "group-id-3",
         groupName: "group-name-3",
+        partnerId: null,
+        partnerUsername: null,
+        partnerDisplayName: null,
       },
     ]);
   });
