@@ -336,9 +336,12 @@ export function AnniversaryPartner() {
                 <Heart className="w-4 h-4" />
               </AvatarFallback>
             </Avatar>
+            {/* min-w-0 without truncate on the date line: this is the one
+                piece of information the card exists to show. Only the name
+                above it truncates. */}
             <div className="min-w-0">
               <Text className="font-medium truncate">{partnerLabel(link)}</Text>
-              <Text variant="secondary" size="sm" className="truncate">
+              <Text variant="secondary" size="sm">
                 Shared anniversary: {formatMonthDay(link.agreedDate)}
               </Text>
             </div>
