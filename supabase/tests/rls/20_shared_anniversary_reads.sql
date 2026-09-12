@@ -72,10 +72,76 @@
 --      same limitation 15_celebrated_materialization.sql's header documents
 --      for a raising denial -- so existence and exact text stand in instead.
 --
--- This file grows again in Tasks 4 and 5 (materialization, then derivation),
--- appending further assertions and raising v_checks' floor to match. Keep
--- the numbering and structure below easy to extend: add a block, bump
--- v_checks, bump the floor.
+-- TASK 4 ADDS FOUR MORE ASSERTIONS (7-10), proving get_or_create_celebrated_
+-- occasion (20260912000007_canonical_anniversary.sql) resolves a linked
+-- couple to the one shared row this file's first six assertions already
+-- established is readable by both partners:
+--
+--   7. get_or_create_celebrated_occasion(user_a, 'anniversary') and
+--      get_or_create_celebrated_occasion(user_b, 'anniversary') -- called by
+--      each partner for themself -- return the SAME uuid. This is the
+--      assertion the entire design rests on: it is impossible for two
+--      different physical rows to share one id, so this alone proves one
+--      row now serves both partners' calls, not merely that two rows happen
+--      to look alike.
+--   8. that row's celebrant_id is the CANONICAL (lexicographically smaller)
+--      partner and its partner_id is the other one -- checked as two
+--      SEPARATE conditions so a swap (celebrant_id/partner_id reversed) is
+--      visible as its own failure, not hidden behind "some row with the
+--      right two ids exists". The direction matters beyond cosmetics: see
+--      canonical_anniversary.sql's header for why a mirror row (keyed to the
+--      non-canonical partner) would leave unlink_anniversary's own
+--      `celebrant_id = v_link.user_a` scoping unable to find it, stranding a
+--      stale partner_id after a breakup.
+--   9. an UNLINKED user still gets an ordinary row (celebrant_id themself,
+--      partner_id NULL) -- proving the resolution added in Task 4 is a
+--      no-op for the common case, not a behavior change to unshared
+--      anniversaries.
+--   10. a linked user's BIRTHDAY (kind <> 'anniversary') is NOT resolved
+--      through their anniversary link -- celebrant_id is that user, partner_id
+--      NULL -- proving the couple resolution is scoped to kind = 'anniversary'
+--      and does not leak into an unrelated kind for the same person.
+--
+-- WHY THERE IS NO ELEVENTH ASSERTION FOR THE MIS-PARENTHESISED POLICY, even
+-- though Task 4 is the task that was supposed to make one constructible.
+--
+-- Task 2's reviewer proved, on a local Postgres, that assertion 4 above
+-- passes identically whether the occasions SELECT policy reads (as shipped)
+--   celebrant_id is not null and (E1 or (partner_id is not null and E2))
+-- or the mis-parenthesised
+--   (celebrant_id is not null and E1) or (partner_id is not null and E2)
+-- (E1/E2 the celebrant/partner visibility subqueries) -- because with
+-- partner_id NULL, E2's join can never match, so both forms evaluate to the
+-- same false regardless of which one is actually live. Algebraically the two
+-- forms differ ONLY when celebrant_id IS NULL: the shipped form is forced to
+-- false by its leading conjunct regardless of the OR, while the
+-- mis-parenthesised form collapses to `partner_id is not null and E2` and can
+-- still evaluate true. So the one row that would tell them apart needs
+-- celebrant_id NULL and partner_id NOT NULL, with E2 satisfied.
+--
+-- That row is not constructible, and this is a change from Task 2's world,
+-- not merely an unexploited gap. celebrated_shape forces celebrant_id NOT
+-- NULL for every kind except group_date, and group_date_shape forces
+-- celebrant_id NULL specifically for a group_date row -- so celebrant_id NULL
+-- happens only on a group_date row. 20260912000004_occasion_partner_
+-- constraints.sql's occasions_partner_requires_celebrant then forbids
+-- exactly the combination needed: `partner_id is null or celebrant_id is not
+-- null` rules out partner_id NOT NULL on any row where celebrant_id IS NULL,
+-- group_date included. There is therefore no `kind`, constraint-satisfying
+-- row shape left with celebrant_id NULL and partner_id NOT NULL -- not "we
+-- did not find one", but a closed case: every row admitted by the current
+-- schema has celebrant_id NOT NULL whenever partner_id IS NOT NULL, which
+-- means `celebrant_id is not null` is true whenever the mis-parenthesised
+-- form's second disjunct could matter, which makes the two forms provably
+-- equal on every row the schema can hold -- not merely on every row this
+-- fixture happens to build. Attempting the row anyway would RAISE a
+-- check_violation and abort this file's batch, the same limitation this
+-- file's assertions 5-6 and 15_celebrated_materialization.sql's header both
+-- document for a raising denial -- so it could not be added as a passing
+-- assertion even if the state were desired. The honest outcome, per Task 4's
+-- brief, is to say so here and add nothing: a test asserting an
+-- unconstructible state would either never run (if written correctly, it
+-- would fail every insert attempt) or silently assert something else.
 --
 -- Convention: see 00_harness_smoke.sql. Fixture writes happen while
 -- impersonating the connecting (RLS-bypassing) role; role is toggled back to
@@ -101,6 +167,18 @@ declare
   v_unshared_occasion uuid;
   v_visible         int;
   v_con_def         text;
+
+  -- Task 4: materialization resolution fixtures (assertions 7-10).
+  v_mat_a           text := 'user_shanniv_mat_a';
+  v_mat_b           text := 'user_shanniv_mat_b';
+  v_mat_unlinked    text := 'user_shanniv_mat_unlinked';
+  v_mat_link        uuid;
+  v_mat_id_from_a   uuid;
+  v_mat_id_from_b   uuid;
+  v_mat_unlinked_id uuid;
+  v_mat_bday_id     uuid;
+  v_mat_row_celebrant text;
+  v_mat_row_partner   text;
 begin
   select current_user into v_orig_role;
 
@@ -162,6 +240,43 @@ begin
   insert into occasions (celebrant_id, kind, occasion_date)
     values (v_unshared_celeb, 'anniversary', '2019-03-10')
     returning id into v_unshared_occasion;
+
+  ---------------------------------------------------------------------------
+  -- Task 4 fixtures (assertions 7-10): v_mat_a/v_mat_b are a CONFIRMED
+  -- anniversary couple (v_mat_a lexicographically smaller, so it is the
+  -- canonical user_a the CHECK constraint requires); v_mat_unlinked has an
+  -- anniversary on file but no link at all. Each of the three also gets its
+  -- own 'anniversary' profile_info row so each can call get_or_create_
+  -- celebrated_occasion FOR THEMSELF (owner-views-self short-circuits
+  -- can_view_field to true regardless of privacy_settings, so the exact
+  -- group shape does not matter here -- unlike the visibility fixture
+  -- above, this block is proving what get_or_create_celebrated_occasion
+  -- WRITES, not who can read it back). v_mat_a additionally gets a
+  -- 'birthday' row for assertion 10, proving the couple resolution does not
+  -- leak into a kind it was never meant to touch.
+  ---------------------------------------------------------------------------
+  insert into user_profiles (id, username, display_name)
+    values (v_mat_a,        'shanmatcpla', 'Shared Anniv Mat Celeb A'),
+           (v_mat_b,        'shanmatcplb', 'Shared Anniv Mat Celeb B'),
+           (v_mat_unlinked, 'shanmatunlk', 'Shared Anniv Mat Unlinked');
+
+  insert into profile_info (user_id, category, field_name, field_value, privacy_settings)
+    values
+      (v_mat_a, 'dates', 'anniversary', '2020-06-15',
+       '{"visibleToGroupTypes": [], "restrictToGroup": null}'),
+      (v_mat_b, 'dates', 'anniversary', '2020-06-15',
+       '{"visibleToGroupTypes": [], "restrictToGroup": null}'),
+      (v_mat_unlinked, 'dates', 'anniversary', '2021-07-04',
+       '{"visibleToGroupTypes": [], "restrictToGroup": null}'),
+      (v_mat_a, 'dates', 'birthday', '1990-01-01',
+       '{"visibleToGroupTypes": [], "restrictToGroup": null}');
+
+  insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date, confirmed_at)
+    values (v_mat_a, v_mat_b, 'confirmed', v_mat_a, '2020-06-15', now())
+    returning id into v_mat_link;
+
+  insert into anniversary_link_members (user_id, link_id)
+    values (v_mat_a, v_mat_link), (v_mat_b, v_mat_link);
 
   ---------------------------------------------------------------------------
   -- Assertion 1: a viewer who can see only the CELEBRANT's date reads the
@@ -292,8 +407,142 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 6 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 6', v_checks;
+  ---------------------------------------------------------------------------
+  -- Assertion 7: get_or_create_celebrated_occasion(v_mat_a, 'anniversary')
+  -- and get_or_create_celebrated_occasion(v_mat_b, 'anniversary') -- called
+  -- by each partner FOR THEMSELF -- return the SAME uuid. Two different rows
+  -- cannot share one id, so this alone proves one occasion now serves both
+  -- partners' calls.
+  --
+  -- FALSIFIABLE: deleting the `if p_kind = 'anniversary' then ... end if;`
+  -- resolution block in canonical_anniversary.sql (so the function always
+  -- materializes under p_celebrant_id, the pre-Task-4 behaviour) makes this
+  -- fail -- verified by mutation against a scratch copy, see the task
+  -- report. NOT caught: a resolution that fires but picks the WRONG
+  -- canonical id consistently for both calls (assertion 8 catches that).
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_mat_a || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  select public.get_or_create_celebrated_occasion(v_mat_a, 'anniversary')
+    into v_mat_id_from_a;
+
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_mat_b || '","role":"authenticated"}', true);
+
+  select public.get_or_create_celebrated_occasion(v_mat_b, 'anniversary')
+    into v_mat_id_from_b;
+
+  if v_mat_id_from_a is distinct from v_mat_id_from_b then
+    raise exception
+      'RLS FAIL: get_or_create_celebrated_occasion(%, anniversary) returned % but get_or_create_celebrated_occasion(%, anniversary) returned % -- a confirmed couple must resolve to the SAME occasion row',
+      v_mat_a, v_mat_id_from_a, v_mat_b, v_mat_id_from_b;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 8 (2 checks): the shared row's celebrant_id is the CANONICAL
+  -- (lexicographically smaller) partner and its partner_id is the other one
+  -- -- checked as two SEPARATE conditions so a swap is its own visible
+  -- failure, not folded into "some row with the right two ids exists".
+  --
+  -- FALSIFIABLE: reversing canonical_anniversary.sql's assignment (storing
+  -- under the NON-canonical id, with the canonical one as partner_id) makes
+  -- BOTH of these fail -- verified by mutation against a scratch copy, see
+  -- the task report, which also traces the consequence for
+  -- unlink_anniversary a reversed direction would cause. NOT caught: a
+  -- resolution that picks the right two ids but for the wrong REASON (e.g.
+  -- hardcoding this fixture's literal ids) -- out of scope for a
+  -- black-box RLS assertion.
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_mat_a || '","role":"authenticated"}', true);
+
+  select celebrant_id, partner_id into v_mat_row_celebrant, v_mat_row_partner
+    from public.occasions where id = v_mat_id_from_a;
+
+  if v_mat_row_celebrant is distinct from v_mat_a then
+    raise exception
+      'RLS FAIL: shared anniversary occasion has celebrant_id=%, expected the CANONICAL (lexicographically smaller) partner % -- a mirror row keyed to the non-canonical partner would leave unlink_anniversary unable to find it (see canonical_anniversary.sql''s header)',
+      v_mat_row_celebrant, v_mat_a;
+  end if;
+  v_checks := v_checks + 1;
+
+  if v_mat_row_partner is distinct from v_mat_b then
+    raise exception
+      'RLS FAIL: shared anniversary occasion has partner_id=%, expected the non-canonical partner %',
+      v_mat_row_partner, v_mat_b;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 9: an UNLINKED user still gets an ordinary row -- celebrant_id
+  -- themself, partner_id NULL -- proving Task 4's resolution is a no-op for
+  -- the common case rather than a behaviour change to unshared anniversaries.
+  --
+  -- FALSIFIABLE: removing the `if v_target is null then v_target :=
+  -- p_celebrant_id; v_partner := null; end if;` reset (so a celebrant with
+  -- no confirmed link keeps the NULLs the failed SELECT INTO leaves behind)
+  -- makes this fail with a NOT-NULL/check violation on the insert instead of
+  -- a clean row -- verified by mutation against a scratch copy, see the task
+  -- report. NOT caught: a resolution that correctly no-ops here but is wired
+  -- to the wrong link status filter (assertion 7/8 would catch a status
+  -- filter broad enough to also match this user, since v_mat_unlinked has no
+  -- anniversary_links row of any status at all).
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_mat_unlinked || '","role":"authenticated"}', true);
+
+  select public.get_or_create_celebrated_occasion(v_mat_unlinked, 'anniversary')
+    into v_mat_unlinked_id;
+
+  select celebrant_id, partner_id into v_mat_row_celebrant, v_mat_row_partner
+    from public.occasions where id = v_mat_unlinked_id;
+
+  if v_mat_row_celebrant is distinct from v_mat_unlinked or v_mat_row_partner is not null then
+    raise exception
+      'RLS FAIL: unlinked user %''s anniversary occasion has celebrant_id=%, partner_id=%, expected celebrant_id=% and partner_id NULL -- the couple resolution must not fire for a user with no confirmed link',
+      v_mat_unlinked, v_mat_row_celebrant, v_mat_row_partner, v_mat_unlinked;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 10: v_mat_a's BIRTHDAY -- a kind other than 'anniversary', for
+  -- a user who IS in a confirmed anniversary link -- is NOT resolved through
+  -- that link: celebrant_id is v_mat_a, partner_id NULL. Proves the
+  -- resolution is scoped to kind = 'anniversary' and does not leak into an
+  -- unrelated kind for the same person.
+  --
+  -- FALSIFIABLE: widening canonical_anniversary.sql's `if p_kind =
+  -- 'anniversary' then` guard to run unconditionally (for every kind) makes
+  -- this fail -- v_mat_a has a confirmed anniversary link, so the birthday
+  -- row would pick up partner_id = v_mat_b -- verified by mutation against a
+  -- scratch copy, see the task report. NOT caught: a leak that only affects
+  -- a kind neither this file nor 15_celebrated_materialization.sql exercises
+  -- (there are only two celebrated kinds, birthday and anniversary, so none
+  -- exists today).
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_mat_a || '","role":"authenticated"}', true);
+
+  select public.get_or_create_celebrated_occasion(v_mat_a, 'birthday')
+    into v_mat_bday_id;
+
+  select celebrant_id, partner_id into v_mat_row_celebrant, v_mat_row_partner
+    from public.occasions where id = v_mat_bday_id;
+
+  if v_mat_row_celebrant is distinct from v_mat_a or v_mat_row_partner is not null then
+    raise exception
+      'RLS FAIL: birthday occasion for % (who IS in a confirmed anniversary link) has celebrant_id=%, partner_id=%, expected celebrant_id=% and partner_id NULL -- the couple resolution must be scoped to kind=anniversary, not leak into birthdays',
+      v_mat_a, v_mat_row_celebrant, v_mat_row_partner, v_mat_a;
+  end if;
+  v_checks := v_checks + 1;
+
+  perform set_config('role', v_orig_role, true);
+
+  if v_checks < 11 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 11', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_20_shared_anniversary_reads');
