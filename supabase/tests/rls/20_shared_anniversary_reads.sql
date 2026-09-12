@@ -1501,9 +1501,18 @@ begin
   -- on occasion_year:
   --
   --   * when the couple's two dates fall in DIFFERENT occasion_years (03-04
-  --     and 09-14 do, for any run between 4 March and 13 September), the
-  --     mutated call materializes a SEPARATE row and ASSERTION 18 fires
-  --     -- observed, for both functions, on a 12 September run;
+  --     and 09-14 do, for any run from 5 MARCH to 14 SEPTEMBER inclusive --
+  --     194 days in 2026), the mutated call materializes a SEPARATE row and
+  --     ASSERTION 18 fires -- observed, for both functions, on a 12 September
+  --     run. The window follows from the rollover being `if v_date <
+  --     current_date`, strictly: on 4 March the 03-04 anchor has not yet
+  --     rolled and both dates are still in the current year, and on 14
+  --     September the 09-14 anchor has not yet rolled either, so both are in
+  --     the NEXT year -- same occasion_year at both ends. An earlier version
+  --     of this comment said "4 March to 13 September", off by a day at each
+  --     end; the boundaries are exactly the two days on which the rollover
+  --     has not yet happened. Computed day by day across 2026, first
+  --     differing day 2026-03-05, last 2026-09-14;
   --   * when they share an occasion_year (any other run date), the mutated
   --     call lands on the same row and rewrites its date, and THIS assertion
   --     fires -- proven by re-running the same mutation against a scratch
