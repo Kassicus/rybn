@@ -43,6 +43,10 @@ function presentsCronSecret(provided: string | undefined | null): boolean {
 /**
  * "Alex & Sam" for the surviving reminder of a linked couple.
  *
+ * Called ONLY for a recipient who shares a group with both partners -- the
+ * caller decides that with recipientSeesPartner(); this function does not
+ * gate, it only renders. Anyone else gets the single-name form instead.
+ *
  * Matches occasionLabel's (lib/occasions/display.ts) name resolution on
  * purpose: display name preferred over username.
  *
@@ -201,24 +205,64 @@ export async function checkAndSendDateReminders(
   // from what some other recipient received. The `|` separator cannot
   // occur inside a Clerk user id, so two different pairs cannot collide on
   // one key.
+  // The symmetric set is what decides the COPY, not the dedupe: which
+  // (recipient, NON-canonical celebrant) pairs this run produced.
+  //
+  // PER-RECIPIENT PARTNER NAMING (owner decision). Name both partners only
+  // when the recipient shares a group with each of them; otherwise name only
+  // the partner they can see. One occasion, one date, one email -- different
+  // copy per viewer.
+  //
+  // Why the copy needs a gate at all. get_upcoming_dates_for_notifications
+  // gates every row on the CELEBRANT alone: it inner-joins group_members for
+  // pi.user_id and then applies can_view_field(pi.user_id, gm.user_id, ...).
+  // Nothing in it consults the recipient's relationship to the OTHER partner.
+  // Meanwhile user_profiles' own SELECT policy is group-gated ("Users can view
+  // profiles of group members"), so a recipient who shares no group with the
+  // partner cannot read that partner's display name through the app at all --
+  // and this pipeline runs on createAdminClient(), which applies no RLS. Left
+  // ungated, the email handed a recipient a name, and an association, that the
+  // application's own RLS would refuse them.
+  //
+  // The run's own rows are the signal, so this costs no extra query: the RPC
+  // applied that same can_view_field gate to the NON-canonical partner's row
+  // too, so "this recipient received user_b's row" IS "this recipient can see
+  // user_b". Group-agnostic on purpose -- sharing ANY group with each partner
+  // is the stated rule, and the recipient may share different groups with each.
   const canonicalRowKeys = new Set<string>();
+  const nonCanonicalRowKeys = new Set<string>();
   for (const dateInfo of upcomingDates) {
     if (dateInfo.field_name !== 'anniversary') continue;
-    if (!partnerIdByCanonicalCelebrantId.has(dateInfo.celebrant_id)) continue;
-    canonicalRowKeys.add(
-      `${dateInfo.notified_user_id}|${dateInfo.celebrant_id}`
-    );
+    const key = `${dateInfo.notified_user_id}|${dateInfo.celebrant_id}`;
+    if (partnerIdByCanonicalCelebrantId.has(dateInfo.celebrant_id)) {
+      canonicalRowKeys.add(key);
+    } else if (nonCanonicalCelebrantIds.has(dateInfo.celebrant_id)) {
+      nonCanonicalRowKeys.add(key);
+    }
   }
 
-  // Profiles for both halves of every couple actually surviving the dedupe
-  // below, batched into one lookup rather than one query per notification.
+  /**
+   * Whether this recipient may be told BOTH partners' names.
+   *
+   * True exactly when they also received the non-canonical partner's own row
+   * from the RPC, which is the can_view_field gate answered for that partner.
+   */
+  const recipientSeesPartner = (recipientId: string, partnerId: string) =>
+    nonCanonicalRowKeys.has(`${recipientId}|${partnerId}`);
+
+  // Profiles for both halves of every couple whose combined copy will actually
+  // be rendered, batched into one lookup rather than one query per
+  // notification. Narrowed by the same gate as the copy itself: a name no
+  // recipient in this run is entitled to see is not fetched at all, rather
+  // than fetched under the service role and then discarded.
   const coupleProfileIds = new Set<string>();
   for (const dateInfo of upcomingDates) {
+    if (dateInfo.field_name !== 'anniversary') continue;
     const partnerId = partnerIdByCanonicalCelebrantId.get(dateInfo.celebrant_id);
-    if (dateInfo.field_name === 'anniversary' && partnerId) {
-      coupleProfileIds.add(dateInfo.celebrant_id);
-      coupleProfileIds.add(partnerId);
-    }
+    if (!partnerId) continue;
+    if (!recipientSeesPartner(dateInfo.notified_user_id, partnerId)) continue;
+    coupleProfileIds.add(dateInfo.celebrant_id);
+    coupleProfileIds.add(partnerId);
   }
 
   const coupleProfilesById = new Map<
@@ -281,9 +325,22 @@ export async function checkAndSendDateReminders(
       // "Alex & Sam's Anniversary" rendering -- otherwise the dedupe above
       // makes the email read as one partner's alone for half of every
       // couple, by construction.
+      //
+      // PER RECIPIENT (see recipientSeesPartner above): both names only for a
+      // recipient who shares a group with each partner. For anyone else the
+      // copy names only the partner they can see, which is the single-name
+      // form every unlinked celebrant already gets -- celebrant_username, the
+      // value this pipeline has always used for a single name, so a couple's
+      // partner-side viewer and an unlinked celebrant's viewer read alike.
+      // The occasion, the date and the links are unchanged; only the rendered
+      // name differs, and all five surfaces it feeds (subject in
+      // lib/resend/send.tsx, plus body, heading, wishlist button and footer in
+      // DateReminderEmail.tsx) follow from this one value.
       const partnerId = partnerIdByCanonicalCelebrantId.get(dateInfo.celebrant_id);
       const celebrantName =
-        dateInfo.field_name === 'anniversary' && partnerId
+        dateInfo.field_name === 'anniversary' &&
+        partnerId &&
+        recipientSeesPartner(dateInfo.notified_user_id, partnerId)
           ? coupleCelebrantName(
               coupleProfilesById,
               dateInfo.celebrant_id,

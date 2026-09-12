@@ -7,10 +7,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
  * own profile_info entry. Left alone that mails every shared group member
  * twice for one event. These tests pin the fix: the non-canonical half's row
  * is dropped before it is ever inserted (Step 3), and the surviving row's
- * email copy names BOTH partners rather than reading as though only the
- * canonical (lexicographically-smaller-id) half's anniversary is happening
- * (Step 3b) -- a dedupe without the copy fix is worse than no dedupe, since
- * it would make the surviving email wrong for half of every couple.
+ * email copy names BOTH partners -- for the recipients entitled to both names
+ * -- rather than reading as though only the canonical
+ * (lexicographically-smaller-id) half's anniversary is happening (Step 3b) --
+ * a dedupe without the copy fix is worse than no dedupe, since it would make
+ * the surviving email wrong for half of every couple. Who is entitled is
+ * decided per recipient; see the "couple reminder copy" block below.
  *
  * Mocking follows lib/actions/occasions.test.ts's chainable-thenable
  * Supabase mock, extended with `.in()` (for the batched partner-profile
@@ -380,11 +382,44 @@ describe("checkAndSendDateReminders: couple dedupe", () => {
   });
 });
 
+/**
+ * PER-RECIPIENT PARTNER NAMING (owner decision, fix wave 2 item D).
+ *
+ * The rule: name BOTH partners only when the recipient shares a group with
+ * each of them; otherwise name only the partner they can see. One occasion,
+ * one date, one email -- different copy per viewer.
+ *
+ * Why this is not cosmetic. get_upcoming_dates_for_notifications gates every
+ * row on the CELEBRANT alone (`can_view_field(pi.user_id, gm.user_id, ...)`
+ * after an inner join on the celebrant's group_members), and user_profiles'
+ * own SELECT policy is group-gated -- so a recipient who shares no group with
+ * the partner cannot read that partner's display name through the app at all.
+ * checkAndSendDateReminders reads it anyway, through the service-role client,
+ * and used to print it into the email unconditionally. That handed a name --
+ * and an association -- across a boundary RLS enforces everywhere else.
+ *
+ * The signal is the run's own rows. A recipient who can see the non-canonical
+ * partner received that partner's row too, because the RPC applied the same
+ * can_view_field gate to it. `nonCanonicalRowKeys` is that set; no extra query.
+ *
+ * ALL FIVE RENDERED SURFACES come from the single `celebrantName` argument
+ * asserted below -- subject (lib/resend/send.tsx, `${emoji} ${celebrantName}'s
+ * ${dateTypeLabel} - ${celebrationDate}`), body sentence, highlight heading,
+ * the "View ...'s Wishlist" button and the footer sentence (all four in
+ * lib/resend/templates/DateReminderEmail.tsx). Pinning the argument pins all
+ * five; the negative test additionally asserts that NO argument reaching the
+ * email layer carries the unseen partner's name, username or id, which is
+ * stronger than checking those five strings one at a time.
+ */
 describe("checkAndSendDateReminders: couple reminder copy", () => {
-  it("names both partners for a linked couple's surviving reminder, matching occasionLabel's combined-name rendering", async () => {
+  it("names BOTH partners when the recipient holds both partners' rows", async () => {
+    // notified-1 received user_alex AND user_sam -- the RPC's per-celebrant
+    // can_view_field gate passed for each, so this recipient shares a group
+    // with both and may be told both names.
     rpc.mockResolvedValueOnce({
       data: [
         dateRow({ celebrant_id: "user_alex", celebrant_username: "alex" }),
+        dateRow({ celebrant_id: "user_sam", celebrant_username: "sam" }),
       ],
       error: null,
     });
@@ -410,16 +445,78 @@ describe("checkAndSendDateReminders: couple reminder copy", () => {
 
     await checkAndSendDateReminders(CRON_SECRET);
 
+    // One email, naming both -- matching occasionLabel's combined rendering
+    // for exactly the viewers occasionLabel would combine for.
+    expect(sendDateReminderEmail).toHaveBeenCalledTimes(1);
     expect(sendDateReminderEmail).toHaveBeenCalledWith(
       expect.objectContaining({ celebrantName: "Alex & Sam" })
     );
 
-    // Falsifiable by: reverting Step 3b so celebrantName stays
-    // dateInfo.celebrant_username -- verified by making that revert, which
-    // sends celebrantName: "alex" and fails this assertion. NOT caught by
-    // this test alone: it does not exercise the username-only fallback
-    // (display_name null) or the "Someone" floor for a missing profile row
-    // -- only that a linked couple's copy names both people at all.
+    // Falsifiable by: dropping the nonCanonicalRowKeys conjunct from the
+    // celebrantName condition in date-reminders.ts -- no, that direction
+    // still passes here (this recipient DOES hold both rows). It is falsified
+    // by reverting Step 3b so celebrantName stays dateInfo.celebrant_username,
+    // which sends "alex" and fails this assertion -- verified by making that
+    // revert. NOT caught by this test alone: whether a recipient who holds
+    // only ONE partner's row is spared the other's name -- the next test.
+  });
+
+  it("names ONLY the visible partner when the recipient holds just one partner's row", async () => {
+    // The fixture the previous version of this test used, and what it means:
+    // a single user_alex row for notified-1, with NO user_sam row. By the
+    // reasoning already stated in the I3 test above ("There is no user_alex
+    // row for notified-2 ... this recipient cannot see user_alex's date,
+    // which is why they never received that row"), the missing user_sam row
+    // says this recipient cannot see Sam. The old test asserted "Alex & Sam"
+    // here -- it pinned the leak as correct behaviour.
+    rpc.mockResolvedValueOnce({
+      data: [
+        dateRow({ celebrant_id: "user_alex", celebrant_username: "alex" }),
+      ],
+      error: null,
+    });
+
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        { data: [{ user_a: "user_alex", user_b: "user_sam" }], error: null },
+      ],
+      // No user_profiles entry is scripted ON PURPOSE. A name this recipient
+      // may not be told must not even be FETCHED: the batched partner-profile
+      // lookup is now narrowed to the couples some recipient in this run can
+      // actually see both halves of. If the implementation issued it anyway
+      // this test fails with "No scripted Supabase response left for
+      // user_profiles" -- which is how it fails against the pre-fix code.
+      date_notifications: [
+        { data: { id: "notification-1" }, error: null },
+        { data: null, error: null },
+      ],
+    });
+
+    await checkAndSendDateReminders(CRON_SECRET);
+
+    // The reminder still goes out, keyed to the celebrant they CAN see, with
+    // the couple's (shared) date -- one occasion, one email, different copy.
+    expect(sendDateReminderEmail).toHaveBeenCalledTimes(1);
+    expect(sendDateReminderEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ celebrantName: "alex" })
+    );
+
+    // Nothing identifying Sam reaches the email layer through ANY argument --
+    // not the name, not the username, not the id (which would become a
+    // /profile/<id> and /wishlist/<id> link in send.tsx). Covers all five
+    // rendered surfaces at once, since every one of them is built from these
+    // arguments.
+    const args = JSON.stringify(sendDateReminderEmail.mock.calls);
+    expect(args).not.toContain("Sam");
+    expect(args).not.toContain("sam");
+    expect(args).not.toContain("user_sam");
+
+    // Falsifiable by: removing the `nonCanonicalRowKeys.has(...)` conjunct
+    // from the celebrantName condition -- verified by removing it, which
+    // sends celebrantName "Alex & Sam" and fails both the equality and the
+    // not-to-contain assertions. NOT caught by this test alone: that a
+    // recipient who CAN see both still gets the combined copy -- the previous
+    // test, which the per-recipient gate must not regress.
   });
 
   it("renders a single name for a person with no confirmed anniversary link", async () => {
@@ -449,6 +546,6 @@ describe("checkAndSendDateReminders: couple reminder copy", () => {
     // verified by making that change, which throws building the partner half
     // from an empty profiles map / undefined partnerId and fails this test.
     // NOT caught by this test alone: it does not verify the LINKED case
-    // renders combined copy -- that is the previous test's job.
+    // renders combined copy -- that is the first test's job.
   });
 });
