@@ -301,6 +301,146 @@ export async function getMyAnniversaryLink(): Promise<
   };
 }
 
+/**
+ * Every anniversary link the caller is part of, grouped by what the caller
+ * can do about it.
+ *
+ * Replaces getMyAnniversaryLink(), whose `.limit(1)` hid three kinds of row
+ * from someone who needed to act on them: a request sent to a person already
+ * linked (deferred item F4), the older of two incoming requests, and the
+ * caller's own request once someone asked them
+ * (_planning/2026-10-14-anniversary-requests-design.md).
+ *
+ * `confirmed` is at most one row: anniversary_link_members' primary key.
+ * `outgoing` is at most one row: request_anniversary_link refuses a second
+ * (20261014000000). A second outgoing row can only predate that refusal; the
+ * newest wins and the rest are logged rather than silently dropped.
+ * `incoming` is every pending request sent to the caller, newest first.
+ *
+ * Same user-scoped client and same RLS reliance as getMyAnniversaryLink():
+ * the participant-only SELECT policy is what limits the read to the caller's
+ * rows, and user_profiles' own policy decides which partner names come back.
+ */
+export type MyAnniversaryLinks = {
+  confirmed: AnniversaryLink | null;
+  outgoing: AnniversaryLink | null;
+  incoming: AnniversaryLink[];
+};
+
+export async function getMyAnniversaryLinks(): Promise<
+  { data: MyAnniversaryLinks } | { error: string }
+> {
+  const userId = await getUserId();
+  if (!userId) {
+    return { error: "Not authenticated" };
+  }
+
+  const supabase = await createClient();
+
+  const { data: rows, error } = await supabase
+    .from("anniversary_links")
+    .select("id, user_a, user_b, status, initiated_by, agreed_date, created_at")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("getMyAnniversaryLinks: select failed", error);
+    return { error: "Failed to load your anniversary links. Please try again." };
+  }
+
+  const links = rows ?? [];
+  if (links.length === 0) {
+    return { data: { confirmed: null, outgoing: null, incoming: [] } };
+  }
+
+  const partnerOf = (row: { user_a: string; user_b: string }) =>
+    row.user_a === userId ? row.user_b : row.user_a;
+
+  // One lookup for every partner. A partner the caller no longer shares a
+  // group with is filtered out by user_profiles' RLS; their link still comes
+  // back, with null name fields, and the UI falls back to a generic label.
+  const { data: profiles, error: profilesError } = await supabase
+    .from("user_profiles")
+    .select("id, username, display_name")
+    .in("id", [...new Set(links.map(partnerOf))]);
+
+  if (profilesError) {
+    console.error(
+      "getMyAnniversaryLinks: partner profile lookup failed",
+      profilesError
+    );
+    return { error: "Failed to load your anniversary links. Please try again." };
+  }
+
+  const profileById = new Map((profiles ?? []).map((p) => [p.id, p] as const));
+
+  const toLink = (
+    row: (typeof links)[number],
+    sharedDate: string | null
+  ): AnniversaryLink => {
+    const partnerId = partnerOf(row);
+    const partner = profileById.get(partnerId);
+    return {
+      id: row.id,
+      partnerId,
+      partnerUsername: partner?.username ?? null,
+      partnerDisplayName: partner?.display_name ?? null,
+      status: row.status as "pending" | "confirmed",
+      agreedDate: row.agreed_date,
+      sharedDate,
+      initiatedByMe: row.initiated_by === userId,
+    };
+  };
+
+  const confirmedRow = links.find((r) => r.status === "confirmed");
+  const outgoingRows = links.filter(
+    (r) => r.status === "pending" && r.initiated_by === userId
+  );
+  const incomingRows = links.filter(
+    (r) => r.status === "pending" && r.initiated_by !== userId
+  );
+
+  if (outgoingRows.length > 1) {
+    console.warn(
+      "getMyAnniversaryLinks: more than one outgoing request; showing the newest",
+      outgoingRows.map((r) => r.id)
+    );
+  }
+
+  // The couple's LIVE date, for the confirmed link only -- the same lookup
+  // and the same canonical-first resolution as getMyAnniversaryLink() (see
+  // AnniversaryLink.sharedDate, finding I4). A failure falls back to null
+  // rather than failing the whole read.
+  let sharedDate: string | null = null;
+  if (confirmedRow) {
+    const { data: dateRows, error: dateError } = await supabase
+      .from("profile_info")
+      .select("user_id, field_value")
+      .in("user_id", [confirmedRow.user_a, confirmedRow.user_b])
+      .eq("category", "dates")
+      .eq("field_name", "anniversary");
+
+    if (dateError) {
+      console.error(
+        "getMyAnniversaryLinks: shared date lookup failed",
+        dateError
+      );
+    }
+
+    const byUser = new Map(
+      (dateRows ?? []).map((r) => [r.user_id, r.field_value] as const)
+    );
+    sharedDate = byUser.get(confirmedRow.user_a) ?? byUser.get(userId) ?? null;
+  }
+
+  return {
+    data: {
+      confirmed: confirmedRow ? toLink(confirmedRow, sharedDate) : null,
+      outgoing: outgoingRows[0] ? toLink(outgoingRows[0], null) : null,
+      incoming: incomingRows.map((r) => toLink(r, null)),
+    },
+  };
+}
+
 /** A person the caller could plausibly ask to share an anniversary with. */
 export type AnniversaryPartnerCandidate = {
   id: string;

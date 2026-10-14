@@ -137,6 +137,7 @@ const {
   declineAnniversaryLink,
   unlinkAnniversary,
   getMyAnniversaryLink,
+  getMyAnniversaryLinks,
   getAnniversaryPartnerCandidates,
 } = await import("./anniversary-links");
 
@@ -667,6 +668,349 @@ describe("getMyAnniversaryLink", () => {
     getUserId.mockResolvedValue(null);
 
     const result = await getMyAnniversaryLink();
+
+    expect(result).toEqual({ error: "Not authenticated" });
+  });
+});
+
+describe("getMyAnniversaryLinks", () => {
+  // The caller is "user_a_123" (beforeEach). Ids keep canonical order
+  // (user_a < user_b) so the fixtures look like real rows; "user_0_999"
+  // sorts before the caller, putting the caller on the user_b side.
+  const row = (overrides: Record<string, unknown>) => ({
+    id: "link-x",
+    user_a: "user_a_123",
+    user_b: "user_b_456",
+    status: "pending",
+    initiated_by: "user_b_456",
+    agreed_date: "2020-06-01",
+    created_at: "2026-10-01T00:00:00Z",
+    ...overrides,
+  });
+
+  const profile = (id: string, name: string) => ({
+    id,
+    username: name.toLowerCase(),
+    display_name: name,
+  });
+
+  const profileLookups = () =>
+    inSpy.mock.calls.filter(([table]) => table === "user_profiles");
+
+  // Falsifiability: hidden case 1 (F4). Reintroduce `.limit(1)` and this
+  // fails -- only the newer incoming row survives the limit, so `confirmed`
+  // comes back null. Hardcode `partnerId = row.user_b` and it fails too:
+  // the incoming row puts the caller on the user_b side. NOT caught: a
+  // reader that returned the right groups from a different query shape.
+  it("returns a confirmed link AND a newer incoming request", async () => {
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        {
+          data: [
+            row({
+              id: "link-confirmed",
+              status: "confirmed",
+              initiated_by: "user_a_123",
+              created_at: "2026-09-01T00:00:00Z",
+            }),
+            row({
+              id: "link-incoming",
+              user_a: "user_0_999",
+              user_b: "user_a_123",
+              initiated_by: "user_0_999",
+              agreed_date: "2018-03-03",
+              created_at: "2026-10-05T00:00:00Z",
+            }),
+          ],
+          error: null,
+        },
+      ],
+      user_profiles: [
+        {
+          data: [profile("user_b_456", "Partner"), profile("user_0_999", "Asker")],
+          error: null,
+        },
+      ],
+      profile_info: [
+        { data: [{ user_id: "user_a_123", field_value: "2019-05-05" }], error: null },
+      ],
+    });
+
+    const result = await getMyAnniversaryLinks();
+
+    expect(result).toEqual({
+      data: {
+        confirmed: {
+          id: "link-confirmed",
+          partnerId: "user_b_456",
+          partnerUsername: "partner",
+          partnerDisplayName: "Partner",
+          status: "confirmed",
+          agreedDate: "2020-06-01",
+          sharedDate: "2019-05-05",
+          initiatedByMe: true,
+        },
+        outgoing: null,
+        incoming: [
+          {
+            id: "link-incoming",
+            partnerId: "user_0_999",
+            partnerUsername: "asker",
+            partnerDisplayName: "Asker",
+            status: "pending",
+            agreedDate: "2018-03-03",
+            sharedDate: null,
+            initiatedByMe: false,
+          },
+        ],
+      },
+    });
+    // One profile lookup covering every partner, not one per row.
+    expect(profileLookups()).toHaveLength(1);
+    expect([...(profileLookups()[0][2] as string[])].sort()).toEqual([
+      "user_0_999",
+      "user_b_456",
+    ]);
+  });
+
+  // Falsifiability: hidden case 2. Reintroduce `.limit(1)` and only one
+  // request comes back. Drop the `.order("created_at", ...)` call and the
+  // fixture's own oldest-first order leaks through, so the ids come back
+  // reversed (the mock sorts only by the clauses actually requested). NOT
+  // caught: ties on created_at, which real rows do not have.
+  it("returns every incoming request, newest first", async () => {
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        {
+          data: [
+            row({ id: "link-older", created_at: "2026-10-01T00:00:00Z" }),
+            row({
+              id: "link-newer",
+              user_b: "user_c_789",
+              initiated_by: "user_c_789",
+              created_at: "2026-10-05T00:00:00Z",
+            }),
+          ],
+          error: null,
+        },
+      ],
+      user_profiles: [
+        {
+          data: [profile("user_b_456", "Bea"), profile("user_c_789", "Cal")],
+          error: null,
+        },
+      ],
+    });
+
+    const result = await getMyAnniversaryLinks();
+
+    if (!("data" in result)) throw new Error("expected data");
+    expect(result.data.incoming.map((l) => l.id)).toEqual([
+      "link-newer",
+      "link-older",
+    ]);
+    expect(result.data.confirmed).toBeNull();
+    expect(result.data.outgoing).toBeNull();
+  });
+
+  // Falsifiability: hidden case 3. Reintroduce `.limit(1)` and the caller's
+  // own (older) request disappears behind the newer incoming one. Classify
+  // on status alone (ignoring initiated_by) and the outgoing row lands in
+  // `incoming`. NOT caught: which of two outgoing rows wins -- see the next
+  // test.
+  it("keeps the caller's own request when someone asks them later", async () => {
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        {
+          data: [
+            row({
+              id: "link-mine",
+              initiated_by: "user_a_123",
+              created_at: "2026-10-01T00:00:00Z",
+            }),
+            row({
+              id: "link-theirs",
+              user_b: "user_c_789",
+              initiated_by: "user_c_789",
+              created_at: "2026-10-05T00:00:00Z",
+            }),
+          ],
+          error: null,
+        },
+      ],
+      user_profiles: [
+        {
+          data: [profile("user_b_456", "Bea"), profile("user_c_789", "Cal")],
+          error: null,
+        },
+      ],
+    });
+
+    const result = await getMyAnniversaryLinks();
+
+    if (!("data" in result)) throw new Error("expected data");
+    expect(result.data.outgoing?.id).toBe("link-mine");
+    expect(result.data.outgoing?.initiatedByMe).toBe(true);
+    expect(result.data.incoming.map((l) => l.id)).toEqual(["link-theirs"]);
+  });
+
+  // Review focus 2. Two outgoing rows can only predate the I-out refusal.
+  // Falsifiability: take the LAST outgoing row instead of the first and the
+  // older one wins; drop the warning and the spy assertion fails. NOT
+  // caught: what the UI does with the dropped row -- nothing, by design.
+  it("returns the newest outgoing request when two exist, and warns", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        {
+          data: [
+            row({
+              id: "link-old-mine",
+              initiated_by: "user_a_123",
+              created_at: "2026-10-01T00:00:00Z",
+            }),
+            row({
+              id: "link-new-mine",
+              user_b: "user_c_789",
+              initiated_by: "user_a_123",
+              created_at: "2026-10-05T00:00:00Z",
+            }),
+          ],
+          error: null,
+        },
+      ],
+      user_profiles: [
+        {
+          data: [profile("user_b_456", "Bea"), profile("user_c_789", "Cal")],
+          error: null,
+        },
+      ],
+    });
+
+    const result = await getMyAnniversaryLinks();
+
+    if (!("data" in result)) throw new Error("expected data");
+    expect(result.data.outgoing?.id).toBe("link-new-mine");
+    expect(result.data.incoming).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  // Review focus 1. A requester who no longer shares a group with the
+  // caller is hidden by user_profiles' RLS. Falsifiability: index the
+  // profile lookup by position instead of by id and the wrong name lands on
+  // the wrong row; throw on a missing profile and this rejects. NOT caught:
+  // what label the UI shows -- the card's "Someone" fallback.
+  it("keeps a link whose partner profile is hidden", async () => {
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        {
+          data: [
+            row({ id: "link-hidden", created_at: "2026-10-01T00:00:00Z" }),
+            row({
+              id: "link-visible",
+              user_b: "user_c_789",
+              initiated_by: "user_c_789",
+              created_at: "2026-10-05T00:00:00Z",
+            }),
+          ],
+          error: null,
+        },
+      ],
+      user_profiles: [{ data: [profile("user_c_789", "Cal")], error: null }],
+    });
+
+    const result = await getMyAnniversaryLinks();
+
+    if (!("data" in result)) throw new Error("expected data");
+    const [visible, hidden] = result.data.incoming;
+    expect(visible).toMatchObject({ id: "link-visible", partnerDisplayName: "Cal" });
+    expect(hidden).toMatchObject({
+      id: "link-hidden",
+      partnerId: "user_b_456",
+      partnerUsername: null,
+      partnerDisplayName: null,
+    });
+  });
+
+  // Falsifiability: look up profiles (or profile_info) when there are no
+  // rows and the unscripted table throws "No scripted Supabase response".
+  // NOT caught: an extra query on a NON-empty result -- the other tests
+  // script exactly the tables they expect.
+  it("returns empty groups without further queries when there are no links", async () => {
+    supabase = createSupabaseMock({
+      anniversary_links: [{ data: [], error: null }],
+    });
+
+    const result = await getMyAnniversaryLinks();
+
+    expect(result).toEqual({
+      data: { confirmed: null, outgoing: null, incoming: [] },
+    });
+  });
+
+  // Falsifiability: return `{ data: { ... } }` on a failed read and the
+  // error shape assertion fails. NOT caught: the exact log text.
+  it("returns an error when the links read fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    supabase = createSupabaseMock({
+      anniversary_links: [{ data: null, error: { message: "boom" } }],
+    });
+
+    const result = await getMyAnniversaryLinks();
+
+    expect(result).toEqual({
+      error: "Failed to load your anniversary links. Please try again.",
+    });
+    error.mockRestore();
+  });
+
+  it("returns an error when the partner profile lookup fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    supabase = createSupabaseMock({
+      anniversary_links: [{ data: [row({ id: "link-1" })], error: null }],
+      user_profiles: [{ data: null, error: { message: "boom" } }],
+    });
+
+    const result = await getMyAnniversaryLinks();
+
+    expect(result).toEqual({
+      error: "Failed to load your anniversary links. Please try again.",
+    });
+    error.mockRestore();
+  });
+
+  // Falsifiability: surface the shared-date failure as `{ error }` and this
+  // fails. NOT caught: whether the fallback date is the right one -- the
+  // component falls back to agreedDate, as before.
+  it("falls back to a null shared date when that lookup fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        {
+          data: [row({ id: "link-c", status: "confirmed", initiated_by: "user_a_123" })],
+          error: null,
+        },
+      ],
+      user_profiles: [{ data: [profile("user_b_456", "Bea")], error: null }],
+      profile_info: [{ data: null, error: { message: "boom" } }],
+    });
+
+    const result = await getMyAnniversaryLinks();
+
+    if (!("data" in result)) throw new Error("expected data");
+    expect(result.data.confirmed).toMatchObject({ id: "link-c", sharedDate: null });
+    error.mockRestore();
+  });
+
+  // Falsifiability: build the client before checking getUserId() and the
+  // empty mock throws on the first from(). NOT caught: a signed-out caller
+  // reaching an RPC -- this action calls none.
+  it("returns Not authenticated when signed out, without querying", async () => {
+    getUserId.mockResolvedValue(null);
+    supabase = createSupabaseMock({});
+
+    const result = await getMyAnniversaryLinks();
 
     expect(result).toEqual({ error: "Not authenticated" });
   });
