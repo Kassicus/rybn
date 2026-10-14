@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Heart, UserPlus, X, Check, Link2Off } from "lucide-react";
+import { Heart, UserPlus, X, Link2Off } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,15 +18,16 @@ import {
 import { FormSection } from "@/components/profile/FormSection";
 import {
   requestAnniversaryLink,
-  confirmAnniversaryLink,
   declineAnniversaryLink,
   unlinkAnniversary,
-  getMyAnniversaryLink,
+  getMyAnniversaryLinks,
   getAnniversaryPartnerCandidates,
   type AnniversaryLink,
   type AnniversaryPartnerCandidate,
+  type MyAnniversaryLinks,
 } from "@/lib/actions/anniversary-links";
 import { formatMonthDay } from "@/lib/utils/dates";
+import { AnniversaryRequestCard } from "@/components/notifications/AnniversaryRequestCard";
 
 /**
  * The link is an ACTION, not a form field -- DatesSection (the react-hook-
@@ -34,21 +35,22 @@ import { formatMonthDay } from "@/lib/utils/dates";
  * and mutates its own state through the Task 8 server actions directly,
  * independent of the surrounding <form>'s submit/reset lifecycle.
  *
- * Three states, driven entirely by getMyAnniversaryLink():
- *   - no link            -> partner picker + date + "Ask to share"
- *   - pending, by me      -> who was asked, + Cancel (declineAnniversaryLink
- *                            -- Task 3's correction lets either participant
- *                            remove a pending link, so "cancel" and
- *                            "decline" are the same call from opposite
- *                            sides)
- *   - pending, not by me   -> who asked, + Confirm / Decline, with the
- *                            overwrite consequence stated outright
- *   - confirmed            -> partner's name, + Unlink
+ * Driven by getMyAnniversaryLinks(). The main area shows the caller's OWN
+ * state, by priority:
+ *   - confirmed           -> partner's name, shared date, + Unlink
+ *   - else outgoing        -> who was asked, + Cancel (declineAnniversaryLink
+ *                            -- either participant may remove a pending
+ *                            link, so "cancel" and "decline" are the same
+ *                            call from opposite sides)
+ *   - else                 -> partner picker + date + "Ask to share"
+ * Beneath it, one AnniversaryRequestCard per INCOMING request -- the same
+ * card /notifications renders, so the consent copy lives in one place.
+ * An incoming request no longer replaces the picker (design decision 4).
  */
 export function AnniversaryPartner() {
   const router = useRouter();
 
-  const [link, setLink] = useState<AnniversaryLink | null>(null);
+  const [links, setLinks] = useState<MyAnniversaryLinks | null>(null);
   const [candidates, setCandidates] = useState<AnniversaryPartnerCandidate[]>(
     []
   );
@@ -64,7 +66,7 @@ export function AnniversaryPartner() {
 
   const load = async () => {
     const [linkResult, candidatesResult] = await Promise.all([
-      getMyAnniversaryLink(),
+      getMyAnniversaryLinks(),
       getAnniversaryPartnerCandidates(),
     ]);
 
@@ -72,11 +74,11 @@ export function AnniversaryPartner() {
       setLoadError(linkResult.error);
     } else {
       setLoadError(null);
-      setLink(linkResult.data);
+      setLinks(linkResult.data);
     }
 
     // A candidates failure only blocks the unlinked state's picker, which
-    // getMyAnniversaryLink's own result already gates -- not surfaced as a
+    // getMyAnniversaryLinks' own result already gates -- not surfaced as a
     // page-level error.
     setCandidates("error" in candidatesResult ? [] : candidatesResult.data);
 
@@ -92,8 +94,8 @@ export function AnniversaryPartner() {
 
   // Every mutation re-fetches this component's own state AND asks the
   // server components on the route to re-render, since the bell's badge
-  // (dashboard layout) and NotificationsList are computed from this same
-  // getMyAnniversaryLink() call and would otherwise go stale.
+  // (dashboard layout) and NotificationsList are computed from
+  // getMyAnniversaryLinks() on the server and would otherwise go stale.
   const refreshAfterAction = async () => {
     await load();
     router.refresh();
@@ -101,6 +103,10 @@ export function AnniversaryPartner() {
 
   const partnerLabel = (l: AnniversaryLink) =>
     l.partnerDisplayName || l.partnerUsername || "them";
+
+  const confirmed = links?.confirmed ?? null;
+  const outgoing = links?.outgoing ?? null;
+  const incoming = links?.incoming ?? [];
 
   const handleRequest = async () => {
     if (!selectedPartnerId || !proposedDate) return;
@@ -117,24 +123,11 @@ export function AnniversaryPartner() {
     await refreshAfterAction();
   };
 
-  const handleConfirm = async () => {
-    if (!link) return;
-    setIsSubmitting(true);
-    setActionError(null);
-    const result = await confirmAnniversaryLink(link.id);
-    setIsSubmitting(false);
-    if ("error" in result) {
-      setActionError(result.error);
-      return;
-    }
-    await refreshAfterAction();
-  };
-
   const handleDecline = async () => {
-    if (!link) return;
+    if (!outgoing) return;
     setIsSubmitting(true);
     setActionError(null);
-    const result = await declineAnniversaryLink(link.id);
+    const result = await declineAnniversaryLink(outgoing.id);
     setIsSubmitting(false);
     if ("error" in result) {
       setActionError(result.error);
@@ -144,10 +137,10 @@ export function AnniversaryPartner() {
   };
 
   const handleUnlink = async () => {
-    if (!link) return;
+    if (!confirmed) return;
     setIsSubmitting(true);
     setActionError(null);
-    const result = await unlinkAnniversary(link.id);
+    const result = await unlinkAnniversary(confirmed.id);
     setIsSubmitting(false);
     setConfirmingUnlink(false);
     if ("error" in result) {
@@ -179,7 +172,7 @@ export function AnniversaryPartner() {
         </div>
       )}
 
-      {!isLoading && !loadError && link === null && (
+      {!isLoading && !loadError && !confirmed && !outgoing && (
         <div className="space-y-3">
           <Text variant="secondary" size="sm">
             Once your partner confirms, your groups will see one shared
@@ -242,12 +235,12 @@ export function AnniversaryPartner() {
         </div>
       )}
 
-      {!isLoading && !loadError && link !== null && link.status === "pending" && link.initiatedByMe && (
+      {!isLoading && !loadError && !confirmed && outgoing && (
         <div className="flex flex-col gap-3 p-4 rounded-lg border border-light-border sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <Avatar className="shrink-0">
               <AvatarFallback>
-                {partnerLabel(link).charAt(0).toUpperCase()}
+                {partnerLabel(outgoing).charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
             {/* min-w-0 without truncate: this sentence carries the date the
@@ -255,9 +248,9 @@ export function AnniversaryPartner() {
                 wraps instead of clipping. Only the name above it (a single
                 token, not load-bearing text) truncates. */}
             <div className="min-w-0">
-              <Text className="font-medium truncate">{partnerLabel(link)}</Text>
+              <Text className="font-medium truncate">{partnerLabel(outgoing)}</Text>
               <Text variant="secondary" size="sm">
-                Waiting for them to confirm {formatMonthDay(link.agreedDate)}{" "}
+                Waiting for them to confirm {formatMonthDay(outgoing.agreedDate)}{" "}
                 as your shared anniversary.
               </Text>
             </div>
@@ -281,54 +274,7 @@ export function AnniversaryPartner() {
         </div>
       )}
 
-      {!isLoading && !loadError && link !== null && link.status === "pending" && !link.initiatedByMe && (
-        <div className="flex flex-col gap-3 p-4 rounded-lg border border-primary-200 bg-primary-50">
-          <div className="flex min-w-0 items-center gap-3">
-            <Avatar className="shrink-0">
-              <AvatarFallback>
-                {partnerLabel(link).charAt(0).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            {/* min-w-0 without truncate -- this embeds the partner's name
-                inline in a full sentence rather than isolating it, so there
-                is no fixed-length token to clip; it wraps instead. */}
-            <Text className="min-w-0 font-medium">
-              {partnerLabel(link)} wants to share an anniversary with you
-            </Text>
-          </div>
-          {/* Load-bearing, not decoration: confirming OVERWRITES the
-              accepting partner's own anniversary date. The consent design
-              rests on this sentence being read before either button is
-              pressed. */}
-          <Text size="sm">
-            {partnerLabel(link)} says your shared anniversary is{" "}
-            {formatMonthDay(link.agreedDate)}. Confirming will set your
-            anniversary to that date.
-          </Text>
-          {actionError && (
-            <Text size="sm" className="text-error">
-              {actionError}
-            </Text>
-          )}
-          <div className="flex flex-wrap items-center gap-2">
-            <Button size="small" onClick={handleConfirm} loading={isSubmitting}>
-              <Check className="w-4 h-4" />
-              Confirm
-            </Button>
-            <Button
-              variant="tertiary"
-              size="small"
-              onClick={handleDecline}
-              loading={isSubmitting}
-            >
-              <X className="w-4 h-4" />
-              Decline
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {!isLoading && !loadError && link !== null && link.status === "confirmed" && (
+      {!isLoading && !loadError && confirmed && (
         <div className="flex flex-col gap-3 p-4 rounded-lg border border-light-border sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <Avatar className="shrink-0">
@@ -340,8 +286,8 @@ export function AnniversaryPartner() {
                 piece of information the card exists to show. Only the name
                 above it truncates. */}
             <div className="min-w-0">
-              <Text className="font-medium truncate">{partnerLabel(link)}</Text>
-              {/* The LIVE date, not link.agreedDate (finding I4).
+              <Text className="font-medium truncate">{partnerLabel(confirmed)}</Text>
+              {/* The LIVE date, not confirmed.agreedDate (finding I4).
                   agreed_date is a request-time snapshot: it stops matching
                   the couple's actual anniversary the moment either partner
                   edits their profile, while the occasion their claims are
@@ -352,7 +298,7 @@ export function AnniversaryPartner() {
                   came back at all -- see AnniversaryLink.sharedDate. */}
               <Text variant="secondary" size="sm">
                 Shared anniversary:{" "}
-                {formatMonthDay(link.sharedDate ?? link.agreedDate)}
+                {formatMonthDay(confirmed.sharedDate ?? confirmed.agreedDate)}
               </Text>
             </div>
           </div>
@@ -394,6 +340,19 @@ export function AnniversaryPartner() {
               {actionError}
             </Text>
           )}
+        </div>
+      )}
+      {!isLoading && !loadError && incoming.length > 0 && (
+        <div className="mt-4 space-y-3">
+          {incoming.map((request) => (
+            <AnniversaryRequestCard
+              key={request.id}
+              request={request}
+              myConfirmedLink={confirmed}
+              onProfilePage
+              onChanged={load}
+            />
+          ))}
         </div>
       )}
     </FormSection>
