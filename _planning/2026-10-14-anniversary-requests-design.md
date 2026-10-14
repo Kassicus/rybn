@@ -149,9 +149,10 @@ straight through with no TypeScript change.
 
 ### Live-body pointers
 
-`20260912000017` and `20260912000018` attached `comment on function` notes
-naming each function's live body. Both functions' comments are re-issued to name
-this migration — the M1/M4 lesson: a correction goes where the reader will be.
+`20260912000017` and `20260912000018` attached a `comment on function` note
+naming `confirm_anniversary_link`'s live body. That comment is re-issued to name
+this migration, and `request_anniversary_link`, which never had one, gets its
+first — the M1/M4 lesson: a correction goes where the reader will be.
 
 ## Reader — `getMyAnniversaryLinks()`
 
@@ -289,8 +290,11 @@ Anchored source, because these paths raise and the harness rejects any
 - both new `request_anniversary_link` refusals, each wired to its message,
   errcode and `end if`;
 - the new `delete` in `confirm_anniversary_link`, including its
-  `status = 'pending'` and `id <> p_link_id` conjuncts (dropping either would
-  delete the link being confirmed, or a confirmed link);
+  `status = 'pending'` and `id <> p_link_id` conjuncts. Each alone spares the
+  link being confirmed, whose status flips before the delete runs, so no live
+  check can see one of them go missing; both stay so that moving the delete
+  above the status update cannot reach a confirmed row, and only this textual
+  check pins them;
 - a `position('/*' in definition) = 0` floor for both functions.
 
 Every pattern carries its own `(?n)`, is line-anchored, and scopes its
