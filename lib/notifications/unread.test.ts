@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { unreadCount, unreadReminders, isIncomingAnniversaryRequest } from "./unread";
-import type { AnniversaryLink } from "@/lib/actions/anniversary-links";
+import { unreadCount, unreadReminders } from "./unread";
+import type {
+  AnniversaryLink,
+  MyAnniversaryLinks,
+} from "@/lib/actions/anniversary-links";
 
 const anniversaryLink = (
   overrides: Partial<AnniversaryLink> = {},
@@ -16,6 +19,15 @@ const anniversaryLink = (
   // -- nothing has been agreed yet, so there is no live shared date.
   sharedDate: null,
   initiatedByMe: false,
+  ...overrides,
+});
+
+const links = (
+  overrides: Partial<MyAnniversaryLinks> = {},
+): MyAnniversaryLinks => ({
+  confirmed: null,
+  outgoing: null,
+  incoming: [],
   ...overrides,
 });
 
@@ -65,41 +77,42 @@ describe("unreadCount", () => {
     ]);
   });
 
-  // Falsifiability: change `!link.initiatedByMe` to `link.initiatedByMe` (or
-  // drop the status check) and this fails -- a request the caller sent
-  // themselves, or one flip of the polarity, would add to a count meant to
-  // speak only for things the caller still has to act on.
-  it("adds one for an incoming pending anniversary request", () => {
-    expect(unreadCount([], anniversaryLink())).toBe(1);
+  // Falsifiability: count `incoming.length > 0 ? 1 : 0` (the old one-row
+  // behaviour) and the first expectation fails -- two people asking is two
+  // things to answer. NOT caught: whether incoming holds the right rows;
+  // getMyAnniversaryLinks' own tests pin that.
+  it("adds one per incoming anniversary request", () => {
     expect(
-      unreadCount([reminder(false)], anniversaryLink()),
+      unreadCount(
+        [],
+        links({ incoming: [anniversaryLink({ id: "l1" }), anniversaryLink({ id: "l2" })] }),
+      ),
+    ).toBe(2);
+    expect(
+      unreadCount([reminder(false)], links({ incoming: [anniversaryLink()] })),
     ).toBe(2);
   });
 
-  it("does not count a pending request the caller sent themselves", () => {
-    expect(unreadCount([], anniversaryLink({ initiatedByMe: true }))).toBe(0);
+  // Falsifiability: count `outgoing` or `confirmed` too and this fails --
+  // neither is something the caller still has to answer.
+  it("does not count the caller's own request or confirmed link", () => {
+    expect(
+      unreadCount(
+        [],
+        links({
+          outgoing: anniversaryLink({ initiatedByMe: true }),
+          confirmed: anniversaryLink({ status: "confirmed" }),
+        }),
+      ),
+    ).toBe(0);
   });
 
-  it("does not count a confirmed link -- nothing left to act on", () => {
-    expect(unreadCount([], anniversaryLink({ status: "confirmed" }))).toBe(0);
-  });
-
-  it("does not count when there is no link at all", () => {
-    expect(unreadCount([], null)).toBe(0);
+  // Review focus 4: the layout and page pass null when the links read
+  // failed. Falsifiability: dereference `links.incoming` without a guard
+  // and this throws.
+  it("treats missing links as none", () => {
+    expect(unreadCount([reminder(false)], null)).toBe(1);
+    expect(unreadCount([reminder(false)], undefined)).toBe(1);
     expect(unreadCount([])).toBe(0);
-  });
-});
-
-describe("isIncomingAnniversaryRequest", () => {
-  it("is true only for a pending link the caller did not initiate", () => {
-    expect(isIncomingAnniversaryRequest(anniversaryLink())).toBe(true);
-    expect(
-      isIncomingAnniversaryRequest(anniversaryLink({ initiatedByMe: true })),
-    ).toBe(false);
-    expect(
-      isIncomingAnniversaryRequest(anniversaryLink({ status: "confirmed" })),
-    ).toBe(false);
-    expect(isIncomingAnniversaryRequest(null)).toBe(false);
-    expect(isIncomingAnniversaryRequest(undefined)).toBe(false);
   });
 });
