@@ -12,7 +12,10 @@ const env = loadEnv("", process.cwd(), "");
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["**/*.test.ts"],
+    // .tsx is for component tests. Those opt into jsdom one file at a time
+    // with a `// @vitest-environment jsdom` docblock, so every existing test
+    // keeps running under plain Node.
+    include: ["**/*.test.{ts,tsx}"],
     // Globs must be **-prefixed. "node_modules/**" matches only the root
     // one, so a nested checkout -- an agent worktree under .claude/, a
     // vendored package -- drops its dependencies' own test files into this

@@ -32,6 +32,7 @@ export default function ProfileEditPage() {
     handleSubmit,
     formState: { errors, isDirty },
     reset,
+    resetField,
   } = useForm<ProfileEditFormData>({
     // @ts-expect-error - Zod resolver type inference mismatch with React Hook Form
     resolver: zodResolver(profileEditSchema),
@@ -66,6 +67,29 @@ export default function ProfileEditPage() {
     };
     loadProfile();
   }, [reset]);
+
+  // The form above loads once, but confirming an anniversary request in the
+  // card below writes the agreed date into this user's own profile_info row.
+  // Save sends every field, so without this the form would write the date it
+  // first loaded back over the agreed one. Only the anniversary field is
+  // reset -- any other unsaved edits stay as they are -- and resetting it
+  // also clears its dirty state, since it now matches what is saved.
+  const resyncAnniversary = async () => {
+    const { data } = await getMyProfile();
+    if (!data) {
+      setError(
+        "Couldn't refresh your anniversary. Reload the page before saving."
+      );
+      return;
+    }
+    const saved = Array.isArray(data.profile_info)
+      ? data.profile_info.find(
+          (field: { field_name: string; field_value: string | null }) =>
+            field.field_name === "anniversary"
+        )
+      : undefined;
+    resetField("anniversary", { defaultValue: saved?.field_value ?? "" });
+  };
 
   const onSubmit = async (data: ProfileEditFormData) => {
     setIsLoading(true);
@@ -219,7 +243,7 @@ export default function ProfileEditPage() {
           actions, not a field this form submits -- so it sits outside
           <form>, immediately beneath Important Dates. The Save button below
           still targets the form by id, since it has to stay visually last. */}
-      <AnniversaryPartner />
+      <AnniversaryPartner onLinkChanged={resyncAnniversary} />
 
       {/* Form actions */}
       <div className="flex gap-3 pt-4">

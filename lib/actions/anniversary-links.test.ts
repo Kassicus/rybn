@@ -39,8 +39,8 @@ const inSpy = vi.fn();
  * `.order()` and `.limit()` are NOT no-ops here, unlike invitations.test.ts's
  * version: they record the requested clauses and, at resolution time, an
  * array `data` payload is actually sorted (stably, by every recorded clause
- * in the order requested) and sliced. Without this, getMyAnniversaryLink's
- * multi-row precedence test below would be pinning whatever order the
+ * in the order requested) and sliced. Without this, getMyAnniversaryLinks'
+ * ordering tests below would be pinning whatever order the
  * fixture array happened to be written in, not the implementation's own
  * `order by` calls -- exactly the false-falsifiability trap this plan has
  * shipped before.
@@ -136,7 +136,7 @@ const {
   confirmAnniversaryLink,
   declineAnniversaryLink,
   unlinkAnniversary,
-  getMyAnniversaryLink,
+  getMyAnniversaryLinks,
   getAnniversaryPartnerCandidates,
 } = await import("./anniversary-links");
 
@@ -363,310 +363,436 @@ describe("unlinkAnniversary", () => {
   });
 });
 
-describe("getMyAnniversaryLink", () => {
-  // Falsifiability: this is the near-miss the brief calls out by name.
-  // Hardcode `const partnerId = row.user_b;` (dropping the `row.user_a ===
-  // userId ? row.user_b : row.user_a` conditional) and THIS test fails --
-  // the caller-as-user_a case above still passes, because user_b legitimately
-  // IS the partner there, but here the caller is user_b and the hardcoded
-  // version would wrongly return the caller's OWN id as partnerId. Verified
-  // by actually making that edit and re-running: this test failed while the
-  // caller-as-user_a test kept passing, which is exactly the asymmetry the
-  // brief warns an incomplete fix would produce.
-  it("resolves partnerId and initiatedByMe when the caller is user_a", async () => {
+describe("getMyAnniversaryLinks", () => {
+  // The caller is "user_a_123" (beforeEach). Ids keep canonical order
+  // (user_a < user_b) so the fixtures look like real rows; "user_0_999"
+  // sorts before the caller, putting the caller on the user_b side.
+  const row = (overrides: Record<string, unknown>) => ({
+    id: "link-x",
+    user_a: "user_a_123",
+    user_b: "user_b_456",
+    status: "pending",
+    initiated_by: "user_b_456",
+    agreed_date: "2020-06-01",
+    created_at: "2026-10-01T00:00:00Z",
+    ...overrides,
+  });
+
+  const profile = (id: string, name: string) => ({
+    id,
+    username: name.toLowerCase(),
+    display_name: name,
+  });
+
+  const profileLookups = () =>
+    inSpy.mock.calls.filter(([table]) => table === "user_profiles");
+
+  // Falsifiability: hidden case 1 (F4). Reintroduce `.limit(1)` and this
+  // fails -- only the newer incoming row survives the limit, so `confirmed`
+  // comes back null. Hardcode `partnerId = row.user_b` and it fails too:
+  // the incoming row puts the caller on the user_b side. NOT caught: a
+  // reader that returned the right groups from a different query shape.
+  it("returns a confirmed link AND a newer incoming request", async () => {
     supabase = createSupabaseMock({
       anniversary_links: [
         {
           data: [
-            {
-              id: "link-1",
-              user_a: "user_a_123",
-              user_b: "user_b_456",
-              status: "pending",
+            row({
+              id: "link-confirmed",
+              status: "confirmed",
               initiated_by: "user_a_123",
-              agreed_date: "2020-06-01",
-            },
+              created_at: "2026-09-01T00:00:00Z",
+            }),
+            row({
+              id: "link-incoming",
+              user_a: "user_0_999",
+              user_b: "user_a_123",
+              initiated_by: "user_0_999",
+              agreed_date: "2018-03-03",
+              created_at: "2026-10-05T00:00:00Z",
+            }),
           ],
           error: null,
         },
       ],
       user_profiles: [
         {
-          data: { username: "partner-username", display_name: "Partner Name" },
+          data: [profile("user_b_456", "Partner"), profile("user_0_999", "Asker")],
           error: null,
         },
       ],
+      profile_info: [
+        { data: [{ user_id: "user_a_123", field_value: "2019-05-05" }], error: null },
+      ],
     });
 
-    const result = await getMyAnniversaryLink();
+    const result = await getMyAnniversaryLinks();
 
     expect(result).toEqual({
       data: {
-        id: "link-1",
-        partnerId: "user_b_456",
-        partnerUsername: "partner-username",
-        partnerDisplayName: "Partner Name",
-        status: "pending",
-        agreedDate: "2020-06-01",
-        // Null, and no `profile_info` response is scripted above: a PENDING
-        // link has no live shared date, because nothing has been agreed yet.
-        // If the implementation looked one up anyway this test would fail on
-        // "No scripted Supabase response left for profile_info".
-        sharedDate: null,
-        initiatedByMe: true,
+        confirmed: {
+          id: "link-confirmed",
+          partnerId: "user_b_456",
+          partnerUsername: "partner",
+          partnerDisplayName: "Partner",
+          status: "confirmed",
+          agreedDate: "2020-06-01",
+          sharedDate: "2019-05-05",
+          initiatedByMe: true,
+        },
+        outgoing: null,
+        incoming: [
+          {
+            id: "link-incoming",
+            partnerId: "user_0_999",
+            partnerUsername: "asker",
+            partnerDisplayName: "Asker",
+            status: "pending",
+            agreedDate: "2018-03-03",
+            sharedDate: null,
+            initiatedByMe: false,
+          },
+        ],
       },
     });
-    expect(eqSpy).toHaveBeenCalledWith("user_profiles", "id", "user_b_456");
+    // One profile lookup covering every partner, not one per row.
+    expect(profileLookups()).toHaveLength(1);
+    expect([...(profileLookups()[0][2] as string[])].sort()).toEqual([
+      "user_0_999",
+      "user_b_456",
+    ]);
   });
 
-  it("resolves partnerId and initiatedByMe when the caller is user_b -- the near-miss case", async () => {
+  // Falsifiability: hidden case 2. Reintroduce `.limit(1)` and only one
+  // request comes back. Drop the `.order("created_at", ...)` call and the
+  // fixture's own oldest-first order leaks through, so the ids come back
+  // reversed (the mock sorts only by the clauses actually requested). NOT
+  // caught: ties on created_at, which real rows do not have.
+  it("returns every incoming request, newest first", async () => {
     supabase = createSupabaseMock({
       anniversary_links: [
         {
           data: [
-            {
-              id: "link-2",
-              user_a: "user_z_789",
-              user_b: "user_a_123", // the CALLER, canonically stored as user_b
-              status: "confirmed",
-              initiated_by: "user_z_789", // the OTHER person initiated
-              agreed_date: "2019-05-05",
-            },
+            row({ id: "link-older", created_at: "2026-10-01T00:00:00Z" }),
+            row({
+              id: "link-newer",
+              user_b: "user_c_789",
+              initiated_by: "user_c_789",
+              created_at: "2026-10-05T00:00:00Z",
+            }),
           ],
           error: null,
         },
       ],
       user_profiles: [
         {
-          data: { username: "z-username", display_name: "Z Display" },
+          data: [profile("user_b_456", "Bea"), profile("user_c_789", "Cal")],
           error: null,
         },
       ],
-      // Both partners' anniversary rows come back, with DIFFERENT values --
-      // the post-confirm drift state. The canonical (user_a) row is the one
-      // that must win: it is what get_or_create_celebrated_occasion derives a
-      // partnered occasion's date from, so it is the date a claim scoped to
-      // this couple actually lapses against. The caller here is user_b, so
-      // "canonical" and "the caller's own" are distinguishable.
+    });
+
+    const result = await getMyAnniversaryLinks();
+
+    if (!("data" in result)) throw new Error("expected data");
+    expect(result.data.incoming.map((l) => l.id)).toEqual([
+      "link-newer",
+      "link-older",
+    ]);
+    expect(result.data.confirmed).toBeNull();
+    expect(result.data.outgoing).toBeNull();
+  });
+
+  // Falsifiability: hidden case 3. Reintroduce `.limit(1)` and the caller's
+  // own (older) request disappears behind the newer incoming one. Classify
+  // on status alone (ignoring initiated_by) and the outgoing row lands in
+  // `incoming`. NOT caught: which of two outgoing rows wins -- see the next
+  // test.
+  it("keeps the caller's own request when someone asks them later", async () => {
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        {
+          data: [
+            row({
+              id: "link-mine",
+              initiated_by: "user_a_123",
+              created_at: "2026-10-01T00:00:00Z",
+            }),
+            row({
+              id: "link-theirs",
+              user_b: "user_c_789",
+              initiated_by: "user_c_789",
+              created_at: "2026-10-05T00:00:00Z",
+            }),
+          ],
+          error: null,
+        },
+      ],
+      user_profiles: [
+        {
+          data: [profile("user_b_456", "Bea"), profile("user_c_789", "Cal")],
+          error: null,
+        },
+      ],
+    });
+
+    const result = await getMyAnniversaryLinks();
+
+    if (!("data" in result)) throw new Error("expected data");
+    expect(result.data.outgoing?.id).toBe("link-mine");
+    expect(result.data.outgoing?.initiatedByMe).toBe(true);
+    expect(result.data.incoming.map((l) => l.id)).toEqual(["link-theirs"]);
+  });
+
+  // Review focus 2. Two outgoing rows can only predate the I-out refusal.
+  // Falsifiability: take the LAST outgoing row instead of the first and the
+  // older one wins; drop the warning and the spy assertion fails. NOT
+  // caught: what the UI does with the dropped row -- nothing, by design.
+  it("returns the newest outgoing request when two exist, and warns", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        {
+          data: [
+            row({
+              id: "link-old-mine",
+              initiated_by: "user_a_123",
+              created_at: "2026-10-01T00:00:00Z",
+            }),
+            row({
+              id: "link-new-mine",
+              user_b: "user_c_789",
+              initiated_by: "user_a_123",
+              created_at: "2026-10-05T00:00:00Z",
+            }),
+          ],
+          error: null,
+        },
+      ],
+      user_profiles: [
+        {
+          data: [profile("user_b_456", "Bea"), profile("user_c_789", "Cal")],
+          error: null,
+        },
+      ],
+    });
+
+    const result = await getMyAnniversaryLinks();
+
+    if (!("data" in result)) throw new Error("expected data");
+    expect(result.data.outgoing?.id).toBe("link-new-mine");
+    expect(result.data.incoming).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  // Review focus 1. A requester who no longer shares a group with the
+  // caller is hidden by user_profiles' RLS. The hidden row is the NEWER one,
+  // so it sorts first while the lone profile that comes back belongs to the
+  // second row. Falsifiability, verified by mutation: match profiles to rows
+  // by position instead of by id and Cal's name lands on the hidden row, so
+  // this fails; throw on a missing profile and this rejects. NOT caught:
+  // what label the UI shows -- the card's "Someone" fallback.
+  it("keeps a link whose partner profile is hidden", async () => {
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        {
+          data: [
+            row({ id: "link-hidden", created_at: "2026-10-05T00:00:00Z" }),
+            row({
+              id: "link-visible",
+              user_b: "user_c_789",
+              initiated_by: "user_c_789",
+              created_at: "2026-10-01T00:00:00Z",
+            }),
+          ],
+          error: null,
+        },
+      ],
+      user_profiles: [{ data: [profile("user_c_789", "Cal")], error: null }],
+    });
+
+    const result = await getMyAnniversaryLinks();
+
+    if (!("data" in result)) throw new Error("expected data");
+    const [hidden, visible] = result.data.incoming;
+    expect(visible).toMatchObject({ id: "link-visible", partnerDisplayName: "Cal" });
+    expect(hidden).toMatchObject({
+      id: "link-hidden",
+      partnerId: "user_b_456",
+      partnerUsername: null,
+      partnerDisplayName: null,
+    });
+  });
+
+  // FINDING I4, the read half, ported from the single-row reader's suite
+  // (the whole-branch review found the rewrite had dropped it). The
+  // confirmed card must show the CANONICAL partner's live profile_info date
+  // -- what a partnered occasion, and so a couple's claims, derive from --
+  // not the caller's own row and not the request-time agreed_date.
+  //
+  // Falsifiability, verified by mutation: resolving the caller's own row
+  // first (`byUser.get(userId) ?? byUser.get(confirmedRow.user_a)`), or
+  // reading only the caller's row, fails this test while every other test
+  // in the file passes -- it is the only fixture where the two rows differ
+  // AND the caller is the non-canonical half. Reverting to agreed_date
+  // fails it too. NOT caught: the RLS-invisible fallback, pinned next.
+  it("reads the shared date from the canonical partner when the caller is user_b", async () => {
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        {
+          data: [
+            row({
+              id: "link-c",
+              user_a: "user_0_999", // the canonical partner
+              user_b: "user_a_123", // the CALLER, stored as user_b
+              status: "confirmed",
+              initiated_by: "user_0_999",
+              agreed_date: "2019-05-05",
+            }),
+          ],
+          error: null,
+        },
+      ],
+      user_profiles: [{ data: [profile("user_0_999", "Zed")], error: null }],
+      // Both partners' rows come back with DIFFERENT values: the drift
+      // state after either partner edits their date.
       profile_info: [
         {
           data: [
             { user_id: "user_a_123", field_value: "2019-05-05" },
-            { user_id: "user_z_789", field_value: "2021-11-30" },
+            { user_id: "user_0_999", field_value: "2021-11-30" },
           ],
           error: null,
         },
       ],
     });
 
-    const result = await getMyAnniversaryLink();
+    const result = await getMyAnniversaryLinks();
 
-    expect(result).toEqual({
-      data: {
-        id: "link-2",
-        partnerId: "user_z_789",
-        partnerUsername: "z-username",
-        partnerDisplayName: "Z Display",
-        status: "confirmed",
-        agreedDate: "2019-05-05",
-        // NOT agreedDate ("2019-05-05") and NOT the caller's own row (also
-        // "2019-05-05"): the canonical partner user_z_789's live value.
-        sharedDate: "2021-11-30",
-        initiatedByMe: false,
-      },
+    if (!("data" in result)) throw new Error("expected data");
+    expect(result.data.confirmed).toMatchObject({
+      id: "link-c",
+      partnerId: "user_0_999",
+      initiatedByMe: false,
+      // NOT agreedDate and NOT the caller's own row (both "2019-05-05").
+      sharedDate: "2021-11-30",
     });
-    expect(eqSpy).toHaveBeenCalledWith("user_profiles", "id", "user_z_789");
   });
 
-  // FINDING I4, the read half. The confirmed card used to render
-  // link.agreedDate -- a request-time snapshot -- while the occasion a
-  // couple's claims are scoped to follows the CANONICAL partner's live
-  // profile_info row. The two disagree the moment either partner edits their
-  // date, and the card was the only surface showing the stale number.
-  //
-  // Falsifiability, verified by mutation:
-  //   1. Reverting `sharedDate` to `row.agreed_date`: this test fails
-  //      (2019-05-05 received, 2021-11-30 expected), and so does the
-  //      "caller is user_b" test above.
-  //   2. Resolving the CALLER's own row first --
-  //      `byUser.get(userId) ?? byUser.get(row.user_a)` -- this test fails
-  //      while every other test in the file keeps passing, because it is the
-  //      only fixture where the two rows carry different values AND the
-  //      caller is the non-canonical half. That is the mutation a
-  //      "just read my own date" implementation would be, and nothing else
-  //      here catches it.
-  //   3. Dropping the `status === "confirmed"` guard: the PENDING test above
-  //      fails on an unscripted profile_info response.
-  // NOT caught here: whether the RLS-invisible case degrades correctly --
-  // that is the next test's job.
+  // Falsifiability, verified by mutation: dropping the `?? byUser.get(userId)`
+  // fallback makes this null, so the couple is shown no live date at all.
+  // NOT caught: canonical-first precedence -- this fixture has one row, so
+  // either order passes; the test above pins that.
   it("falls back to the caller's own date when the canonical partner's row is not visible", async () => {
     supabase = createSupabaseMock({
       anniversary_links: [
         {
           data: [
-            {
-              id: "link-3",
-              user_a: "user_z_789",
-              user_b: "user_a_123", // the CALLER
+            row({
+              id: "link-c",
+              user_a: "user_0_999",
+              user_b: "user_a_123",
               status: "confirmed",
-              initiated_by: "user_z_789",
+              initiated_by: "user_0_999",
               agreed_date: "2019-05-05",
-            },
+            }),
           ],
           error: null,
         },
       ],
-      user_profiles: [
-        {
-          data: { username: "z-username", display_name: "Z Display" },
-          error: null,
-        },
-      ],
-      // Only the caller's own row comes back. This is what profile_info's RLS
-      // produces for a caller whose partner's anniversary privacy excludes
-      // them -- the read is user-scoped precisely so the database, not this
-      // code, decides that.
+      user_profiles: [{ data: [profile("user_0_999", "Zed")], error: null }],
+      // Only the caller's own row: what profile_info's RLS returns when the
+      // partner's anniversary privacy excludes the caller.
       profile_info: [
-        {
-          data: [{ user_id: "user_a_123", field_value: "2022-04-04" }],
-          error: null,
-        },
+        { data: [{ user_id: "user_a_123", field_value: "2022-04-04" }], error: null },
       ],
     });
 
-    const result = await getMyAnniversaryLink();
+    const result = await getMyAnniversaryLinks();
 
-    expect(result).toMatchObject({
-      data: { sharedDate: "2022-04-04" },
-    });
-
-    // Falsifiable by: dropping the `?? byUser.get(userId)` fallback, which
-    // makes this null and shows the couple no date at all. NOT caught: the
-    // canonical-first precedence, which the test above pins -- this fixture
-    // has only one row, so either resolution order would pass it.
+    if (!("data" in result)) throw new Error("expected data");
+    expect(result.data.confirmed?.sharedDate).toBe("2022-04-04");
   });
 
-  // Task 3's review established that pending links are deliberately
-  // unconstrained -- only a CONFIRMED link is limited to one per person
-  // (anniversary_link_members' primary key) -- so a caller can genuinely
-  // hold a confirmed link with one partner and a pending request with a
-  // DIFFERENT person at the same time. getMyAnniversaryLink drives Task 9's
-  // three-way UI state (unlinked / pending-with-cancel /
-  // confirmed-with-unlink), so returning the wrong row here is not cosmetic:
-  // it tells someone with a real partner "you have a pending request,
-  // cancel it?"
-  //
-  // The pending row is placed FIRST in this fixture and the confirmed row
-  // SECOND, deliberately the opposite of the expected output order -- a
-  // test that put them in output order would pass even if the
-  // implementation never ordered anything at all, since createSupabaseMock's
-  // `.limit(1)` would just take the fixture's first element. Only a mock
-  // that actually SORTS on the recorded `.order()` clauses (see
-  // createSupabaseMock above) can fail this test for the right reason.
-  //
-  // Falsifiability, verified by actually breaking the implementation:
-  //   1. Deleting both `.order(...)` calls in getMyAnniversaryLink: this
-  //      test failed, returning the PENDING row (the fixture's raw first
-  //      element) instead of the confirmed one. The "resolves ... user_a"
-  //      and "... user_b" tests above, each single-row, kept passing --
-  //      confirming this scenario needed its own test.
-  //   2. Flipping `.order("status", { ascending: true })` to
-  //      `{ ascending: false }` alone: this test failed the same way
-  //      ("pending" now sorts before "confirmed" descending), while every
-  //      other test in this file kept passing.
-  //   3. Control check for the false-falsifiability trap named above:
-  //      reversing this test's OWN fixture order (confirmed first, pending
-  //      second) against the UNMODIFIED implementation still passed -- as it
-  //      must, since real ordering doesn't care about input order -- proving
-  //      the mock's sort, not incidental fixture placement, is what makes
-  //      this test pass.
-  // All three checks were reverted after observation; the file below is the
-  // shipped version.
-  it("returns the confirmed link over a pending one when the caller holds both", async () => {
-    supabase = createSupabaseMock({
-      anniversary_links: [
-        {
-          data: [
-            {
-              id: "link-pending",
-              user_a: "user_a_123",
-              user_b: "user_x_999",
-              status: "pending",
-              initiated_by: "user_x_999",
-              agreed_date: "2099-12-31",
-              created_at: "2026-06-01T00:00:00Z",
-            },
-            {
-              id: "link-confirmed",
-              user_a: "user_a_123",
-              user_b: "user_c_789",
-              status: "confirmed",
-              initiated_by: "user_a_123",
-              agreed_date: "2018-09-09",
-              created_at: "2020-01-01T00:00:00Z",
-            },
-          ],
-          error: null,
-        },
-      ],
-      user_profiles: [
-        {
-          data: { username: "c-username", display_name: "C Display" },
-          error: null,
-        },
-      ],
-      // The surviving row is CONFIRMED, so the live-date lookup runs. Here
-      // the caller IS the canonical partner, so their own row is also the
-      // authoritative one.
-      profile_info: [
-        {
-          data: [
-            { user_id: "user_a_123", field_value: "2018-09-09" },
-            { user_id: "user_c_789", field_value: "2018-09-09" },
-          ],
-          error: null,
-        },
-      ],
-    });
-
-    const result = await getMyAnniversaryLink();
-
-    expect(result).toEqual({
-      data: {
-        id: "link-confirmed",
-        partnerId: "user_c_789",
-        partnerUsername: "c-username",
-        partnerDisplayName: "C Display",
-        status: "confirmed",
-        agreedDate: "2018-09-09",
-        sharedDate: "2018-09-09",
-        initiatedByMe: true,
-      },
-    });
-    expect(eqSpy).toHaveBeenCalledWith("user_profiles", "id", "user_c_789");
-  });
-
-  // Falsifiability: change the empty-result branch to fall through instead
-  // of returning early (e.g. `const row = data?.[0] ?? {}`) and this fails --
-  // either on a thrown "No scripted Supabase response left for
-  // user_profiles" (the profile lookup runs with an unqueued table) or on
-  // the returned shape no longer being `{ data: null }`. NOT caught: a
-  // non-empty result being mapped incorrectly, which the two tests above
-  // cover.
-  it("returns { data: null } when the caller has no anniversary link", async () => {
+  // Falsifiability: look up profiles (or profile_info) when there are no
+  // rows and the unscripted table throws "No scripted Supabase response".
+  // NOT caught: an extra query on a NON-empty result -- the other tests
+  // script exactly the tables they expect.
+  it("returns empty groups without further queries when there are no links", async () => {
     supabase = createSupabaseMock({
       anniversary_links: [{ data: [], error: null }],
     });
 
-    const result = await getMyAnniversaryLink();
+    const result = await getMyAnniversaryLinks();
 
-    expect(result).toEqual({ data: null });
+    expect(result).toEqual({
+      data: { confirmed: null, outgoing: null, incoming: [] },
+    });
   });
 
-  it("returns Not authenticated when signed out, without touching the database", async () => {
-    getUserId.mockResolvedValue(null);
+  // Falsifiability: return `{ data: { ... } }` on a failed read and the
+  // error shape assertion fails. NOT caught: the exact log text.
+  it("returns an error when the links read fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    supabase = createSupabaseMock({
+      anniversary_links: [{ data: null, error: { message: "boom" } }],
+    });
 
-    const result = await getMyAnniversaryLink();
+    const result = await getMyAnniversaryLinks();
+
+    expect(result).toEqual({
+      error: "Failed to load your anniversary links. Please try again.",
+    });
+    error.mockRestore();
+  });
+
+  it("returns an error when the partner profile lookup fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    supabase = createSupabaseMock({
+      anniversary_links: [{ data: [row({ id: "link-1" })], error: null }],
+      user_profiles: [{ data: null, error: { message: "boom" } }],
+    });
+
+    const result = await getMyAnniversaryLinks();
+
+    expect(result).toEqual({
+      error: "Failed to load your anniversary links. Please try again.",
+    });
+    error.mockRestore();
+  });
+
+  // Falsifiability: surface the shared-date failure as `{ error }` and this
+  // fails. NOT caught: whether the fallback date is the right one -- the
+  // component falls back to agreedDate, as before.
+  it("falls back to a null shared date when that lookup fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        {
+          data: [row({ id: "link-c", status: "confirmed", initiated_by: "user_a_123" })],
+          error: null,
+        },
+      ],
+      user_profiles: [{ data: [profile("user_b_456", "Bea")], error: null }],
+      profile_info: [{ data: null, error: { message: "boom" } }],
+    });
+
+    const result = await getMyAnniversaryLinks();
+
+    if (!("data" in result)) throw new Error("expected data");
+    expect(result.data.confirmed).toMatchObject({ id: "link-c", sharedDate: null });
+    error.mockRestore();
+  });
+
+  // Falsifiability: build the client before checking getUserId() and the
+  // empty mock throws on the first from(). NOT caught: a signed-out caller
+  // reaching an RPC -- this action calls none.
+  it("returns Not authenticated when signed out, without querying", async () => {
+    getUserId.mockResolvedValue(null);
+    supabase = createSupabaseMock({});
+
+    const result = await getMyAnniversaryLinks();
 
     expect(result).toEqual({ error: "Not authenticated" });
   });

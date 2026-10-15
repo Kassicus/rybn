@@ -1,30 +1,25 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Cake, Heart, Check, X, BellOff, HeartHandshake } from "lucide-react";
+import { Cake, Heart, Check, BellOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "@/components/ui/link";
 import { Heading, Text } from "@/components/ui/text";
 import { dismissDateReminder } from "@/lib/actions/date-reminders";
-import {
-  confirmAnniversaryLink,
-  declineAnniversaryLink,
-  type AnniversaryLink,
-} from "@/lib/actions/anniversary-links";
+import type { MyAnniversaryLinks } from "@/lib/actions/anniversary-links";
 import { formatMonthDay } from "@/lib/utils/dates";
-import { isIncomingAnniversaryRequest, type DateReminder } from "@/lib/notifications/unread";
+import type { DateReminder } from "@/lib/notifications/unread";
+import { AnniversaryRequestCard } from "@/components/notifications/AnniversaryRequestCard";
 
 interface NotificationsListProps {
   reminders: DateReminder[];
   /**
-   * The caller's own anniversary link, if any. Only rendered here when it is
-   * an INCOMING pending request (isIncomingAnniversaryRequest) -- a request
-   * the caller sent themselves lives on the profile page
-   * (components/profile/AnniversaryPartner.tsx), and a confirmed link has
-   * nothing left to act on from a notifications list.
+   * All of the caller's anniversary links. Only `incoming` renders here, one
+   * card per request; `confirmed` is passed to each card so it can offer
+   * Decline only when the caller is already linked. The caller's own request
+   * lives on the profile page (components/profile/AnniversaryPartner.tsx).
    */
-  anniversaryLink?: AnniversaryLink | null;
+  links?: MyAnniversaryLinks | null;
 }
 
 /**
@@ -39,13 +34,10 @@ interface NotificationsListProps {
  */
 export function NotificationsList({
   reminders,
-  anniversaryLink = null,
+  links = null,
 }: NotificationsListProps) {
-  const router = useRouter();
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState<string | null>(null);
-  const [linkActionLoading, setLinkActionLoading] = useState(false);
-  const [linkActionError, setLinkActionError] = useState<string | null>(null);
 
   const handleDismiss = async (notificationId: string) => {
     setIsLoading(notificationId);
@@ -63,45 +55,10 @@ export function NotificationsList({
     }
   };
 
-  const showRequest = isIncomingAnniversaryRequest(anniversaryLink);
-  const partnerLabel =
-    anniversaryLink?.partnerDisplayName ||
-    anniversaryLink?.partnerUsername ||
-    "Your partner";
+  const incoming = links?.incoming ?? [];
+  const myConfirmedLink = links?.confirmed ?? null;
 
-  // Either action retires the request from this list -- confirm applies it,
-  // decline (available to either participant since Task 3's correction)
-  // withdraws it. router.refresh() re-runs the server components on this
-  // route, which is also how the bell's badge (computed in the dashboard
-  // layout from this same getMyAnniversaryLink() call) stops claiming an
-  // unread request that was just handled.
-  const handleConfirmLink = async () => {
-    if (!anniversaryLink) return;
-    setLinkActionLoading(true);
-    setLinkActionError(null);
-    const result = await confirmAnniversaryLink(anniversaryLink.id);
-    setLinkActionLoading(false);
-    if ("error" in result) {
-      setLinkActionError(result.error);
-      return;
-    }
-    router.refresh();
-  };
-
-  const handleDeclineLink = async () => {
-    if (!anniversaryLink) return;
-    setLinkActionLoading(true);
-    setLinkActionError(null);
-    const result = await declineAnniversaryLink(anniversaryLink.id);
-    setLinkActionLoading(false);
-    if ("error" in result) {
-      setLinkActionError(result.error);
-      return;
-    }
-    router.refresh();
-  };
-
-  if (reminders.length === 0 && !showRequest) {
+  if (reminders.length === 0 && incoming.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
         <div className="w-16 h-16 rounded-full bg-primary-50 flex items-center justify-center mb-4">
@@ -119,59 +76,13 @@ export function NotificationsList({
 
   return (
     <div className="space-y-3">
-      {showRequest && anniversaryLink && (
-        // Stacks below sm: for the same reason the group member / gift
-        // exchange participant cards do (76c1214): a name plus two buttons
-        // cannot share a row at 375px. min-w-0 on the text block, shrink-0
-        // on the icon well.
-        <div className="flex flex-col gap-3 p-4 rounded-lg border border-primary-200 bg-primary-50 sm:flex-row sm:items-start">
-          <div className="shrink-0 w-10 h-10 rounded-full bg-white flex items-center justify-center">
-            <HeartHandshake className="w-5 h-5 text-primary" />
-          </div>
-          <div className="min-w-0 flex-1 space-y-2">
-            {/* No truncate: the partner's name is embedded in a full
-                sentence here rather than isolated, so there's no
-                fixed-length token to clip -- it wraps instead. */}
-            <Text>
-              <span className="font-medium">{partnerLabel}</span> wants to
-              share an anniversary with you
-            </Text>
-            {/* Load-bearing, not decoration: confirming OVERWRITES the
-                accepting partner's own anniversary date, so the consequence
-                is stated outright, naming the date, before either button is
-                pressable. */}
-            <Text size="sm">
-              {partnerLabel} says your shared anniversary is{" "}
-              {formatMonthDay(anniversaryLink.agreedDate)}. Confirming will
-              set your anniversary to that date.
-            </Text>
-            {linkActionError && (
-              <Text size="sm" className="text-error">
-                {linkActionError}
-              </Text>
-            )}
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <Button
-                size="small"
-                onClick={handleConfirmLink}
-                loading={linkActionLoading}
-              >
-                <Check className="w-4 h-4" />
-                Confirm
-              </Button>
-              <Button
-                variant="tertiary"
-                size="small"
-                onClick={handleDeclineLink}
-                loading={linkActionLoading}
-              >
-                <X className="w-4 h-4" />
-                Decline
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      {incoming.map((request) => (
+        <AnniversaryRequestCard
+          key={request.id}
+          request={request}
+          myConfirmedLink={myConfirmedLink}
+        />
+      ))}
 
       {reminders.map((reminder) => {
         const isRead =

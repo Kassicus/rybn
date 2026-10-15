@@ -19,11 +19,17 @@ import { getUserId } from "@/lib/auth/require-auth";
  * request_anniversary_link and confirm_anniversary_link raise with errcode
  * 22023 and a message already written for an end user ("you cannot share an
  * anniversary with yourself", "that person is not in any of your groups",
- * "that is not a usable date", "you already share an anniversary with that
- * person", "no anniversary request for you to confirm", "one of you already
- * shares an anniversary with somebody else"). Those are passed straight
- * through, the same way claims.ts treats claim_wishlist_item's 22023s;
- * anything else is swapped for a generic message and logged.
+ * "that is not a usable date", "you already share an anniversary with
+ * someone; unlink first", "you already have a request waiting; cancel it
+ * first", "you already share an anniversary with that person", "no
+ * anniversary request for you to confirm", "one of you already shares an
+ * anniversary with somebody else"). Those are passed straight through, the
+ * same way claims.ts treats claim_wishlist_item's 22023s; anything else is
+ * swapped for a generic message and logged. That includes the two races
+ * that reach here as something other than 22023: a same-instant double
+ * request hitting anniversary_links_one_outgoing (unique_violation,
+ * 20261014000001), and two confirms sharing a partner deadlocking on the
+ * pending-link cleanup (40P01). A retry gets the precise message.
  *
  * decline_anniversary_link and unlink_anniversary never raise for "nothing to
  * do" -- a non-participant, a missing row, or the wrong status all return
@@ -190,24 +196,33 @@ export async function unlinkAnniversary(
 }
 
 /**
- * Reads `anniversary_links` through the user-scoped client and relies on
- * Task 1's own-participants-only SELECT policy to return only rows the
- * caller is part of.
+ * Every anniversary link the caller is part of, grouped by what the caller
+ * can do about it.
  *
- * A person can hold at most one CONFIRMED link (anniversary_link_members'
- * primary key), but pending links are deliberately unconstrained -- a
- * confirmed link with one partner and a pending request with a different
- * person can coexist (Task 3's review established this). When more than one
- * row comes back, the confirmed relationship wins ("confirmed" sorts before
- * "pending" as an ORDER BY on `status`), and the most recently touched row
- * wins any further tie -- so this never throws on multiple rows and never
- * returns an arbitrary, order-dependent one.
+ * Replaces a single-row reader whose `.limit(1)` hid three kinds of row from
+ * someone who needed to act on them: a request sent to a person already
+ * linked (deferred item F4), the older of two incoming requests, and the
+ * caller's own request once someone asked them
+ * (_planning/2026-10-14-anniversary-requests-design.md).
  *
- * `partnerId` resolves to whichever of `user_a`/`user_b` is NOT the caller,
- * so no consumer has to know about canonical ordering.
+ * `confirmed` is at most one row: anniversary_link_members' primary key.
+ * `outgoing` is at most one row: request_anniversary_link refuses a second
+ * (20261014000000). A second outgoing row can only predate that refusal; the
+ * newest wins and the rest are logged rather than silently dropped.
+ * `incoming` is every pending request sent to the caller, newest first.
+ *
+ * User-scoped client: the participant-only SELECT policy is what limits the
+ * read to the caller's rows, and user_profiles' own policy decides which
+ * partner names come back.
  */
-export async function getMyAnniversaryLink(): Promise<
-  { data: AnniversaryLink | null } | { error: string }
+export type MyAnniversaryLinks = {
+  confirmed: AnniversaryLink | null;
+  outgoing: AnniversaryLink | null;
+  incoming: AnniversaryLink[];
+};
+
+export async function getMyAnniversaryLinks(): Promise<
+  { data: MyAnniversaryLinks } | { error: string }
 > {
   const userId = await getUserId();
   if (!userId) {
@@ -216,64 +231,90 @@ export async function getMyAnniversaryLink(): Promise<
 
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  const { data: rows, error } = await supabase
     .from("anniversary_links")
-    .select("id, user_a, user_b, status, initiated_by, agreed_date")
-    .order("status", { ascending: true })
-    .order("created_at", { ascending: false })
-    .limit(1);
+    .select("id, user_a, user_b, status, initiated_by, agreed_date, created_at")
+    .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("getMyAnniversaryLink: select failed", error);
-    return { error: "Failed to load your anniversary link. Please try again." };
+    console.error("getMyAnniversaryLinks: select failed", error);
+    return { error: "Failed to load your anniversary links. Please try again." };
   }
 
-  const row = data?.[0];
-  if (!row) {
-    return { data: null };
+  const links = rows ?? [];
+  if (links.length === 0) {
+    return { data: { confirmed: null, outgoing: null, incoming: [] } };
   }
 
-  const partnerId = row.user_a === userId ? row.user_b : row.user_a;
+  const partnerOf = (row: { user_a: string; user_b: string }) =>
+    row.user_a === userId ? row.user_b : row.user_a;
 
-  const { data: partnerProfile, error: profileError } = await supabase
+  // One lookup for every partner. A partner the caller no longer shares a
+  // group with is filtered out by user_profiles' RLS; their link still comes
+  // back, with null name fields, and the UI falls back to a generic label.
+  const { data: profiles, error: profilesError } = await supabase
     .from("user_profiles")
-    .select("username, display_name")
-    .eq("id", partnerId)
-    .maybeSingle();
+    .select("id, username, display_name")
+    .in("id", [...new Set(links.map(partnerOf))]);
 
-  if (profileError) {
+  if (profilesError) {
     console.error(
-      "getMyAnniversaryLink: partner profile lookup failed",
-      profileError
+      "getMyAnniversaryLinks: partner profile lookup failed",
+      profilesError
     );
-    return { error: "Failed to load your anniversary link. Please try again." };
+    return { error: "Failed to load your anniversary links. Please try again." };
   }
 
-  // The couple's LIVE date, for a confirmed link only (finding I4 -- see
-  // AnniversaryLink.sharedDate). One query covering both partners: RLS
-  // returns the caller's own row unconditionally and the partner's only when
-  // can_view_field admits them, so this can come back with two rows, one, or
-  // (if the caller has since deleted their own date and cannot see their
-  // partner's) none.
-  //
-  // A failure here is NOT surfaced as a page error, unlike the partner
-  // profile lookup above: the link itself has loaded, and a card that says
-  // who you share an anniversary with but not on which day is far better
-  // than an error where the card should be. sharedDate falls back to null and
-  // the component falls back to agreedDate.
-  let sharedDate: string | null = null;
+  const profileById = new Map((profiles ?? []).map((p) => [p.id, p] as const));
 
-  if (row.status === "confirmed") {
+  const toLink = (
+    row: (typeof links)[number],
+    sharedDate: string | null
+  ): AnniversaryLink => {
+    const partnerId = partnerOf(row);
+    const partner = profileById.get(partnerId);
+    return {
+      id: row.id,
+      partnerId,
+      partnerUsername: partner?.username ?? null,
+      partnerDisplayName: partner?.display_name ?? null,
+      status: row.status as "pending" | "confirmed",
+      agreedDate: row.agreed_date,
+      sharedDate,
+      initiatedByMe: row.initiated_by === userId,
+    };
+  };
+
+  const confirmedRow = links.find((r) => r.status === "confirmed");
+  const outgoingRows = links.filter(
+    (r) => r.status === "pending" && r.initiated_by === userId
+  );
+  const incomingRows = links.filter(
+    (r) => r.status === "pending" && r.initiated_by !== userId
+  );
+
+  if (outgoingRows.length > 1) {
+    console.warn(
+      "getMyAnniversaryLinks: more than one outgoing request; showing the newest",
+      outgoingRows.map((r) => r.id)
+    );
+  }
+
+  // The couple's LIVE date, for the confirmed link only -- canonical partner
+  // first (see AnniversaryLink.sharedDate, finding I4). A failure falls back
+  // to null rather than failing the whole read.
+  let sharedDate: string | null = null;
+  if (confirmedRow) {
     const { data: dateRows, error: dateError } = await supabase
       .from("profile_info")
       .select("user_id, field_value")
-      .in("user_id", [row.user_a, row.user_b])
+      .in("user_id", [confirmedRow.user_a, confirmedRow.user_b])
       .eq("category", "dates")
       .eq("field_name", "anniversary");
 
     if (dateError) {
       console.error(
-        "getMyAnniversaryLink: shared date lookup failed",
+        "getMyAnniversaryLinks: shared date lookup failed",
         dateError
       );
     }
@@ -281,22 +322,14 @@ export async function getMyAnniversaryLink(): Promise<
     const byUser = new Map(
       (dateRows ?? []).map((r) => [r.user_id, r.field_value] as const)
     );
-    // Canonical first: that is the row a partnered occasion's date is
-    // derived from, so it is what a claim scoped to this couple will
-    // actually lapse against.
-    sharedDate = byUser.get(row.user_a) ?? byUser.get(userId) ?? null;
+    sharedDate = byUser.get(confirmedRow.user_a) ?? byUser.get(userId) ?? null;
   }
 
   return {
     data: {
-      id: row.id,
-      partnerId,
-      partnerUsername: partnerProfile?.username ?? null,
-      partnerDisplayName: partnerProfile?.display_name ?? null,
-      status: row.status as "pending" | "confirmed",
-      agreedDate: row.agreed_date,
-      sharedDate,
-      initiatedByMe: row.initiated_by === userId,
+      confirmed: confirmedRow ? toLink(confirmedRow, sharedDate) : null,
+      outgoing: outgoingRows[0] ? toLink(outgoingRows[0], null) : null,
+      incoming: incomingRows.map((r) => toLink(r, null)),
     },
   };
 }
