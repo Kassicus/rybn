@@ -623,6 +623,96 @@ describe("getMyAnniversaryLinks", () => {
     });
   });
 
+  // FINDING I4, the read half, ported from the single-row reader's suite
+  // (the whole-branch review found the rewrite had dropped it). The
+  // confirmed card must show the CANONICAL partner's live profile_info date
+  // -- what a partnered occasion, and so a couple's claims, derive from --
+  // not the caller's own row and not the request-time agreed_date.
+  //
+  // Falsifiability, verified by mutation: resolving the caller's own row
+  // first (`byUser.get(userId) ?? byUser.get(confirmedRow.user_a)`), or
+  // reading only the caller's row, fails this test while every other test
+  // in the file passes -- it is the only fixture where the two rows differ
+  // AND the caller is the non-canonical half. Reverting to agreed_date
+  // fails it too. NOT caught: the RLS-invisible fallback, pinned next.
+  it("reads the shared date from the canonical partner when the caller is user_b", async () => {
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        {
+          data: [
+            row({
+              id: "link-c",
+              user_a: "user_0_999", // the canonical partner
+              user_b: "user_a_123", // the CALLER, stored as user_b
+              status: "confirmed",
+              initiated_by: "user_0_999",
+              agreed_date: "2019-05-05",
+            }),
+          ],
+          error: null,
+        },
+      ],
+      user_profiles: [{ data: [profile("user_0_999", "Zed")], error: null }],
+      // Both partners' rows come back with DIFFERENT values: the drift
+      // state after either partner edits their date.
+      profile_info: [
+        {
+          data: [
+            { user_id: "user_a_123", field_value: "2019-05-05" },
+            { user_id: "user_0_999", field_value: "2021-11-30" },
+          ],
+          error: null,
+        },
+      ],
+    });
+
+    const result = await getMyAnniversaryLinks();
+
+    if (!("data" in result)) throw new Error("expected data");
+    expect(result.data.confirmed).toMatchObject({
+      id: "link-c",
+      partnerId: "user_0_999",
+      initiatedByMe: false,
+      // NOT agreedDate and NOT the caller's own row (both "2019-05-05").
+      sharedDate: "2021-11-30",
+    });
+  });
+
+  // Falsifiability, verified by mutation: dropping the `?? byUser.get(userId)`
+  // fallback makes this null, so the couple is shown no live date at all.
+  // NOT caught: canonical-first precedence -- this fixture has one row, so
+  // either order passes; the test above pins that.
+  it("falls back to the caller's own date when the canonical partner's row is not visible", async () => {
+    supabase = createSupabaseMock({
+      anniversary_links: [
+        {
+          data: [
+            row({
+              id: "link-c",
+              user_a: "user_0_999",
+              user_b: "user_a_123",
+              status: "confirmed",
+              initiated_by: "user_0_999",
+              agreed_date: "2019-05-05",
+            }),
+          ],
+          error: null,
+        },
+      ],
+      user_profiles: [{ data: [profile("user_0_999", "Zed")], error: null }],
+      // Only the caller's own row: what profile_info's RLS returns when the
+      // partner's anniversary privacy excludes the caller.
+      profile_info: [
+        { data: [{ user_id: "user_a_123", field_value: "2022-04-04" }], error: null },
+      ],
+    });
+
+    const result = await getMyAnniversaryLinks();
+
+    if (!("data" in result)) throw new Error("expected data");
+    expect(result.data.confirmed?.sharedDate).toBe("2022-04-04");
+  });
+
   // Falsifiability: look up profiles (or profile_info) when there are no
   // rows and the unscripted table throws "No scripted Supabase response".
   // NOT caught: an extra query on a NON-empty result -- the other tests

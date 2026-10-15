@@ -65,6 +65,11 @@ export function AnniversaryPartner() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const load = async () => {
+    // Any reload follows a change -- this card's own action, or a request
+    // card's below via onChanged -- so an error left over from an earlier
+    // action (say a refused "Ask to share") no longer describes what is on
+    // screen and would otherwise reappear inside whichever state renders next.
+    setActionError(null);
     const [linkResult, candidatesResult] = await Promise.all([
       getMyAnniversaryLinks(),
       getAnniversaryPartnerCandidates(),
