@@ -1340,15 +1340,30 @@ export type Database = {
       // greatest(caller, partner)), refreshing an existing PENDING request
       // but refusing to touch an already-CONFIRMED one. Returns the link id.
       //
-      // Error codes, verified against the migration:
+      // Live body: 20261014000000_anniversary_requests_never_stranded.sql,
+      // which adds two refusals about the CALLER's own status. Neither
+      // looks at the partner's, so a request to someone already linked
+      // still succeeds -- refusing it would tell the caller that person's
+      // relationship status.
+      //
+      // Error codes, verified against the migrations:
       //   28000 NOT AUTHENTICATED                          -- no Clerk JWT
       //   22023 you cannot share an anniversary with yourself
       //   22023 that person is not in any of your groups   -- same message
       //         whether the user does not exist or shares no group, so this
       //         is not a probe for which user ids exist
       //   22023 that is not a usable date
+      //   22023 you already share an anniversary with someone; unlink first
+      //         -- the caller is in a confirmed link
+      //   22023 you already have a request waiting; cancel it first -- the
+      //         caller has a pending request out to someone else (asking the
+      //         SAME person again refreshes that row instead)
       //   22023 you already share an anniversary with that person -- a
-      //         CONFIRMED link already exists for this pair
+      //         CONFIRMED link already exists for this pair. Unreachable for
+      //         an authenticated caller since 20261014000000: the
+      //         "unlink first" refusal above fires before it.
+      //   23505 unique_violation on anniversary_links_one_outgoing -- the
+      //         loser of a same-instant double request (20261014000001)
       request_anniversary_link: {
         Args: {
           p_partner_id: string
@@ -1357,11 +1372,14 @@ export type Database = {
         Returns: string
       }
       // Confirms a PENDING anniversary link (Task 3,
-      // 20260912000003_anniversary_link_rpcs.sql). SECURITY DEFINER. Flips
-      // anniversary_links.status to 'confirmed' and inserts both
-      // participants into anniversary_link_members in the same transaction
-      // -- the primary key there is what actually enforces "one confirmed
-      // link per person, either side" for authenticated callers.
+      // 20260912000003_anniversary_link_rpcs.sql; live body
+      // 20261014000000_anniversary_requests_never_stranded.sql). SECURITY
+      // DEFINER. Flips anniversary_links.status to 'confirmed' and inserts
+      // both participants into anniversary_link_members in the same
+      // transaction -- the primary key there is what actually enforces "one
+      // confirmed link per person, either side" for authenticated callers.
+      // Then deletes every OTHER pending link involving either partner,
+      // which each sender sees exactly as a decline.
       confirm_anniversary_link: {
         Args: {
           p_link_id: string

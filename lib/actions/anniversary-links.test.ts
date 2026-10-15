@@ -587,21 +587,23 @@ describe("getMyAnniversaryLinks", () => {
   });
 
   // Review focus 1. A requester who no longer shares a group with the
-  // caller is hidden by user_profiles' RLS. Falsifiability: index the
-  // profile lookup by position instead of by id and the wrong name lands on
-  // the wrong row; throw on a missing profile and this rejects. NOT caught:
+  // caller is hidden by user_profiles' RLS. The hidden row is the NEWER one,
+  // so it sorts first while the lone profile that comes back belongs to the
+  // second row. Falsifiability, verified by mutation: match profiles to rows
+  // by position instead of by id and Cal's name lands on the hidden row, so
+  // this fails; throw on a missing profile and this rejects. NOT caught:
   // what label the UI shows -- the card's "Someone" fallback.
   it("keeps a link whose partner profile is hidden", async () => {
     supabase = createSupabaseMock({
       anniversary_links: [
         {
           data: [
-            row({ id: "link-hidden", created_at: "2026-10-01T00:00:00Z" }),
+            row({ id: "link-hidden", created_at: "2026-10-05T00:00:00Z" }),
             row({
               id: "link-visible",
               user_b: "user_c_789",
               initiated_by: "user_c_789",
-              created_at: "2026-10-05T00:00:00Z",
+              created_at: "2026-10-01T00:00:00Z",
             }),
           ],
           error: null,
@@ -613,7 +615,7 @@ describe("getMyAnniversaryLinks", () => {
     const result = await getMyAnniversaryLinks();
 
     if (!("data" in result)) throw new Error("expected data");
-    const [visible, hidden] = result.data.incoming;
+    const [hidden, visible] = result.data.incoming;
     expect(visible).toMatchObject({ id: "link-visible", partnerDisplayName: "Cal" });
     expect(hidden).toMatchObject({
       id: "link-hidden",

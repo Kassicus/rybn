@@ -19,11 +19,17 @@ import { getUserId } from "@/lib/auth/require-auth";
  * request_anniversary_link and confirm_anniversary_link raise with errcode
  * 22023 and a message already written for an end user ("you cannot share an
  * anniversary with yourself", "that person is not in any of your groups",
- * "that is not a usable date", "you already share an anniversary with that
- * person", "no anniversary request for you to confirm", "one of you already
- * shares an anniversary with somebody else"). Those are passed straight
- * through, the same way claims.ts treats claim_wishlist_item's 22023s;
- * anything else is swapped for a generic message and logged.
+ * "that is not a usable date", "you already share an anniversary with
+ * someone; unlink first", "you already have a request waiting; cancel it
+ * first", "you already share an anniversary with that person", "no
+ * anniversary request for you to confirm", "one of you already shares an
+ * anniversary with somebody else"). Those are passed straight through, the
+ * same way claims.ts treats claim_wishlist_item's 22023s; anything else is
+ * swapped for a generic message and logged. That includes the two races
+ * that reach here as something other than 22023: a same-instant double
+ * request hitting anniversary_links_one_outgoing (unique_violation,
+ * 20261014000001), and two confirms sharing a partner deadlocking on the
+ * pending-link cleanup (40P01). A retry gets the precise message.
  *
  * decline_anniversary_link and unlink_anniversary never raise for "nothing to
  * do" -- a non-participant, a missing row, or the wrong status all return

@@ -1,7 +1,9 @@
 -- Pins the rules 20261014000000_anniversary_requests_never_stranded.sql adds
--- (design: _planning/2026-10-14-anniversary-requests-design.md).
+-- (design: _planning/2026-10-14-anniversary-requests-design.md), and the
+-- one-outgoing-request index 20261014000001_anniversary_one_outgoing_index.sql
+-- adds beneath them.
 --
---   Assertions 1-5 (live): confirm_anniversary_link deletes every OTHER
+--   Assertions 1-5, 4b (live): confirm_anniversary_link deletes every OTHER
 --     pending link involving either partner, and nothing else.
 --   Assertion 6 (live): request_anniversary_link still ACCEPTS a request to
 --     someone already linked. Refusing would be an oracle for that person's
@@ -12,13 +14,22 @@
 --   Assertions 8-10 (anchored source): the two new caller-status refusals and
 --     the cleanup's WHERE clause, uncommented and wired to their messages.
 --   Assertion 11 (2 checks): block-comment floor for both functions.
+--   Assertion 12: the index anniversary_links_one_outgoing exists exactly as
+--     defined -- unique, on initiated_by, pending rows only.
+--   Assertion 13 (live, 2 checks): with that index in place, a recipient can
+--     still answer a request with their own (the upsert flips the one row).
 --
 -- The refusals RAISE, and this harness rejects `exception when` in a test
 -- file (scripts/test-rls.sh:274-280), so an uncaught raise fails the whole
--- file. That is why they are anchored source checks, not live calls.
+-- file. That is why they are anchored source checks, not live calls. For the
+-- same reason the index itself is pinned by its definition (assertion 12):
+-- the insert it refuses would raise.
 --
--- Fixtures are canonicalised with least()/greatest() so no assertion depends
--- on how the fixture ids happen to sort.
+-- Fixtures are stored with least()/greatest(), so every insert is canonical
+-- whatever its ids. Assertions 2-4b DO depend on how the ids sort, on
+-- purpose: the sort decides which side of each row a partner lands on, and
+-- each narrowed cleanup is caught only if some row puts a partner on the
+-- side it stops checking. The comment above them says which row does that.
 
 create temp table _harness_result (token text);
 
@@ -31,20 +42,23 @@ declare
   v_id2        uuid;
   v_pos        int;
 
-  -- assertions 1-5: cleanup on confirm. cl_b asked cl_a (the link confirmed
-  -- below); cl_a also has an outgoing request to cl_x; cl_y asked cl_b;
-  -- cl_z asked cl_a; cl_u1 asked cl_u2 (unrelated to the couple).
+  -- assertions 1-5, 4b: cleanup on confirm. cl_b asked cl_a (the link
+  -- confirmed below); cl_a also has an outgoing request to cl_x; cl_y asked
+  -- cl_b; cl_z asked cl_a; cl_w asked cl_a; cl_u1 asked cl_u2 (unrelated to
+  -- the couple).
   v_cl_a   text := 'user_annreq_cl_a';
   v_cl_b   text := 'user_annreq_cl_b';
   v_cl_x   text := 'user_annreq_cl_x';
   v_cl_y   text := 'user_annreq_cl_0y';  -- sorts BEFORE cl_b: puts cl_b on the user_b side
   v_cl_z   text := 'user_annreq_cl_z';
+  v_cl_w   text := 'user_annreq_cl_0w';  -- sorts BEFORE cl_a: puts cl_a on the user_b side
   v_cl_u1  text := 'user_annreq_cl_u1';
   v_cl_u2  text := 'user_annreq_cl_u2';
   v_link_main      uuid;
   v_link_a_out     uuid;
   v_link_b_in      uuid;
   v_link_a_in      uuid;
+  v_link_a_in_b    uuid;
   v_link_unrelated uuid;
 
   -- assertion 6: no oracle. no_linked is confirmed with no_partner; no_asker
@@ -59,6 +73,12 @@ declare
   v_rr_a     text := 'user_annreq_rr_a';
   v_rr_b     text := 'user_annreq_rr_b';
   v_rr_group uuid;
+
+  -- assertion 13: answering a request with your own. fp_b asked fp_a.
+  v_fp_a     text := 'user_annreq_fp_a';
+  v_fp_b     text := 'user_annreq_fp_b';
+  v_fp_group uuid;
+  v_fp_link  uuid;
 begin
   select current_user into v_orig_role;
 
@@ -71,13 +91,16 @@ begin
     (v_cl_x,       'annreqclx',       'AnnReq CL X'),
     (v_cl_y,       'annreqcl0y',      'AnnReq CL 0Y'),
     (v_cl_z,       'annreqclz',       'AnnReq CL Z'),
+    (v_cl_w,       'annreqcl0w',      'AnnReq CL 0W'),
     (v_cl_u1,      'annreqclu1',      'AnnReq CL U1'),
     (v_cl_u2,      'annreqclu2',      'AnnReq CL U2'),
     (v_no_linked,  'annreqnolinked',  'AnnReq NO Linked'),
     (v_no_partner, 'annreqnopartner', 'AnnReq NO Partner'),
     (v_no_asker,   'annreqnoasker',   'AnnReq NO Asker'),
     (v_rr_a,       'annreqrra',       'AnnReq RR A'),
-    (v_rr_b,       'annreqrrb',       'AnnReq RR B');
+    (v_rr_b,       'annreqrrb',       'AnnReq RR B'),
+    (v_fp_a,       'annreqfpa',       'AnnReq FP A'),
+    (v_fp_b,       'annreqfpb',       'AnnReq FP B');
 
   insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date)
     values (least(v_cl_a, v_cl_b), greatest(v_cl_a, v_cl_b), 'pending', v_cl_b, '2014-04-04')
@@ -94,6 +117,10 @@ begin
   insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date)
     values (least(v_cl_a, v_cl_z), greatest(v_cl_a, v_cl_z), 'pending', v_cl_z, '2014-07-07')
     returning id into v_link_a_in;
+
+  insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date)
+    values (least(v_cl_a, v_cl_w), greatest(v_cl_a, v_cl_w), 'pending', v_cl_w, '2014-07-17')
+    returning id into v_link_a_in_b;
 
   insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date)
     values (least(v_cl_u1, v_cl_u2), greatest(v_cl_u1, v_cl_u2), 'pending', v_cl_u1, '2014-08-08')
@@ -121,6 +148,17 @@ begin
   insert into group_members (group_id, user_id, role)
     values (v_rr_group, v_rr_b, 'member')
     on conflict do nothing;
+
+  insert into groups (name, type, invite_code, created_by)
+    values ('AnnReq FlipRequest Group', 'family', 'ANNREQFP', v_fp_a)
+    returning id into v_fp_group;
+  insert into group_members (group_id, user_id, role)
+    values (v_fp_group, v_fp_b, 'member')
+    on conflict do nothing;
+
+  insert into anniversary_links (user_a, user_b, status, initiated_by, agreed_date)
+    values (least(v_fp_a, v_fp_b), greatest(v_fp_a, v_fp_b), 'pending', v_fp_b, '2019-09-09')
+    returning id into v_fp_link;
 
   ---------------------------------------------------------------------------
   -- cl_a, the recipient, confirms cl_b's request.
@@ -151,15 +189,18 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertions 2-4: each other pending row of either partner is gone.
+  -- Assertions 2-4, 4b: each other pending row of either partner is gone.
   --
-  -- FALSIFIABLE: delete the cleanup statement and all three fail. Narrow it
+  -- FALSIFIABLE: delete the cleanup statement and all four fail. Narrow it
   -- to `user_a in (...)` only, or `user_b in (...)` only, and at least one
   -- fails: cl_a is the user_a side of the cl_x row, and cl_b is the
   -- user_b side of the cl_0y row ('0y' sorts before 'b'). Narrow it to
-  -- the caller only (cl_a) and assertion 3 fails. NOT caught: a cleanup
-  -- that also deleted CONFIRMED links of other people -- assertion 5 covers
-  -- unrelated PENDING rows only.
+  -- the caller only (cl_a) and assertion 3 fails. Narrow it to each
+  -- partner's own side only (`user_a = v_link.user_a or user_b =
+  -- v_link.user_b`) and assertion 4b fails: cl_a is the user_b side of the
+  -- cl_0w row ('0w' sorts before 'a'). NOT caught: a cleanup that also
+  -- deleted CONFIRMED links of other people -- assertion 5 covers unrelated
+  -- PENDING rows only.
   ---------------------------------------------------------------------------
   select count(*) into v_count from anniversary_links where id = v_link_a_out;
   if v_count <> 0 then
@@ -182,6 +223,14 @@ begin
     raise exception
       'RPC FAIL: a second incoming request % to cl_a still exists after cl_a confirmed -- its sender would wait on a request nobody can complete',
       v_link_a_in;
+  end if;
+  v_checks := v_checks + 1;
+
+  select count(*) into v_count from anniversary_links where id = v_link_a_in_b;
+  if v_count <> 0 then
+    raise exception
+      'RPC FAIL: the request % to cl_a, with cl_a on the user_b side, still exists after cl_a confirmed -- the cleanup only checks each partner''s own canonical side',
+      v_link_a_in_b;
   end if;
   v_checks := v_checks + 1;
 
@@ -374,8 +423,70 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 13 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 13', v_checks;
+  ---------------------------------------------------------------------------
+  -- Assertion 12: the one-outgoing-request index, exactly as defined.
+  -- The insert it refuses would RAISE, so it is pinned by its definition.
+  --
+  -- FALSIFIABLE: drop the index, drop UNIQUE, index a different column, or
+  -- drop or change the `status = 'pending'` predicate (without it the index
+  -- would count confirmed links too), and the count drops to 0. NOT caught:
+  -- a second, broader unique index alongside this one -- assertion 13
+  -- catches one that breaks answering a request, not every possible shape.
+  ---------------------------------------------------------------------------
+  select count(*) into v_count
+    from pg_indexes
+   where schemaname = 'public'
+     and tablename = 'anniversary_links'
+     and indexname = 'anniversary_links_one_outgoing'
+     and indexdef = 'CREATE UNIQUE INDEX anniversary_links_one_outgoing ON public.anniversary_links USING btree (initiated_by) WHERE (status = ''pending''::text)';
+  if v_count <> 1 then
+    raise exception
+      'GUARD FAIL: anniversary_links_one_outgoing is missing or no longer UNIQUE (initiated_by) WHERE status = ''pending'' (matched % index(es), expected 1)',
+      v_count;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 13 (2 checks): fp_b asked fp_a; fp_a answers by asking fp_b
+  -- with a date of their own. The existing upsert flips the ONE row's
+  -- initiated_by, so the index (one pending row per sender) must allow it.
+  --
+  -- FALSIFIABLE: define the index on (user_a) or (user_b) instead of
+  -- (initiated_by), or make the I-out refusal ignore the same-pair
+  -- exclusion, and the call raises, failing this whole file. Break the
+  -- upsert's flip and check (b) fails. NOT caught: whether a counter-
+  -- proposal is the right product behaviour -- a ruling, not a test.
+  ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_fp_a || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  select public.request_anniversary_link(v_fp_b, '2020-10-10') into v_id;
+
+  perform set_config('role', v_orig_role, true);
+
+  if v_id is distinct from v_fp_link then
+    raise exception
+      'RPC FAIL: answering a request with your own returned link % instead of refreshing the existing row %',
+      v_id, v_fp_link;
+  end if;
+  v_checks := v_checks + 1;
+
+  select count(*) into v_count
+    from anniversary_links
+   where id = v_fp_link
+     and status = 'pending'
+     and initiated_by = v_fp_a
+     and agreed_date = '2020-10-10';
+  if v_count <> 1 then
+    raise exception
+      'RPC FAIL: the answered request % resolves to % row(s) now initiated by fp_a with date 2020-10-10, expected exactly 1',
+      v_fp_link, v_count;
+  end if;
+  v_checks := v_checks + 1;
+
+  if v_checks < 17 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 17', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_21_anniversary_request_rules');
