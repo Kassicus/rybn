@@ -47,7 +47,18 @@ import { AnniversaryRequestCard } from "@/components/notifications/AnniversaryRe
  * card /notifications renders, so the consent copy lives in one place.
  * An incoming request no longer replaces the picker (design decision 4).
  */
-export function AnniversaryPartner() {
+interface AnniversaryPartnerProps {
+  /**
+   * Runs after any link action here succeeds, including Confirm or Decline
+   * on a request card below. The profile edit page uses it to re-read the
+   * anniversary its form is holding: confirming writes the agreed date into
+   * the caller's own profile_info row, and a form still holding the date it
+   * first loaded would write the old one back on Save.
+   */
+  onLinkChanged?: () => void | Promise<void>;
+}
+
+export function AnniversaryPartner({ onLinkChanged }: AnniversaryPartnerProps = {}) {
   const router = useRouter();
 
   const [links, setLinks] = useState<MyAnniversaryLinks | null>(null);
@@ -97,12 +108,20 @@ export function AnniversaryPartner() {
     init();
   }, []);
 
-  // Every mutation re-fetches this component's own state AND asks the
-  // server components on the route to re-render, since the bell's badge
-  // (dashboard layout) and NotificationsList are computed from
-  // getMyAnniversaryLinks() on the server and would otherwise go stale.
-  const refreshAfterAction = async () => {
+  // Re-fetches this component's own state and tells the page, whose form may
+  // hold a value the action just changed (see onLinkChanged).
+  const reloadAndNotify = async () => {
     await load();
+    await onLinkChanged?.();
+  };
+
+  // Every mutation also asks the server components on the route to
+  // re-render, since the bell's badge (dashboard layout) and
+  // NotificationsList are computed from getMyAnniversaryLinks() on the
+  // server and would otherwise go stale. A request card below does its own
+  // router.refresh(), so it gets reloadAndNotify alone.
+  const refreshAfterAction = async () => {
+    await reloadAndNotify();
     router.refresh();
   };
 
@@ -355,7 +374,7 @@ export function AnniversaryPartner() {
               request={request}
               myConfirmedLink={confirmed}
               onProfilePage
-              onChanged={load}
+              onChanged={reloadAndNotify}
             />
           ))}
         </div>
