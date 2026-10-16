@@ -115,9 +115,18 @@ export default async function Home() {
 
       <footer className="border-t border-light-border">
         <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-4 px-6 py-8">
-          <p className="text-sm text-light-text-tertiary">
-            Rybn - gift giving, beautifully wrapped
-          </p>
+          <div className="grid gap-1 text-sm text-light-text-tertiary">
+            <p>Rybn - gift giving, beautifully wrapped</p>
+            <p>
+              &copy; {new Date().getFullYear()} Karnyx Labs LLC · Developed by{" "}
+              <a
+                href="https://karnyxlabs.com"
+                className="whitespace-nowrap text-light-text-secondary hover:text-primary"
+              >
+                Karnyx Labs
+              </a>
+            </p>
+          </div>
           <nav className="flex gap-6 text-sm">
             <Link href="/privacy" className="text-light-text-secondary hover:text-primary">
               Privacy
