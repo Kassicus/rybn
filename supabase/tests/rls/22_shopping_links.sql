@@ -368,7 +368,8 @@ begin
 
   ---------------------------------------------------------------------------
   -- Assertion 14: the giver claims item one, then moves the claim to the
-  -- group date -- admitted by the gate's group arm.
+  -- group date -- admitted by the gate's group arm. And the move touches
+  -- that claim alone: giver2's claim on item two still has no occasion.
   ---------------------------------------------------------------------------
   perform set_config('request.jwt.claims',
     '{"sub":"' || v_giver || '","role":"authenticated"}', true);
@@ -388,6 +389,19 @@ begin
     raise exception
       'RLS FAIL: after set_claim_occasion(%, %) the giver''s active claim on item % with that occasion resolves to % row(s), expected exactly 1 -- the group arm did not admit, or the update did not land',
       v_item1, v_xmas, v_item1, v_count;
+  end if;
+
+  -- Still the connecting role. Without the update's `where id = v_claim`
+  -- the move would reach every claim, this one included.
+  select count(*) into v_count2
+    from wishlist_claims
+   where item_id = v_item2 and claimed_by = v_giver2 and released_at is null
+     and occasion_id is null;
+
+  if v_count2 <> 1 then
+    raise exception
+      'RLS FAIL: after the giver''s set_claim_occasion(%, %), giver2''s active claim on item % with no occasion resolves to % row(s), expected exactly 1 -- someone else''s claim was moved',
+      v_item1, v_xmas, v_item2, v_count2;
   end if;
   v_checks := v_checks + 1;
 
@@ -492,14 +506,21 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 20: the lookup. Only the caller's own claim, not released, on
-  -- an item the caller can still see, and not lapsed; otherwise 22023 "you
-  -- no longer hold that item". The view line and the three lapse lines have
-  -- no live check (a refusal ends the file), so this is all that guards them.
+  -- Assertion 20: the lookup. The claim on this item, and the update of that
+  -- claim alone; only the caller's own claim, not released, on an item the
+  -- caller can still see, and not lapsed; otherwise 22023 "you no longer
+  -- hold that item". The first two patterns are the lines whose removal
+  -- would move the wrong claim, or every claim. The view line and the three
+  -- lapse lines have no live check (a refusal ends the file), so this is all
+  -- that guards them.
   ---------------------------------------------------------------------------
   select count(*) into v_guard_defs
     from pg_proc p
    where p.oid = 'public.set_claim_occasion(uuid, uuid)'::regprocedure
+     and pg_get_functiondef(p.oid) ~
+       '(?n)^\s*where c\.item_id = p_item_id$'
+     and pg_get_functiondef(p.oid) ~
+       '(?n)^\s*where id = v_claim;$'
      and pg_get_functiondef(p.oid) ~
        '(?n)^\s*and c\.claimed_by = v_caller$'
      and pg_get_functiondef(p.oid) ~
@@ -517,7 +538,7 @@ begin
 
   if v_guard_defs <> 1 then
     raise exception
-      'GUARD FAIL: set_claim_occasion''s lookup no longer pins the claim to the caller, unreleased, on an item the caller can see and not lapsed, with its 22023 refusal intact, not line-commented (matched % definition(s), expected 1)',
+      'GUARD FAIL: set_claim_occasion''s lookup no longer pins the claim to this item and the caller, unreleased, on an item the caller can see and not lapsed, updates that claim alone, and keeps its 22023 refusal, not line-commented (matched % definition(s), expected 1)',
       v_guard_defs;
   end if;
   v_checks := v_checks + 1;
