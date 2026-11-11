@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ACTION_FALLBACK, NOT_SIGNED_IN, actionFailure } from "./action-response";
+import { ACTION_FALLBACK, NOT_SIGNED_IN, actionFailure, databaseFailure } from "./action-response";
 
 // Typed as the unions the real server actions return, so these also prove the signature accepts them.
 const ok = (v: boolean): { ok: boolean } | { error: string } => ({ ok: v });
@@ -47,4 +47,11 @@ describe("actionFailure", () => {
   it("treats a null error as success", () => {
     expect(actionFailure({ data: {}, error: null })).toBeNull();
   });
+});
+
+describe("databaseFailure", () => {
+  it("answers 401 when signed out", () => expect(databaseFailure({ error: NOT_SIGNED_IN }, "x")?.status).toBe(401));
+  it("throws, naming the action and the database's words, for any other error", () =>
+    expect(() => databaseFailure({ error: "relation does not exist" }, "getMyWishlist")).toThrow(/getMyWishlist.*relation does not exist/));
+  it("is null on success", () => expect(databaseFailure({ data: [] }, "x")).toBeNull());
 });
