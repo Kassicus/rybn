@@ -1,5 +1,5 @@
 import { isExternalImageUrl, imageValueProblem } from "@/lib/storage/image-value";
-import type { GiftStore } from "./gift-store";
+import type { GiftPatch, GiftStore } from "./gift-store";
 import { giftSeason, heldItemIds, recipientNames, type ClaimRow, type ClaimedItem, type RecipientRow, type StoredGift } from "./gifts";
 import { mobilePerson, type PersonRow } from "./occasions";
 
@@ -19,7 +19,13 @@ export async function reconcileGifts(store: GiftStore, today: string): Promise<v
     const claim = c as HeldClaim;
     const g = gifts.find((x) => x.wishlist_item_id === claim.itemId);
     if (!g) {
-      gifts.push(await fileClaim(store, claim, today));
+      try {
+        gifts.push(await fileClaim(store, claim, today));
+      } catch (e) {
+        if (!isClaimDataError(e)) throw e;
+        // One claim's own data (a value the table refuses): skip it so the rest still show. Id and code only.
+        console.error(`reconcileGifts: skipped item ${claim.itemId}: ${e.code}`);
+      }
       continue;
     }
     const patch: { status?: StoredGift["status"]; occasion_id?: string | null; season_year?: number } = {};
@@ -32,57 +38,91 @@ export async function reconcileGifts(store: GiftStore, today: string): Promise<v
   }
 }
 
+const newestFirst = (a: StoredGift, b: StoredGift) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0);
+const cut = (value: string | null, max: number) => (value === null ? null : Array.from(value).slice(0, max).join(""));
+
+/** tracked_gifts' own checks: name 1–200 and description ≤ 1000 characters (code points), price null or ≥ 0. */
+const GIFT_NAME_MAX = 200;
+const GIFT_DESCRIPTION_MAX = 1000;
+const fitPrice = (price: number | null) => (price !== null && Number.isFinite(price) && price >= 0 ? price : null);
+
+/** Carried by the error recipientFor throws when both names are taken, so reconcileGifts can tell it from a fault. */
+export const NAMES_TAKEN = "rybn:names-taken";
+
+/** Whether a failure is down to one claim's own data: SQLSTATE class 22 or 23, or both recipient names taken. */
+export function isClaimDataError(e: unknown): e is Error & { code: string } {
+  const code = (e as { code?: unknown } | null)?.code;
+  return typeof code === "string" && (code === NAMES_TAKEN || /^2[23]/.test(code));
+}
+
+/** D15: the hand-made gift a claim may take over, or undefined. The newest that qualifies. */
+function handMadeCopy(gifts: StoredGift[], recipients: RecipientRow[], claim: HeldClaim): StoredGift | undefined {
+  const ownerId = claim.item.ownerId;
+  const ownerName = claim.owner ? recipientNames(mobilePerson(claim.owner).name).plain : null;
+  const itemLink = claim.item.url ?? "";
+  return gifts
+    .filter((g) => {
+      if (g.wishlist_item_id !== null || g.from_list || g.is_archived || g.status === "given") return false;
+      if (g.name !== claim.item.title) return false;
+      const recipient = recipients.find((r) => r.id === g.recipient_id);
+      const personId = recipient?.person_id ?? null;
+      if (personId !== null && personId !== ownerId) return false;
+      if (itemLink !== "") return g.product_link === itemLink;
+      if ((g.product_link ?? "") !== "") return false;
+      return personId === ownerId || (recipient !== undefined && personId === null && ownerName !== null && recipient.name === ownerName);
+    })
+    .sort(newestFirst)[0];
+}
+
 export async function fileClaim(store: GiftStore, claim: HeldClaim, today: string): Promise<StoredGift> {
-  const gifts = await store.gifts();
+  let gifts = await store.gifts();
   const status = claim.item.purchased ? "ordered" : "planned";
   const season = giftSeason(claim.occasionDate, today);
   const byItem = (rows: StoredGift[]) => rows.find((g) => g.wishlist_item_id === claim.itemId);
 
   const existing = byItem(gifts);
   if (existing) {
-    const patch: { status?: StoredGift["status"]; occasion_id?: string | null; season_year?: number } = {};
-    if (existing.occasion_id !== claim.occasionId) {
-      patch.occasion_id = claim.occasionId;
-      patch.season_year = season;
-    }
+    const patch: GiftPatch = {};
+    if (existing.occasion_id !== claim.occasionId) patch.occasion_id = claim.occasionId;
+    if (existing.occasion_id !== claim.occasionId || existing.season_year !== season) patch.season_year = season;
     if (existing.status === "planned" && claim.item.purchased) patch.status = "ordered";
     if (Object.keys(patch).length === 0) return existing;
     const updated = await store.updateGift(existing.id, patch);
-    return updated !== null && updated.ok ? updated.row : (byItem(await store.gifts()) ?? existing);
+    if (updated !== null && updated.ok) return updated.row;
+    // Gone, or filed twice by a request alongside: look again, and file afresh if it is not there.
+    gifts = await store.gifts();
+    const again = byItem(gifts);
+    if (again) return again;
   }
 
-  const copy = gifts
-    .filter(
-      (g) =>
-        g.wishlist_item_id === null &&
-        !g.from_list &&
-        g.name === claim.item.title &&
-        (g.product_link ?? "") === (claim.item.url ?? ""),
-    )
-    .sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0))[0];
-
-  let r;
+  const copy = handMadeCopy(gifts, await store.recipients(), claim);
   if (copy) {
-    r = await store.updateGift(copy.id, {
+    const linked = await store.updateGift(copy.id, {
       wishlist_item_id: claim.itemId,
       from_list: true,
       occasion_id: claim.occasionId,
-      season_year: season,
+      season_year: giftSeason(claim.occasionDate, copy.created_at),
       status: copy.status === "planned" && claim.item.purchased ? "ordered" : copy.status,
     });
-  } else {
+    if (linked !== null && linked.ok) return linked.row;
+    const again = byItem(await store.gifts());
+    if (again) return again;
+    // The copy went away under us: file afresh.
+  }
+
+  const image = claim.item.imageValue;
+  for (let attempt = 0; attempt < 3; attempt++) {
     const recipient = await recipientFor(
       store,
       claim.owner ?? { id: claim.item.ownerId, username: null, display_name: null, avatar_url: null },
     );
-    const image = claim.item.imageValue;
-    r = await store.insertGift({
+    const r = await store.insertGift({
       recipient_id: recipient.id,
-      name: claim.item.title,
-      description: claim.item.description,
+      name: cut(claim.item.title, GIFT_NAME_MAX) ?? "",
+      description: cut(claim.item.description, GIFT_DESCRIPTION_MAX),
       photo_url: isExternalImageUrl(image) && imageValueProblem(image) === null ? image : null,
       product_link: claim.item.url,
-      price: claim.item.price,
+      price: fitPrice(claim.item.price),
       status,
       wishlist_item_id: claim.itemId,
       from_list: true,
@@ -90,13 +130,12 @@ export async function fileClaim(store: GiftStore, claim: HeldClaim, today: strin
       season_year: season,
       notes: null,
     });
+    if (r.ok) return r.row;
+    // A clash on the item: another request filed it first.
+    const filed = byItem(await store.gifts());
+    if (filed) return filed;
   }
-
-  if (r !== null && r.ok) return r.row;
-  // A clash on the item: another request filed it first. (null: the copy went away under us; look again.)
-  const filed = byItem(await store.gifts());
-  if (!filed) throw new Error(`fileClaim: no gift for item ${claim.itemId} after filing it`);
-  return filed;
+  throw new Error(`fileClaim: no gift for item ${claim.itemId} after filing it`);
 }
 
 export async function recipientFor(store: GiftStore, person: PersonRow): Promise<RecipientRow> {
@@ -116,5 +155,5 @@ export async function recipientFor(store: GiftStore, person: PersonRow): Promise
     // clash "name": a request alongside made it (and the name index reported first), or a typed recipient has the name.
     if (found) return found;
   }
-  throw new Error(`recipientFor: both names are taken for ${person.id}`);
+  throw Object.assign(new Error(`recipientFor: both names are taken for ${person.id}`), { code: NAMES_TAKEN });
 }

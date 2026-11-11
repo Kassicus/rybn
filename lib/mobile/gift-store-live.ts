@@ -23,7 +23,7 @@ function clashOf(error: DbError, indexes: Record<string, string>): string | null
 }
 
 function failure(method: string, error: DbError): Error {
-  return new Error(`${method} failed: ${error.message}`);
+  return Object.assign(new Error(`${method} failed: ${error.message}`), { code: error.code });
 }
 
 const toGift = (r: StoredGift): StoredGift => ({
@@ -157,7 +157,7 @@ export async function createGiftStore(userId: string): Promise<GiftStore> {
       const photo = storedPhoto("insertGift", row.photo_url);
       const { data, error } = await supabase
         .from("tracked_gifts")
-        .insert({ user_id: userId, ...row, photo_url: photo })
+        .insert({ ...row, photo_url: photo, user_id: userId })
         .select(GIFT_COLUMNS)
         .single();
       if (error) {

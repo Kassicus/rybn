@@ -16,7 +16,7 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
 export function memoryGiftStore(
   userId: string,
-  seed: { claims?: ClaimRow[]; gifts?: OwnedGift[]; recipients?: OwnedRecipient[]; failInsertGift?: Error } = {},
+  seed: { claims?: ClaimRow[]; gifts?: OwnedGift[]; recipients?: OwnedRecipient[]; failInsertGift?: Error | ((row: NewGift) => Error | undefined); personClashFirst?: boolean } = {},
 ): MemoryGiftStore {
   const claims: ClaimRow[] = [...(seed.claims ?? [])];
   const gifts: OwnedGift[] = (seed.gifts ?? []).map((g) => ({ ...g }));
@@ -52,10 +52,12 @@ export function memoryGiftStore(
     },
     async insertRecipient(row) {
       await tick();
-      if (mine(recipients).some((r) => r.name === row.name)) return { ok: false, clash: "name" };
-      if (row.person_id !== null && mine(recipients).some((r) => r.person_id === row.person_id)) {
-        return { ok: false, clash: "person" };
-      }
+      const nameClash = mine(recipients).some((r) => r.name === row.name);
+      const personClash = row.person_id !== null && mine(recipients).some((r) => r.person_id === row.person_id);
+      // The database most likely reports the name index first; personClashFirst makes it report the other.
+      if (seed.personClashFirst && personClash) return { ok: false, clash: "person" };
+      if (nameClash) return { ok: false, clash: "name" };
+      if (personClash) return { ok: false, clash: "person" };
       const made: OwnedRecipient = { id: crypto.randomUUID(), user_id: userId, name: row.name, person_id: row.person_id };
       recipients.push(made);
       writes.push(`insertRecipient:${row.name}`);
@@ -63,7 +65,8 @@ export function memoryGiftStore(
     },
     async insertGift(row: NewGift) {
       await tick();
-      if (seed.failInsertGift) throw seed.failInsertGift;
+      const failure = typeof seed.failInsertGift === "function" ? seed.failInsertGift(row) : seed.failInsertGift;
+      if (failure) throw failure;
       if (row.wishlist_item_id !== null && mine(gifts).some((g) => g.wishlist_item_id === row.wishlist_item_id)) {
         return { ok: false, clash: "item" };
       }

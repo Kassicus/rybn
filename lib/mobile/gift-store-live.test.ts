@@ -97,6 +97,7 @@ describe("createGiftStore", () => {
     const store = await createGiftStore(ME);
     scripted = [{ data: [], error: null }];
     await store.gifts();
+    expect(callsOf("from")).toEqual([["tracked_gifts"]]);
     expect(callsOf("select")).toEqual([[GIFT_COLUMNS]]);
     expect(callsOf("order")).toEqual([["created_at", { ascending: true }]]);
     expect(callsOf("eq")).toEqual([["user_id", ME]]);
@@ -105,6 +106,7 @@ describe("createGiftStore", () => {
     scripted = [{ data: { id: "g1" }, error: null }];
     await store.updateGift("g1", { status: "ordered" });
     expect(callsOf("from")).toEqual([["tracked_gifts"]]);
+    expect(callsOf("maybeSingle")).toHaveLength(1); expect(callsOf("single")).toHaveLength(0);
     expect(callsOf("update")).toEqual([[{ status: "ordered" }]]);
     expect(callsOf("eq")).toEqual([["id", "g1"], ["user_id", ME]]);
     expect(callsOf("select")).toEqual([[GIFT_COLUMNS]]);
@@ -112,12 +114,15 @@ describe("createGiftStore", () => {
     calls.length = 0;
     scripted = [{ data: null, error: null }];
     await store.deleteGift("g1");
+    expect(callsOf("from")).toEqual([["tracked_gifts"]]);
     expect(callsOf("delete")).toEqual([[]]);
     expect(callsOf("eq")).toEqual([["id", "g1"], ["user_id", ME]]);
 
     calls.length = 0;
     scripted = [{ data: { id: "g2" }, error: null }];
     await store.insertGift(NEW_GIFT);
+    expect(callsOf("from")).toEqual([["tracked_gifts"]]);
+    expect(callsOf("single")).toHaveLength(1); expect(callsOf("maybeSingle")).toHaveLength(0);
     expect(callsOf("insert")).toEqual([[{ user_id: ME, ...NEW_GIFT }]]);
     expect(callsOf("select")).toEqual([[GIFT_COLUMNS]]);
 
@@ -131,6 +136,8 @@ describe("createGiftStore", () => {
     calls.length = 0;
     scripted = [{ data: { id: "r1", name: "Dad", person_id: "p" }, error: null }];
     await store.insertRecipient({ name: "Dad", person_id: "p" });
+    expect(callsOf("from")).toEqual([["gift_recipients"]]);
+    expect(callsOf("single")).toHaveLength(1);
     expect(callsOf("insert")).toEqual([[{ user_id: ME, name: "Dad", person_id: "p" }]]);
     expect(callsOf("select")).toEqual([["id, name, person_id"]]);
   });
@@ -156,13 +163,13 @@ describe("createGiftStore", () => {
   it("throws on any other database error, naming the method", async () => {
     const store = await createGiftStore(ME);
     scripted = [{ data: null, error: { code: "XX000", message: "boom" } }];
-    await expect(store.insertGift(NEW_GIFT)).rejects.toThrow(/insertGift failed: boom/);
+    await expect(store.insertGift(NEW_GIFT)).rejects.toMatchObject({ message: "insertGift failed: boom", code: "XX000" });
     scripted = [{ data: null, error: { code: "23505", message: 'unique constraint "something_else"' } }];
-    await expect(store.insertGift(NEW_GIFT)).rejects.toThrow(/insertGift failed:/);
+    await expect(store.insertGift(NEW_GIFT)).rejects.toMatchObject({ message: 'insertGift failed: unique constraint "something_else"', code: "23505" });
     scripted = [{ data: null, error: { code: "XX000", message: "boom" } }];
-    await expect(store.gifts()).rejects.toThrow(/gifts failed: boom/);
+    await expect(store.gifts()).rejects.toMatchObject({ message: "gifts failed: boom", code: "XX000" });
     scripted = [{ data: null, error: { code: "XX000", message: "boom" } }];
-    await expect(store.deleteGift("g1")).rejects.toThrow(/deleteGift failed: boom/);
+    await expect(store.deleteGift("g1")).rejects.toMatchObject({ message: "deleteGift failed: boom", code: "XX000" });
   });
 
   it("refuses a picture path in someone else's folder before writing", async () => {
@@ -171,6 +178,12 @@ describe("createGiftStore", () => {
     await expect(store.updateGift("g1", { photo_url: "user_other/1-a.jpg" })).rejects.toThrow();
     expect(callsOf("insert")).toEqual([]);
     expect(callsOf("update")).toEqual([]);
+  });
+
+  it("never lets a field of the row override the caller's id", async () => {
+    scripted = [{ data: { id: "g2" }, error: null }];
+    await (await createGiftStore(ME)).insertGift({ ...NEW_GIFT, user_id: "user_other" } as typeof NEW_GIFT);
+    expect(callsOf("insert")[0][0]).toMatchObject({ user_id: ME });
   });
 
   it("writes a picture that is the caller's own or an outside address", async () => {
