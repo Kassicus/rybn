@@ -80,8 +80,8 @@ create index tracked_gifts_by_occasion
 -- can still see, as claiming requires: without that, someone who has left
 -- the group could move a dated claim to no occasion and hold the item for
 -- good. The new occasion passes the same "can you see this occasion" gate
--- claiming uses; the website checks that it involves the item's owner, as
--- it does when claiming.
+-- claiming uses. Whether the occasion involves the item's owner is checked
+-- by the mobile API (design §5.1), not here: the database does not enforce it.
 -- -----------------------------------------------------------------------------
 create or replace function public.set_claim_occasion(
   p_item_id uuid,

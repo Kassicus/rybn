@@ -28,7 +28,9 @@
 -- The lapse rule in set_claim_occasion's lookup (a claim whose occasion has
 -- passed is no longer the caller's to move) and its item-visibility conjunct
 -- have no live check. Both refuse by raising, and no fixture can reach them
--- without ending the file. Assertion 20 anchors every line of them.
+-- without ending the file. Assertion 20 anchors each line of them that
+-- carries a condition; the connective lines (`or not exists (`, the closing
+-- brackets, `for update of c;`) are not anchored (see 17's header).
 --
 -- The live paths below (14-16) go through the group arm, the celebrant arm
 -- and the null occasion. The partner arm has the anchored pattern and the
@@ -387,7 +389,7 @@ begin
 
   if v_count <> 1 then
     raise exception
-      'RLS FAIL: after set_claim_occasion(%, %) the giver''s active claim on item % with that occasion resolves to % row(s), expected exactly 1 -- the group arm did not admit, or the update did not land',
+      'RLS FAIL: after set_claim_occasion(%, %) the giver''s active claim on item % with that occasion resolves to % row(s), expected exactly 1 -- the update did not land (a refusal by the group arm would have raised 22023 before this line)',
       v_item1, v_xmas, v_item1, v_count;
   end if;
 
@@ -423,7 +425,7 @@ begin
 
   if v_count <> 1 then
     raise exception
-      'RLS FAIL: after set_claim_occasion(%, %) the giver''s active claim on item % with the celebrant''s birthday resolves to % row(s), expected exactly 1 -- the celebrant arm did not admit, or the update did not land',
+      'RLS FAIL: after set_claim_occasion(%, %) the giver''s active claim on item % with the celebrant''s birthday resolves to % row(s), expected exactly 1 -- the update did not land (a refusal by the celebrant arm would have raised 22023 before this line)',
       v_item1, v_bday, v_item1, v_count;
   end if;
   v_checks := v_checks + 1;
