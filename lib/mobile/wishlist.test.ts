@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { INVALID_IMAGE_ERROR } from "@/lib/storage/image-value";
 import { fixture, groupRows, rowFor } from "./test-fixtures";
 import {
@@ -32,8 +32,21 @@ describe("mobileItem", () => {
     expect(mobileItem(row, groups.groups).privacySummary).toBe("Only one group");
   });
   it("reads privacy_settings it cannot understand as private", () => {
-    for (const bad of [null, "x", {}, { visibleToGroupTypes: "family" }])
+    for (const bad of [null, "x", [], {}, { visibleToGroupTypes: "family" }])
       expect(mobileItem({ ...rowFor(one.item), privacy_settings: bad }, []).privacy).toEqual({ kind: "private" });
+  });
+});
+
+describe("mobileItem, a restrictToGroup that is neither null nor text", () => {
+  it("reads the whole value as private instead of falling through to the types", () => {
+    for (const bad of [5, true, {}, ["g"]]) {
+      const row = { ...rowFor(one.item), privacy_settings: { visibleToGroupTypes: ["family", "friends"], restrictToGroup: bad } };
+      expect(mobileItem(row, []).privacy).toEqual({ kind: "private" });
+    }
+  });
+  it("still reads an absent restrictToGroup as the types", () => {
+    const row = { ...rowFor(one.item), privacy_settings: { visibleToGroupTypes: ["family"] } };
+    expect(mobileItem(row, []).privacy).toEqual({ kind: "legacyTypes", types: ["family"] });
   });
 });
 
@@ -48,6 +61,13 @@ describe("utcSeconds", () => {
 
 describe("mobileGroups", () => {
   it("matches the groups fixture: named fields only, sorted by name", () => expect({ groups: mobileGroups(groupRows()) }).toEqual(groups));
+  it("sorts with the English locale, whatever the machine's", () => {
+    const spy = vi.spyOn(String.prototype, "localeCompare");
+    mobileGroups(groupRows());
+    expect(spy).toHaveBeenCalled();
+    expect(spy.mock.calls.every((c) => c[1] === "en")).toBe(true);
+    spy.mockRestore();
+  });
   it("drops a membership whose group it cannot see", () =>
     expect(mobileGroups([{ myRole: "member", joinedAt: "2026-01-02T00:00:00+00:00" }, ...groupRows()])).toHaveLength(2));
 });
@@ -60,6 +80,23 @@ describe("parseWishlistBody", () => {
   it("treats a zero price and an empty link as none", () => {
     const r = parseWishlistBody({ ...request, price: 0, url: "" });
     expect(r.ok && [r.body.price, r.body.url]).toEqual([null, null]);
+  });
+  it("trims the link before checking it", () => {
+    const r = parseWishlistBody({ ...request, url: "  https://example.com/x  " });
+    expect(r.ok && r.body.url).toBe("https://example.com/x");
+  });
+  it.each([
+    ["a name of exactly 200 characters", { title: "a".repeat(200) }, "title", "a".repeat(200)],
+    ["notes of exactly 1000 characters", { description: "a".repeat(1000) }, "description", "a".repeat(1000)],
+    ["a category of exactly 50 characters", { category: "a".repeat(50) }, "category", "a".repeat(50)],
+    ["a link of exactly 2048 characters", { url: "https://a.co/" + "a".repeat(2035) }, "url", "https://a.co/" + "a".repeat(2035)],
+    ["an http link", { url: "http://example.com/x" }, "url", "http://example.com/x"],
+  ])("accepts %s", (_, patch, key, stored) => {
+    const r = parseWishlistBody({ ...request, ...patch });
+    expect(r.ok && (r.body as unknown as Record<string, unknown>)[key]).toBe(stored);
+  });
+  it("ignores an unknown key and does not store it", () => {
+    expect(parseWishlistBody({ ...request, purchased: true })).toEqual({ ok: true, body: request });
   });
   it("accepts 100 emoji, which is 200 UTF-16 units", () => expect(parseWishlistBody({ ...request, title: "🎁".repeat(100) }).ok).toBe(true));
   it.each([

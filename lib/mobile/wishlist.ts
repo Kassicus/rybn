@@ -87,6 +87,10 @@ function readStoredPrivacy(value: unknown): StoredPrivacy {
     return { visibleToGroupTypes: [], restrictToGroup: null };
   }
   const { visibleToGroupTypes, restrictToGroup } = value as Record<string, unknown>;
+  // A restrictToGroup that is present but neither null nor text cannot be trusted: read it as private.
+  if (restrictToGroup !== undefined && restrictToGroup !== null && typeof restrictToGroup !== "string") {
+    return { visibleToGroupTypes: [], restrictToGroup: null };
+  }
   return {
     visibleToGroupTypes: Array.isArray(visibleToGroupTypes) ? (visibleToGroupTypes as GroupType[]) : [],
     restrictToGroup: typeof restrictToGroup === "string" ? restrictToGroup : null,
@@ -119,7 +123,7 @@ export function mobileGroups(rows: GroupRow[]): MobileGroup[] {
     if (typeof row.id !== "string" || row.id === "" || typeof row.name !== "string" || row.name === "") continue;
     groups.push({ id: row.id, name: row.name, type: row.type ?? "custom" });
   }
-  return groups.sort((a, b) => a.name.localeCompare(b.name));
+  return groups.sort((a, b) => a.name.localeCompare(b.name, "en"));
 }
 
 function isWebLink(value: string): boolean {
@@ -161,6 +165,7 @@ const bodySchema = z.object(
     category: z.string({ error: RULES.request }).max(50, RULES.categoryTooLong).nullish(),
     url: z
       .string({ error: RULES.linkNotWeb })
+      .trim()
       .max(2048, RULES.linkTooLong)
       .refine((v) => v === "" || isWebLink(v), RULES.linkNotWeb)
       .nullish(),

@@ -16,3 +16,15 @@ export function actionFailure(result: object): Response | null {
   if (error === NOT_SIGNED_IN) return mobileError("unauthorized");
   return mobileError("invalid", typeof error === "string" && error !== "" ? error : ACTION_FALLBACK);
 }
+
+/**
+ * For actions whose errors are database text (D7), which must never reach the app.
+ * Signed out: the 401 Response. Any other error: throws an Error naming `action` and the text,
+ * so mobileRoute logs it with the path and answers the standard 500. Success: null.
+ */
+export function databaseFailure(result: object, action: string): Response | null {
+  const error: unknown = "error" in result ? result.error : undefined;
+  if (error === undefined || error === null) return null;
+  if (error === NOT_SIGNED_IN) return mobileError("unauthorized");
+  throw new Error(`${action} failed: ${typeof error === "string" ? error : JSON.stringify(error)}`);
+}
