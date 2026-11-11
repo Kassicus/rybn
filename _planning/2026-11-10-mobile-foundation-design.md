@@ -538,3 +538,44 @@ confirmed with the owner when the plan reaches that step.
 - The exact kit components beyond those listed, as screens need them.
 - How the app waits for Clerk to restore its session, once read from the
   installed SDK.
+
+## 16. Amendments made while building (2026-11-11)
+
+Found while executing the plan. The code follows these, not the sections
+above where they differ.
+
+1. **The mobile API is bearer-only.** §6.2's wrapper gained a step between
+   the build gate and sign-in: unless the request carries
+   `Authorization: Bearer <token>`, it answers `401 unauthorized` and never
+   identifies the caller. A whole-branch review found that the wrapper
+   otherwise accepted the browser's session cookie, which would have left
+   later write routes open to cross-site requests. The order is now build,
+   bearer header, sign-in, query, body. Consequence: these endpoints cannot
+   be opened in a signed-in browser tab.
+2. **`actionFailure` takes any object.** §6.2 and the plan gave it
+   `{ error?: string }`, which the real action return types do not satisfy.
+   It now reads `error` defensively: `null` or `undefined` is success,
+   `"Not authenticated"` is 401, any other value is 422.
+3. **`MOBILE_MIN_BUILD` must be all digits.** Anything else is ignored, with
+   one warning in the server log, so a typo cannot silently read as a
+   number.
+4. **A body that is not JSON answers `422` with `body: must be JSON`.** An
+   empty body still counts as no body.
+5. **§13's two unproven points are proven for the website.** With cookies
+   omitted, a Clerk session token in the `Authorization` header gets `200`
+   from `/api/mobile/v1/me` with that person's own row, a tampered token gets
+   `401`, and no token gets `401`. So `auth()` honours a bearer token with
+   `require-auth.ts` unchanged, and Supabase trusts the development Clerk
+   issuer. The token in that test was minted in a browser; the first test
+   with a token from the iPhone SDK is the plan's Task 8, step 7.
+6. **The fonts are variable fonts.** §5.6's Quicksand and Lora are one file
+   each (`Quicksand-Variable.ttf`, `Lora-Variable.ttf`), because Google's
+   font repository carries no separate weights. iOS exposes each weight as
+   its own face. There are two licence files, one per typeface. Debug builds
+   stop at launch if a face the theme names is missing.
+7. **The website branch is `worktree-mobile-api`,** the name the worktree
+   tool gave it, not `mobile-api`.
+8. **Known and accepted:** if Clerk cannot verify tokens during an outage,
+   the bearer path answers `401` and phones will sign out. The website
+   cannot tell an outage from a bad token without changing
+   `require-auth.ts`, which §6.1 rules out.
