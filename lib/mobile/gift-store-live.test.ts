@@ -10,7 +10,7 @@ vi.mock("@/lib/supabase/server", () => ({
     from: (...a: unknown[]) => {
       calls.push(["from", ...a]);
       const chain: Record<string, unknown> = {};
-      for (const m of ["select", "insert", "update", "delete", "eq", "is", "in", "order"]) {
+      for (const m of ["select", "insert", "update", "delete", "eq", "is", "in", "order", "range"]) {
         chain[m] = (...args: unknown[]) => {
           calls.push([m, ...args]);
           return chain;
@@ -66,6 +66,8 @@ describe("createGiftStore", () => {
       ["is", "released_at", null],
     ]);
     expect(calls.slice(4)).toEqual([
+      ["order", "item_id", { ascending: true }],
+      ["range", 0, 999],
       ["from", "user_profiles"],
       ["select", "id, username, display_name, avatar_url"],
       ["in", "id", ["user_2momABC"]],
@@ -99,7 +101,8 @@ describe("createGiftStore", () => {
     await store.gifts();
     expect(callsOf("from")).toEqual([["tracked_gifts"]]);
     expect(callsOf("select")).toEqual([[GIFT_COLUMNS]]);
-    expect(callsOf("order")).toEqual([["created_at", { ascending: true }]]);
+    expect(callsOf("order")).toEqual([["created_at", { ascending: true }], ["id", { ascending: true }]]);
+    expect(callsOf("range")).toEqual([[0, 999]]);
     expect(callsOf("eq")).toEqual([["user_id", ME]]);
 
     calls.length = 0;
@@ -141,6 +144,27 @@ describe("createGiftStore", () => {
     expect(callsOf("insert")).toEqual([[{ user_id: ME, name: "Dad", person_id: "p" }]]);
     expect(callsOf("select")).toEqual([["id, name, person_id"]]);
   });
+
+  it.each([["gifts"], ["recipients"], ["activeClaims"]] as const)(
+    "%s asks again for the next range when a page comes back full, and not when it comes back short", async (method) => {
+      const store = await createGiftStore(ME);
+      const row = method === "recipients" ? { id: "r", name: "n", person_id: null }
+        : method === "gifts" ? { id: "g" }
+        : { item_id: "i", occasion_id: null, occasions: null, wishlist_items: null };
+      const full = Array.from({ length: 1000 }, () => row);
+      scripted = [{ data: full, error: null }, { data: [row, row], error: null }];
+      expect(await store[method]()).toHaveLength(1002);
+      expect(callsOf("range")).toEqual([[0, 999], [1000, 1999]]);
+
+      calls.length = 0;
+      scripted = [{ data: [row], error: null }];
+      expect(await store[method]()).toHaveLength(1);
+      expect(callsOf("range")).toEqual([[0, 999]]);
+
+      scripted = [{ data: full, error: null }, { data: null, error: { code: "XX000", message: "later" } }];
+      await expect(store[method]()).rejects.toMatchObject({ message: `${method} failed: later`, code: "XX000" });
+    },
+  );
 
   it("answers null when no gift of the caller's was updated", async () => {
     scripted = [{ data: null, error: null }];

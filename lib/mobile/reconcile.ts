@@ -28,17 +28,25 @@ export async function reconcileGifts(store: GiftStore, today: string): Promise<v
       }
       continue;
     }
-    const patch: { status?: StoredGift["status"]; occasion_id?: string | null; season_year?: number } = {};
+    const patch: GiftPatch = {};
     if (g.status === "planned" && claim.item.purchased) patch.status = "ordered";
     if (g.occasion_id !== claim.occasionId) {
       patch.occasion_id = claim.occasionId;
       patch.season_year = giftSeason(claim.occasionDate, g.created_at);
     }
-    if (Object.keys(patch).length > 0) await store.updateGift(g.id, patch);
+    if (Object.keys(patch).length === 0) continue;
+    try {
+      await store.updateGift(g.id, patch);
+    } catch (e) {
+      if (!isClaimDataError(e)) throw e;
+      console.error(`reconcileGifts: skipped item ${claim.itemId}: ${e.code}`);
+    }
   }
 }
 
-const newestFirst = (a: StoredGift, b: StoredGift) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0);
+/** Newest first; the same created_at is told apart by id so every request picks the same gift. */
+const newestFirst = (a: StoredGift, b: StoredGift) =>
+  a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 const cut = (value: string | null, max: number) => (value === null ? null : Array.from(value).slice(0, max).join(""));
 
 /** tracked_gifts' own checks: name 1–200 and description ≤ 1000 characters (code points), price null or ≥ 0. */
@@ -101,7 +109,7 @@ export async function fileClaim(store: GiftStore, claim: HeldClaim, today: strin
       wishlist_item_id: claim.itemId,
       from_list: true,
       occasion_id: claim.occasionId,
-      season_year: giftSeason(claim.occasionDate, copy.created_at),
+      season_year: season,
       status: copy.status === "planned" && claim.item.purchased ? "ordered" : copy.status,
     });
     if (linked !== null && linked.ok) return linked.row;

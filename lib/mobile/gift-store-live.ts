@@ -22,6 +22,23 @@ function clashOf(error: DbError, indexes: Record<string, string>): string | null
   return null;
 }
 
+const PAGE = 1000;
+const OWNER_CHUNK = 200;
+
+type Page<T> = PromiseLike<{ data: T[] | null; error: DbError | null }>;
+
+/** The hosted API answers at most 1000 rows a request: ask in pages until one comes back short. */
+async function readAll<T>(method: string, page: (from: number, to: number) => Page<T>): Promise<T[]> {
+  const all: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await page(from, from + PAGE - 1);
+    if (error) throw failure(method, error);
+    const rows = data ?? [];
+    all.push(...rows);
+    if (rows.length < PAGE) return all;
+  }
+}
+
 function failure(method: string, error: DbError): Error {
   return Object.assign(new Error(`${method} failed: ${error.message}`), { code: error.code });
 }
@@ -76,21 +93,25 @@ export async function createGiftStore(userId: string): Promise<GiftStore> {
 
   return {
     async activeClaims() {
-      const { data, error } = await supabase
-        .from("wishlist_claims")
-        .select(CLAIM_COLUMNS)
-        .eq("claimed_by", userId)
-        .is("released_at", null);
-      if (error) throw failure("activeClaims", error);
-      const rows = (data ?? []) as unknown as ClaimDbRow[];
+      const rows = await readAll<ClaimDbRow>(
+        "activeClaims",
+        (a, b) =>
+          supabase
+            .from("wishlist_claims")
+            .select(CLAIM_COLUMNS)
+            .eq("claimed_by", userId)
+            .is("released_at", null)
+            .order("item_id", { ascending: true })
+            .range(a, b) as unknown as Page<ClaimDbRow>,
+      );
 
       const ownerIds = [...new Set(rows.flatMap((r) => (r.wishlist_items ? [r.wishlist_items.user_id] : [])))];
       const owners = new Map<string, PersonRow>();
-      if (ownerIds.length > 0) {
+      for (let i = 0; i < ownerIds.length; i += OWNER_CHUNK) {
         const { data: people, error: peopleError } = await supabase
           .from("user_profiles")
           .select(OWNER_COLUMNS)
-          .in("id", ownerIds);
+          .in("id", ownerIds.slice(i, i + OWNER_CHUNK));
         if (peopleError) throw failure("activeClaims", peopleError);
         for (const p of people ?? []) {
           owners.set(p.id, { id: p.id, username: p.username, display_name: p.display_name, avatar_url: p.avatar_url });
@@ -121,19 +142,28 @@ export async function createGiftStore(userId: string): Promise<GiftStore> {
     },
 
     async gifts() {
-      const { data, error } = await supabase
-        .from("tracked_gifts")
-        .select(GIFT_COLUMNS)
-        .eq("user_id", userId)
-        .order("created_at", { ascending: true });
-      if (error) throw failure("gifts", error);
-      return (data ?? []).map(toGift);
+      const rows = await readAll("gifts", (a, b) =>
+        supabase
+          .from("tracked_gifts")
+          .select(GIFT_COLUMNS)
+          .eq("user_id", userId)
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(a, b),
+      );
+      return rows.map(toGift);
     },
 
     async recipients() {
-      const { data, error } = await supabase.from("gift_recipients").select(RECIPIENT_COLUMNS).eq("user_id", userId);
-      if (error) throw failure("recipients", error);
-      return (data ?? []).map(toRecipient);
+      const rows = await readAll("recipients", (a, b) =>
+        supabase
+          .from("gift_recipients")
+          .select(RECIPIENT_COLUMNS)
+          .eq("user_id", userId)
+          .order("id", { ascending: true })
+          .range(a, b),
+      );
+      return rows.map(toRecipient);
     },
 
     async insertRecipient(row) {

@@ -69,13 +69,14 @@ describe("reconcileGifts", () => {
     expect(forItem(s, IDS.dutchOven)[0].id).toBe("aaaaaaaa-0000-4000-8000-000000000001");
   });
   it("with no link on either side, links a copy under a typed recipient named exactly as the owner, and not a differently named one", async () => {
-    const typedMom = { id: "bbbbbbbb-0000-4000-8000-000000000002", name: "Mom", person_id: null };
-    const s = seeded({ claims: [oven({ owner: w.people.dad }, { url: null, ownerId: "user_2dadABC" })],
-      recipients: [typedMom], gifts: [copyOf({ product_link: null })] });
+    const typedDad = { id: "bbbbbbbb-0000-4000-8000-000000000002", name: "Dad", person_id: null };
+    const dadClaim = () => oven({ owner: w.people.dad }, { url: null, ownerId: "user_2dadABC" });
+    const s = seeded({ claims: [dadClaim()], recipients: [typedDad], gifts: [copyOf({ product_link: null })] });
     await reconcileGifts(s, TODAY);
     expect(s.writes).toContain("insertGift:Le Creuset Dutch oven");   // Joe's copy is not Dad's
-    const s2 = seeded({ claims: [oven({}, { url: null })], recipients: [typedMom],
-      gifts: [copyOf({ product_link: null, recipient_id: typedMom.id })] });
+    expect(s.allGifts().find((g) => g.id === "aaaaaaaa-0000-4000-8000-000000000001")!.wishlist_item_id).toBeNull();
+    const s2 = seeded({ claims: [dadClaim()], recipients: [typedDad],
+      gifts: [copyOf({ product_link: null, recipient_id: typedDad.id })] });
     await reconcileGifts(s2, TODAY);
     expect(s2.writes.filter((x) => x.startsWith("insert"))).toEqual([]);
     expect(forItem(s2, IDS.dutchOven)[0].id).toBe("aaaaaaaa-0000-4000-8000-000000000001");
@@ -98,10 +99,18 @@ describe("reconcileGifts", () => {
     expect(forItem(s, IDS.dutchOven).map((g) => g.recipient_id)).toEqual([IDS.recipientMom]);
     expect(s.writes).toContain("insertGift:Le Creuset Dutch oven");
   });
-  it("seasons a linked copy by the year it was created when the claim has no occasion", async () => {
+  it("seasons a linked copy by today's year when the claim has no occasion, however old the copy", async () => {
     const s = seeded({ claims: [oven({ occasionId: null, occasionDate: null })], gifts: [copyOf({ created_at: "2025-12-30T10:00:00.000000+00:00" })] });
     await reconcileGifts(s, TODAY);
-    expect(forItem(s, IDS.dutchOven)[0]).toMatchObject({ occasion_id: null, season_year: 2025 });
+    expect(forItem(s, IDS.dutchOven)[0]).toMatchObject({ occasion_id: null, season_year: 2026 });
+  });
+  it("breaks a tie in created_at by id, whichever order the copies come in", async () => {
+    const a = copyOf({ id: "aaaaaaaa-0000-4000-8000-000000000002" });
+    const b = copyOf({ id: "aaaaaaaa-0000-4000-8000-000000000003" });
+    for (const order of [[a, b], [b, a]]) {
+      const s = seeded({ claims: [oven()], gifts: order }); await reconcileGifts(s, TODAY);
+      expect(forItem(s, IDS.dutchOven).map((g) => g.id)).toEqual([a.id]);
+    }
   });
   it("links no copy whose name or link differs, nor a gift from a list", async () => {
     const near = [copyOf({ id: "aaaaaaaa-0000-4000-8000-00000000000a", name: "Le Creuset Dutch Oven" }),
@@ -205,6 +214,11 @@ describe("one bad claim", () => {
     expect(Array.from(g.name)).toHaveLength(200);
     expect(g.price).toBeNull();
   });
+  it("cuts a description of astral characters to exactly 1000 code points without splitting one", async () => {
+    const s = seeded({ claims: [oven({}, { description: "\u{1F600}".repeat(1500) })] });
+    await reconcileGifts(s, TODAY);
+    expect(forItem(s, IDS.dutchOven)[0].description).toBe("\u{1F600}".repeat(1000));
+  });
 });
 describe("a gift or copy deleted at the same instant", () => {
   it("is filed afresh when the copy goes away as it is linked", async () => {
@@ -221,7 +235,33 @@ describe("a gift or copy deleted at the same instant", () => {
     expect(forItem(s, IDS.scarf)).toEqual([expect.objectContaining({ id: gift.id, occasion_id: IDS.momBirthday })]);
   });
 });
+describe("a failed update of an existing gift", () => {
+  const moved = () => [scarfClaim({ occasionId: IDS.momBirthday, occasionDate: "2027-01-14" }),
+    { ...w.claims[1], occasionId: IDS.momBirthday, occasionDate: "2027-01-14" }];
+  const failing = (s: MemoryGiftStore, error: Error) => ({ ...s,
+    updateGift: (id: string, patch: Parameters<MemoryGiftStore["updateGift"]>[1]) => id === IDS.giftScarf ? Promise.reject(error) : s.updateGift(id, patch) });
+  it("is skipped and logged by item id and code when the failure is the claim's data, and the next claim still moves", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const s = seeded({ replaceClaims: true, claims: moved() });
+    await expect(reconcileGifts(failing(s, dataError("23503")), TODAY)).resolves.toBeUndefined();
+    expect(forItem(s, IDS.scarf)[0].occasion_id).toBe(IDS.xmas);
+    expect(forItem(s, IDS.catan)[0].occasion_id).toBe(IDS.momBirthday);
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(String(log.mock.calls[0][0])).toContain(IDS.scarf); expect(String(log.mock.calls[0][0])).toContain("23503");
+  });
+  it("still throws when the failure has no data code", async () => {
+    const s = seeded({ replaceClaims: true, claims: moved() });
+    await expect(reconcileGifts(failing(s, new Error("connection reset")), TODAY)).rejects.toThrow("connection reset");
+  });
+});
 describe("fileClaim", () => {
+  it("gives a linked copy and a claim made again the same season", async () => {
+    const s = seeded({ gifts: [copyOf({ created_at: "2025-12-30T10:00:00.000000+00:00" })] });
+    const claim = oven({ occasionId: null, occasionDate: null });
+    expect(await fileClaim(s, claim, TODAY)).toMatchObject({ id: "aaaaaaaa-0000-4000-8000-000000000001", occasion_id: null, season_year: 2026 });
+    const after = s.writes.length; await fileClaim(s, claim, TODAY);
+    expect(s.writes.length).toBe(after);
+  });
   it("moves a claim made again in a later year into this year's season, and a second run writes nothing", async () => {
     const stale = { ...w.gifts.find((g) => g.id === IDS.giftScarf)!, season_year: 2025 };
     const t = memoryGiftStore(SAM, { gifts: [{ ...stale, user_id: SAM }], recipients: w.recipients.map((r) => ({ ...r, user_id: SAM })) });
