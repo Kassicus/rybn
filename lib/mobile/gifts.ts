@@ -325,7 +325,8 @@ const giftBodySchema = z
       recipientName: z
         .string({ error: RULES.request })
         .trim()
-        .max(RECIPIENT_MAX, SHOPPING_RULES.recipientTooLong)
+        // Code points, as the database's char_length counts (and recipientNames).
+        .refine((v) => Array.from(v).length <= RECIPIENT_MAX, SHOPPING_RULES.recipientTooLong)
         .refine((v) => !CONTROL.test(v), RULES.characters)
         .nullish(),
       name: z

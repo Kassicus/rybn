@@ -4,7 +4,7 @@ import { IDS, SAM, world } from "./test-shopping";
 import { RULES } from "./wishlist";
 import { SHOPPING_RULES } from "./shopping-rules";
 import { buildGiftViews } from "./gifts";
-import { sharedGroupIds } from "./occasions";
+import { mobileOccasion, occasionsInvolving, sharedGroupIds } from "./occasions";
 import {
   buildChoices,
   buildGroupList,
@@ -29,7 +29,14 @@ describe("buildHome", () => {
     expect(answer.occasions[0].people[4].giftCount).toBe(1);
     expect(answer.occasions[1]).toMatchObject({ started: 1, people: [{ giftCount: 1 }] });
   });
-  it("counts nothing for a birthday with no row yet", () => expect(buildHome(homeInput).occasions[2].started).toBe(0));
+  it("counts nothing for a birthday with no row yet", () => {
+    expect(buildHome(homeInput).occasions[2].started).toBe(0);
+    const ctx = w.giftContext(); ctx.recipients.set(IDS.recipientJoe, { id: IDS.recipientJoe, name: "Priya", person_id: "user_2prySHA" });
+    const priyas = buildGiftViews(w.giftRows(), ctx).filter((v) => v.personId === "user_2prySHA");
+    expect(priyas.length).toBeGreaterThan(0);
+    expect(priyas.every((v) => v.occasionId === null)).toBe(true);
+    expect(buildHome({ ...homeInput, views: [...views, ...priyas] }).occasions[2]).toMatchObject({ started: 0, people: [{ giftCount: 0 }] });
+  });
   it("never counts last year's Christmas toward this year's", () => {
     const answer = buildHome({ ...homeInput, views: refile(IDS.giftScarf, "22222222-2222-4222-8222-222222222222") });
     expect(answer.occasions[0].people[4].giftCount).toBe(1);
@@ -50,6 +57,12 @@ describe("buildGroupPage", () => {
   const input = { callerId: SAM, group: { id: IDS.rivera, name: "Rivera Family", type: "family" as const },
     members: w.members.get(IDS.rivera)!, itemCounts: w.itemCounts, upcoming: w.upcoming, profiles: w.profiles, views };
   it("matches the group fixture", () => expect(buildGroupPage(input)).toEqual(fixture("group")));
+  it("never ticks the caller, even with a gift that is not yet given for them", () => {
+    const ctx = w.giftContext(); ctx.recipients.set(IDS.recipientJoe, { id: IDS.recipientJoe, name: "Sam", person_id: SAM });
+    const own = buildGiftViews(w.giftRows().map((r) => (r.id === IDS.giftHat ? { ...r, status: "ordered" as const } : r)), ctx);
+    expect(own.some((v) => v.personId === SAM && v.status !== "given" && !v.archived)).toBe(true);
+    expect(buildGroupPage({ ...input, views: own }).members.find((m) => m.isYou)!.hasGift).toBe(false);
+  });
   it("ticks only a person with a gift not yet given, and never the caller", () => {
     const given = buildGiftViews(w.giftRows().map((r) => (r.id === IDS.giftCatan ? { ...r, status: "given" as const } : r)), w.giftContext());
     expect(buildGroupPage({ ...input, views: given }).members.map((m) => m.hasGift)).toEqual([false, false, false, false, true, false]);
@@ -59,6 +72,21 @@ describe("list items", () => {
   const tagged = new Set([IDS.dutchOven, IDS.scarf]);
   const items = orderListRows(w.momItems, tagged).map((r) => mobileListItem(r, w.activeClaims[r.id], SAM, tagged.has(r.id)));
   it("matches the person-wishlist items: tagged first, then by priority, then newest", () => expect(items).toEqual(fixture("person-wishlist").items));
+  it("turns a price of zero or less into none", () => {
+    for (const price of [0, -5, null]) expect(mobileListItem({ ...w.momItems[1], price }, undefined, SAM, false).price).toBeNull();
+    expect(mobileListItem({ ...w.momItems[1], price: 0.5 }, undefined, SAM, false).price).toBe(0.5);
+  });
+  it("counts no priority as medium in the ordering", () => {
+    const rows = [
+      { ...w.momItems[0], priority: null, created_at: "2026-12-01T10:00:00.000000+00:00" },   // kindle
+      { ...w.momItems[3], priority: "medium" as const },                                      // scarf, older
+      w.momItems[1], w.momItems[2],                                                          // oven must-have, gloves low
+    ];
+    expect(orderListRows(rows, new Set()).map((r) => r.id)).toEqual([IDS.dutchOven, IDS.kindle, IDS.scarf, IDS.gloves]);
+    expect(mobileListItem(rows[0], undefined, SAM, false).priority).toBe("medium");
+  });
+  it("puts what is tagged for the occasion in view ahead of higher priorities", () =>
+    expect(orderListRows(w.momItems, new Set([IDS.scarf])).map((r) => r.id)).toEqual([IDS.scarf, IDS.dutchOven, IDS.kindle, IDS.gloves]));
   it("reads Taken for an item bought with no claim", () =>
     expect(mobileListItem({ ...w.momItems[1], purchased: true }, undefined, SAM, false).state).toBe("taken"));
   it("never says who holds it or who marked it out of stock", () =>
@@ -74,6 +102,12 @@ describe("buildPersonList", () => {
   const input = { callerId: SAM, person: w.people.mom, upcoming: w.upcoming, sharedGroupIds: sharedGroupIds("user_2momABC", w.members),
     occasionKey: IDS.xmasKey as string | null, rows: w.momItems, claims: w.activeClaims, tags: w.tags, views };
   it("matches the person-wishlist fixture", () => expect(buildPersonList(input)).toEqual(fixture("person-wishlist")));
+  it("lists the items tagged for Mom's birthday first when that is in view", () => {
+    const answer = buildPersonList({ ...input, occasionKey: "birthday:user_2momABC:2027" });
+    expect(answer.items.map((i) => [i.id, i.tagged])).toEqual([[IDS.scarf, true], [IDS.dutchOven, false], [IDS.kindle, false], [IDS.gloves, false]]);
+  });
+  it("gives the gift fixture's occasions: the ones that involve Mom", () => expect(
+    occasionsInvolving("user_2momABC", w.upcoming, sharedGroupIds("user_2momABC", w.members)).map(mobileOccasion)).toEqual(fixture("gift").occasions));
   it("puts gifts for the occasion in view first", () => expect(buildPersonList({ ...input, occasionKey: "birthday:user_2momABC:2027",
     views: refile(IDS.giftPhotoBook, IDS.momBirthday) }).gifts.map((g) => g.name)).toEqual(["Photo book", "Cashmere scarf"]));
   it("ignores an occasion that does not involve the person", () => {

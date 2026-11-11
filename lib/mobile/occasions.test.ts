@@ -65,6 +65,22 @@ describe("Home's occasions (§4.2)", () => {
   it("shops for both people of someone else's couple", () =>
     expect(shoppingPeople(couple(w.people.mom, w.people.dad), SAM, w.members, w.profiles).map((p) => p.id)).toEqual(["user_2dadABC", "user_2momABC"]));
 });
+describe("gaps", () => {
+  it("builds a person from the occasion's own fields when their profile is missing", () => {
+    const o = couple(w.people.mom, w.people.dad);
+    const profiles = new Map([[w.people.dad.id, w.people.dad]]);   // Mom's profile is missing
+    expect(shoppingPeople(o, SAM, w.members, profiles)).toEqual([
+      w.people.dad, { id: "user_2momABC", username: "maria", display_name: "Mom", avatar_url: null }]);
+  });
+  it("builds a missing partner from the partner fields", () => {
+    const o = couple(w.people.mom, w.people.dad);
+    expect(shoppingPeople(o, SAM, w.members, new Map())).toEqual([
+      { id: "user_2dadABC", username: "luis", display_name: "Dad", avatar_url: null },
+      { id: "user_2momABC", username: "maria", display_name: "Mom", avatar_url: null }]);
+  });
+  it("refuses an upper-case UUID in an occasion key", () =>
+    expect(parseOccasionKey("group_date:9C4B2E1A-7D3F-4E5A-8B6C-1D2E3F4A5B6C")).toBeNull());
+});
 describe("occasions that involve a person (§5.1)", () => {
   it("Mom: the family's Christmas and her birthday", () => expect(occasionsInvolving("user_2momABC", w.upcoming,
     sharedGroupIds("user_2momABC", w.members)).map(occasionKey)).toEqual([IDS.xmasKey, "birthday:user_2momABC:2027"]));

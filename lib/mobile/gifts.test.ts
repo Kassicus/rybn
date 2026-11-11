@@ -8,6 +8,7 @@ import {
   buildGiftList,
   buildGiftViews,
   giftSeason,
+  heldItemIds,
   parseGiftBody,
   parseStepBody,
   planStep,
@@ -87,7 +88,43 @@ describe("buildGiftViews", () => {
 });
 describe("giftSeason", () => {
   it("is the occasion's year", () => expect(giftSeason("2027-01-14", "2026-12-02T10:00:00+00:00")).toBe(2027));
-  it("is the year it was added, in UTC, when it has no occasion", () => expect(giftSeason(null, "2026-12-31T23:30:00-05:00")).toBe(2027));
+  it("is the year it was added, in UTC, when it has no occasion, whatever the machine's zone", () => {
+    const zone = process.env.TZ;
+    try {
+      process.env.TZ = "America/Los_Angeles";   // there it is still 31 December
+      expect(giftSeason(null, "2026-12-31T23:30:00-05:00")).toBe(2027);
+    } finally {
+      if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone;
+    }
+  });
+});
+describe("held claims", () => {
+  const claim = (purchased: boolean, date: string | null) => ({ itemId: "i1", occasionId: "o1", occasionDate: date, owner: null,
+    item: { id: "i1", ownerId: "u", title: "t", description: null, url: null, price: null, imageValue: null, purchased } });
+  it("lapses after the occasion's date when the item is not bought", () => {
+    expect(heldItemIds([claim(false, "2026-11-10")], TODAY).size).toBe(0);
+    expect(heldItemIds([claim(false, TODAY)], TODAY).has("i1")).toBe(true);
+  });
+  it("is kept after the date when the item is bought", () => expect(heldItemIds([claim(true, "2026-11-10")], TODAY).has("i1")).toBe(true));
+});
+describe("a gift's person", () => {
+  it("is dropped when the owner is not in the profiles", () => {
+    const ctx = w.giftContext(); ctx.profiles = new Map([...w.profiles].filter(([id]) => id !== "user_2momABC"));
+    const v = view(IDS.giftScarf, buildGiftViews(w.giftRows(), ctx));
+    expect([v.personId, v.gift.person]).toEqual([null, null]);
+  });
+});
+describe("typed-name groups", () => {
+  it("come after the people, in name order", () => {
+    const hat = w.giftRows().find((r) => r.id === IDS.giftHat)!;
+    const rows = [{ ...hat, id: "g0", recipient_id: "r0" }, { ...hat, id: "g1", recipient_id: "r1" }];
+    const ctx = w.giftContext();
+    ctx.recipients = new Map(rows.map((r, i) => [r.recipient_id, { id: r.recipient_id, name: i === 0 ? "Zed" : "Abe", person_id: null }]));
+    const typed = buildGiftViews(rows, ctx);
+    const all = [...views.filter((v) => v.personId !== null), ...typed];
+    const names = buildGiftList({ views: all, season: null, currentYear: 2026, choices: fixture("gifts").choices }).groups.map((g) => g.name);
+    expect(names).toEqual(["Alex Rivera", "Mom", "Abe", "Zed"]);
+  });
 });
 describe("buildGiftList", () => {
   const choices = fixture("gifts").choices;
@@ -134,7 +171,13 @@ describe("parseGiftBody", () => {
     ["an occasion that is not text", { ...request, occasion: 7 }, SHOPPING_RULES.chooseOccasion],
     ["1001 characters of notes", { ...request, notes: "a".repeat(1001) }, RULES.notesTooLong],
     ["a list", [], RULES.request],
+    ["a control character in the name", { ...request, name: "a\u0007b" }, RULES.characters],
+    ["a 201-character name", { ...request, name: "a".repeat(201) }, RULES.nameTooLong],
+    ["a 2049-character link", { ...request, link: "https://www.example.com/" + "a".repeat(2030) }, RULES.linkTooLong],
+    ["101 emoji as a typed recipient", { ...request, person: null, recipientName: "🎁".repeat(101) }, SHOPPING_RULES.recipientTooLong],
   ])("refuses %s with a sentence", (_, raw, message) => expect(parseGiftBody(raw)).toEqual({ ok: false, message }));
+  it("accepts 100 emoji as a typed recipient, as the database does", () =>
+    expect(parseGiftBody({ ...request, person: null, recipientName: "🎁".repeat(100) })).toMatchObject({ ok: true }));
 });
 describe("parseStepBody", () => {
   it("accepts the step fixture", () => expect(parseStepBody(fixture("step-request"))).toEqual({ ok: true, direction: "forward" }));
