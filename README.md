@@ -97,6 +97,14 @@ npm run lint         # ESLint (flat config; `next lint` was removed in Next 16)
 npm run build
 ```
 
+## Mobile API
+
+The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every route there is built with `mobileRoute` from `lib/mobile/route-live.ts`.
+
+`/api/mobile` is deliberately absent from `proxy.ts`'s protected list: the app needs a 401, not a redirect to the sign-in page.
+
+`lib/mobile/fixtures/*.json` are the contract. They are copied into `rybn-mobile/Packages/RybnKit/Tests/RybnKitTests/Fixtures/`, so change both together.
+
 ## Tech Stack
 
 - **Next.js 16** - React framework with App Router
