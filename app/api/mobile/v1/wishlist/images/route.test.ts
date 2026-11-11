@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { isOwnedStoragePath } from "@/lib/storage/image-value";
+import { fixture } from "@/lib/mobile/test-fixtures";
 import { PICTURE_MAX_BYTES, PICTURE_RULES } from "@/lib/mobile/picture";
 
 const ensureProfile = vi.fn();
@@ -9,8 +10,9 @@ vi.mock("@/lib/auth/ensure-profile", () => ({ ensureProfile: () => ensureProfile
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({ storage: { from: (bucket: string) => ({ upload: uploadSpy.bind(null, bucket) }) } }),
 }));
+const signImage = vi.fn();
 vi.mock("@/lib/supabase/signed-image", () => ({
-  withSignedWishlistImage: async (i: { image_url: string }) => ({ ...i, image_url: "https://signed.example/x", image_path: i.image_url }),
+  withSignedWishlistImage: (i: { image_url: string }, userId: string) => signImage(i, userId),
 }));
 
 const { POST } = await import("./route");
@@ -27,6 +29,7 @@ beforeEach(() => {
   vi.stubEnv("MOBILE_MIN_BUILD", "");
   vi.spyOn(console, "error").mockImplementation(() => {});
   ensureProfile.mockResolvedValue("user_2abcDEF");
+  signImage.mockImplementation(async (i: { image_url: string }) => ({ ...i, image_url: "https://signed.example/x", image_path: i.image_url }));
 });
 
 describe("POST /api/mobile/v1/wishlist/images", () => {
@@ -40,6 +43,24 @@ describe("POST /api/mobile/v1/wishlist/images", () => {
     expect(isOwnedStoragePath(path, "user_2abcDEF")).toBe(true);
     expect(options).toMatchObject({ contentType: "image/jpeg", upsert: false });
     expect(await res.json()).toEqual({ imagePath: path, imageUrl: "https://signed.example/x" });
+  });
+  it("answers exactly the keys of the picture fixture, both strings", async () => {
+    uploadSpy.mockResolvedValue({ data: {}, error: null });
+    const body = await (await POST(upload("image/jpeg", JPEG), ctx)).json();
+    const expected = fixture("picture");
+    expect(Object.keys(body).sort()).toEqual(Object.keys(expected).sort());
+    for (const key of Object.keys(expected)) {
+      expect(typeof expected[key]).toBe("string");
+      expect(typeof body[key]).toBe("string");
+    }
+  });
+  it("answers 500 when signing returns no address, naming nothing of storage", async () => {
+    uploadSpy.mockResolvedValue({ data: {}, error: null });
+    signImage.mockImplementation(async (i: { image_url: string }) => ({ ...i, image_url: null }));
+    const res = await POST(upload("image/jpeg", JPEG), ctx);
+    expect(res.status).toBe(500);
+    const text = await res.text();
+    expect(text).not.toMatch(/sign|storage|wishlist-images|user_2abcDEF/i);
   });
   it("stores a PNG as .png", async () => {
     uploadSpy.mockResolvedValue({ data: {}, error: null });

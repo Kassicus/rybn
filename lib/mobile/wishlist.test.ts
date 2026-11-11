@@ -50,6 +50,13 @@ describe("mobileItem, a restrictToGroup that is neither null nor text", () => {
   });
 });
 
+describe("mobileItem, a picture whose address could not be signed", () => {
+  it("matches the unsigned item fixture", () => {
+    const row = { ...rowFor(one.item), image_url: null };
+    expect(mobileItem(row, groups.groups)).toEqual(fixture("wishlist-item-unsigned").item);
+  });
+});
+
 describe("utcSeconds", () => {
   it.each([
     ["2026-11-11T18:04:13.123456+00:00", "2026-11-11T18:04:13Z"],
@@ -95,6 +102,15 @@ describe("parseWishlistBody", () => {
     const r = parseWishlistBody({ ...request, ...patch });
     expect(r.ok && (r.body as unknown as Record<string, unknown>)[key]).toBe(stored);
   });
+  it("accepts a price of exactly a million", () => {
+    const r = parseWishlistBody({ ...request, price: 1000000 });
+    expect(r.ok && r.body.price).toBe(1000000);
+  });
+  it("accepts notes with line breaks and a tab, stored unchanged", () => {
+    const notes = "line one\r\nline two\n\tindented";
+    const r = parseWishlistBody({ ...request, description: notes });
+    expect(r.ok && r.body.description).toBe(notes);
+  });
   it("ignores an unknown key and does not store it", () => {
     expect(parseWishlistBody({ ...request, purchased: true })).toEqual({ ok: true, body: request });
   });
@@ -110,6 +126,14 @@ describe("parseWishlistBody", () => {
     ["a javascript link", { ...request, url: "javascript:alert(1)" }, RULES.linkNotWeb],
     ["a 2049-character link", { ...request, url: "https://a.co/" + "a".repeat(2036) }, RULES.linkTooLong],
     ["a negative price", { ...request, price: -1 }, RULES.price],
+    ["a price of 1e300", { ...request, price: 1e300 }, RULES.price],
+    ["a price just over a million", { ...request, price: 1000000.01 }, RULES.price],
+    ["a title with a null character", { ...request, title: "a\u0000b" }, RULES.characters],
+    ["a title with a line break", { ...request, title: "a\nb" }, RULES.characters],
+    ["a category with a null character", { ...request, category: "a\u0000b" }, RULES.characters],
+    ["notes with a null character", { ...request, description: "a\u0000b" }, RULES.characters],
+    ["a link with a tab inside", { ...request, url: "h\tttps://example.com" }, RULES.characters],
+    ["a link with a space inside", { ...request, url: "https://example.com/a b" }, RULES.characters],
     ["a price written as text", { ...request, price: "29.99" }, RULES.price],
     ["no priority", { ...request, priority: undefined }, RULES.priority],
     ["an unknown priority", { ...request, priority: "urgent" }, RULES.priority],

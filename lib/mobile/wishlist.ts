@@ -24,7 +24,15 @@ export const RULES = {
   priority: "Choose how much you want it.",
   privacy: "Choose who can see it.",
   chooseGroup: "Choose one of your groups.",
+  characters: "That has characters Rybn can't save. Try typing it again.",
 } as const;
+
+/** Control characters: U+0000 to U+001F and U+007F. */
+const CONTROL = /[\u0000-\u001F\u007F]/;
+/** Control characters other than tab, line feed and carriage return, which notes may hold. */
+const CONTROL_EXCEPT_NOTES_WHITESPACE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+/** Whitespace or a control character. */
+const SPACE_OR_CONTROL = /[\s\u0000-\u001F\u007F]/;
 
 export interface MobileGroup {
   id: string;
@@ -160,16 +168,26 @@ const bodySchema = z.object(
       .string({ error: RULES.nameMissing })
       .trim()
       .min(1, RULES.nameMissing)
-      .max(200, RULES.nameTooLong),
-    description: z.string({ error: RULES.request }).max(1000, RULES.notesTooLong).nullish(),
-    category: z.string({ error: RULES.request }).max(50, RULES.categoryTooLong).nullish(),
+      .max(200, RULES.nameTooLong)
+      .refine((v) => !CONTROL.test(v), RULES.characters),
+    description: z
+      .string({ error: RULES.request })
+      .max(1000, RULES.notesTooLong)
+      .refine((v) => !CONTROL_EXCEPT_NOTES_WHITESPACE.test(v), RULES.characters)
+      .nullish(),
+    category: z
+      .string({ error: RULES.request })
+      .max(50, RULES.categoryTooLong)
+      .refine((v) => !CONTROL.test(v), RULES.characters)
+      .nullish(),
     url: z
       .string({ error: RULES.linkNotWeb })
       .trim()
       .max(2048, RULES.linkTooLong)
+      .refine((v) => !SPACE_OR_CONTROL.test(v), RULES.characters)
       .refine((v) => v === "" || isWebLink(v), RULES.linkNotWeb)
       .nullish(),
-    price: z.number({ error: RULES.price }).min(0, RULES.price).nullish(),
+    price: z.number({ error: RULES.price }).min(0, RULES.price).max(1000000, RULES.price).nullish(),
     imagePath: z.string({ error: INVALID_IMAGE_ERROR }).nullish(),
     priority: z.enum(priorityLevels, { error: RULES.priority }),
     privacy: privacySchema,

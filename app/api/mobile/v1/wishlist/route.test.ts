@@ -52,6 +52,24 @@ describe("GET /api/mobile/v1/wishlist", () => {
     getMyGroups.mockResolvedValue({ data: [] });
     expect((await GET(get(), ctx)).status).toBe(401);
   });
+  it("still lists every item when the groups cannot be loaded, naming no group", async () => {
+    getMyWishlist.mockResolvedValue({ data: fixture("wishlist").items.map(rowFor) });
+    getMyGroups.mockResolvedValue({ error: "connection reset by peer" });
+    const res = await GET(get(), ctx);
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).not.toMatch(/connection reset/);
+    const { items } = JSON.parse(text);
+    expect(items).toHaveLength(fixture("wishlist").items.length);
+    const oneGroup = items.find((i: { privacy: { kind: string } }) => i.privacy.kind === "group");
+    expect(oneGroup.privacySummary).toBe("Only one group");
+    expect(console.error).toHaveBeenCalledWith("[mobile] wishlist: groups unavailable:", "connection reset by peer");
+  });
+  it("answers 401 when the groups read says nobody is signed in", async () => {
+    getMyWishlist.mockResolvedValue({ data: [] });
+    getMyGroups.mockResolvedValue({ error: "Not authenticated" });
+    expect((await GET(get(), ctx)).status).toBe(401);
+  });
   it("answers 500 and logs a database error without passing on its words", async () => {
     getMyWishlist.mockResolvedValue({ error: 'relation "wishlist_items" does not exist' });
     getMyGroups.mockResolvedValue({ data: groupRows() });

@@ -71,9 +71,16 @@ async function findMine(
 
 export async function listWishlist(): Promise<Response | { items: MobileItem[] }> {
   const [list, groupResult] = await Promise.all([getMyWishlist(), getMyGroups()]);
-  const failure = databaseFailure(list, "getMyWishlist") ?? databaseFailure(groupResult, "getMyGroups");
+  const failure = databaseFailure(list, "getMyWishlist");
   if (failure) return failure;
-  const groups = mobileGroups(groupResult.data as GroupRow[]);
+  // The groups only name a group in privacySummary, so the list survives losing them.
+  let groups: MobileGroup[] = [];
+  if ("error" in groupResult && groupResult.error) {
+    if (groupResult.error === NOT_SIGNED_IN) return mobileError("unauthorized");
+    console.error("[mobile] wishlist: groups unavailable:", groupResult.error);
+  } else {
+    groups = mobileGroups(groupResult.data as GroupRow[]);
+  }
   const rows = ("data" in list ? list.data : []) as WishlistItemRow[];
   return { items: rows.map((row) => mobileItem(row, groups)) };
 }
@@ -97,6 +104,11 @@ export async function replaceWishlistItem(
   const lookup = await findMine(userId, itemId, mobileError("not_found"));
   if (!lookup.found) return lookup.response ?? mobileError("not_found");
   const result = await updateWishlistItem(itemId, formDataFromBody(checked.body));
+  if ("error" in result && result.error && result.error !== NOT_SIGNED_IN) {
+    // The update may have failed because the item was deleted since the lookup.
+    const again = await findMine(userId, itemId, mobileError("not_found"));
+    if (!again.found) return again.response ?? mobileError("not_found");
+  }
   const failure = databaseFailure(result, "updateWishlistItem");
   if (failure) return failure;
   return { item: mobileItem((result as { data: WishlistItemRow }).data, checked.groups) };

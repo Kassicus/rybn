@@ -86,6 +86,20 @@ describe("PUT /api/mobile/v1/wishlist/[id]", () => {
     updateWishlistItem.mockResolvedValue({ error: "boom" });
     expect((await PUT(put(fixture("wishlist-item-request")), ctx(ID))).status).toBe(500);
   });
+  it("answers 404 when the item vanished between the lookup and the update", async () => {
+    getWishlistItem.mockResolvedValueOnce(mine()).mockResolvedValueOnce({ error: "no rows", notFound: true });
+    updateWishlistItem.mockResolvedValue({ error: "JSON object requested, multiple (or no) rows returned" });
+    const res = await PUT(put(fixture("wishlist-item-request")), ctx(ID));
+    expect(res.status).toBe(404);
+    expect((await res.json()).error.code).toBe("not_found");
+  });
+  it("answers 500 without the database's words when the update fails and the item is still there", async () => {
+    getWishlistItem.mockResolvedValue(mine());
+    updateWishlistItem.mockResolvedValue({ error: "deadlock detected" });
+    const res = await PUT(put(fixture("wishlist-item-request")), ctx(ID));
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toMatch(/deadlock/);
+  });
   it("answers 500 without the database's words when loading the groups fails, and writes nothing", async () => {
     getMyGroups.mockResolvedValue({ error: "connection reset by peer" });
     const res = await PUT(

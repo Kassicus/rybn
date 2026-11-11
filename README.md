@@ -122,6 +122,11 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 - Items are built field by field (`mobileItem`). Never send a row: rows carry `purchased`, stock marks and the owner's id, and the owner must never learn an item was bought.
 - Pictures are JPEG or PNG, at most 4 MB. They are stored in the caller's own folder with the caller's own client. An upload route's path must not end in an image extension, because `proxy.ts` skips those paths and `auth()` would then fail.
 
+- A request whose path ends in an image extension (for example `/api/mobile/v1/wishlist/x.png`) is skipped by `proxy.ts`, so it answers 500 instead of 401. It exposes nothing, but it writes an error to the log. The fix belongs in the proxy's matcher.
+- `PUT` replaces the whole item, privacy included. The app must send back every field it was given.
+- An item can come back with `imageUrl` null and `imagePath` set, when the picture's address could not be signed. Keep sending `imagePath` back on an edit.
+- A body larger than Vercel's own limit (about 4.5 MB) is refused by Vercel with its own error, before the route's size sentence.
+
 `lib/mobile/fixtures/*.json` are the contract, including `wishlist.json`, `wishlist-item.json`, `groups.json` and `wishlist-item-request.json`. They are copied into `rybn-mobile/Packages/RybnKit/Tests/RybnKitTests/Fixtures/`, so change both together.
 
 ## Tech Stack
