@@ -86,6 +86,23 @@ describe("PUT /api/mobile/v1/wishlist/[id]", () => {
     updateWishlistItem.mockResolvedValue({ error: "boom" });
     expect((await PUT(put(fixture("wishlist-item-request")), ctx(ID))).status).toBe(500);
   });
+  it("answers 500 without the database's words when loading the groups fails, and writes nothing", async () => {
+    getMyGroups.mockResolvedValue({ error: "connection reset by peer" });
+    const res = await PUT(
+      put({ ...fixture("wishlist-item-request"), privacy: { kind: "group", groupId: "99999999-9999-4999-8999-999999999999" } }),
+      ctx(ID),
+    );
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toMatch(/connection reset/);
+    expect(updateWishlistItem).not.toHaveBeenCalled();
+  });
+  it("answers 404 for an id that is not a UUID, without reading or writing", async () => {
+    const res = await PUT(put(fixture("wishlist-item-request")), ctx("not-a-uuid"));
+    expect(res.status).toBe(404);
+    expect((await res.json()).error.code).toBe("not_found");
+    expect(getWishlistItem).not.toHaveBeenCalled();
+    expect(updateWishlistItem).not.toHaveBeenCalled();
+  });
   it("checks the body before reading the item", async () => {
     const res = await PUT(put({ ...fixture("wishlist-item-request"), title: "" }), ctx(ID));
     expect(res.status).toBe(422);
@@ -101,6 +118,11 @@ describe("DELETE /api/mobile/v1/wishlist/[id]", () => {
     const res = await DELETE(del(), ctx(ID));
     expect(res.status).toBe(204);
     expect(deleteWishlistItem).toHaveBeenCalledWith(ID);
+  });
+  it("answers 204 for an id that is not a UUID, without reading or deleting", async () => {
+    expect((await DELETE(del(), ctx("not-a-uuid"))).status).toBe(204);
+    expect(getWishlistItem).not.toHaveBeenCalled();
+    expect(deleteWishlistItem).not.toHaveBeenCalled();
   });
   it("answers 204 when it is already gone, deleting nothing", async () => {
     getWishlistItem.mockResolvedValue({ error: "no rows", notFound: true });

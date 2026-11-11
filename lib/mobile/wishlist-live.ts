@@ -17,6 +17,8 @@ import {
   type WishlistItemRow,
 } from "./wishlist";
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** The groups the caller belongs to, or the Response to send instead. */
 async function loadGroups(): Promise<Response | MobileGroup[]> {
   const result = await getMyGroups();
@@ -53,6 +55,8 @@ async function findMine(
   itemId: string,
   whenMissing: Response | null,
 ): Promise<{ found: true } | { found: false; response: Response | null }> {
+  // An id that is not a UUID can match nothing, and sent to the database it would only make it error.
+  if (!UUID.test(itemId)) return { found: false, response: whenMissing };
   const result = await getWishlistItem(itemId);
   if ("error" in result && result.error) {
     if (result.error === NOT_SIGNED_IN) return { found: false, response: mobileError("unauthorized") };

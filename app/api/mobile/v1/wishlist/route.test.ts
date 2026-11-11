@@ -99,6 +99,16 @@ describe("POST /api/mobile/v1/wishlist", () => {
     expect(item.privacy).toEqual(privacy);
     expect(item.privacySummary).toBe("Only Rivera Family");
   });
+  it("answers 500 without the database's words when loading the groups fails, and writes nothing", async () => {
+    getMyGroups.mockResolvedValue({ error: "connection reset by peer" });
+    const res = await POST(
+      post({ ...fixture("wishlist-item-request"), privacy: { kind: "group", groupId: "99999999-9999-4999-8999-999999999999" } }),
+      ctx,
+    );
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toMatch(/connection reset/);
+    expect(createWishlistItem).not.toHaveBeenCalled();
+  });
   it("loads the groups only for a one-group choice", async () => {
     createWishlistItem.mockResolvedValue({ data: rowFor(fixture("wishlist-item").item) });
     await POST(post(fixture("wishlist-item-request")), ctx);
