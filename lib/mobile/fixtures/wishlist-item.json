@@ -1,0 +1,16 @@
+{
+  "item": {
+    "id": "5f0c2a9e-8d1b-4c3e-9f6a-2b7d4e1c8a90",
+    "title": "Stanley tumbler, 40 oz",
+    "description": null,
+    "url": "https://a.co/d/abc123",
+    "price": 29.99,
+    "imageUrl": "https://example.supabase.co/storage/v1/object/sign/wishlist-images/user_2abcDEF/1794400000000-k3j2.jpg?token=fixture",
+    "imagePath": "user_2abcDEF/1794400000000-k3j2.jpg",
+    "priority": "high",
+    "category": null,
+    "privacy": { "kind": "groups" },
+    "privacySummary": "Everyone in your groups",
+    "createdAt": "2026-11-11T18:04:13Z"
+  }
+}

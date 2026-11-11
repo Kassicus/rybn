@@ -1,0 +1,60 @@
+{
+  "items": [
+    {
+      "id": "5f0c2a9e-8d1b-4c3e-9f6a-2b7d4e1c8a90",
+      "title": "Stanley tumbler, 40 oz",
+      "description": null,
+      "url": "https://a.co/d/abc123",
+      "price": 29.99,
+      "imageUrl": "https://example.supabase.co/storage/v1/object/sign/wishlist-images/user_2abcDEF/1794400000000-k3j2.jpg?token=fixture",
+      "imagePath": "user_2abcDEF/1794400000000-k3j2.jpg",
+      "priority": "high",
+      "category": null,
+      "privacy": { "kind": "groups" },
+      "privacySummary": "Everyone in your groups",
+      "createdAt": "2026-11-11T18:04:13Z"
+    },
+    {
+      "id": "a3b9c1d2-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+      "title": "Personalized name mug",
+      "description": "Blue, with Sam on it",
+      "url": "https://www.etsy.com/listing/123456789/personalized-name-mug",
+      "price": 24,
+      "imageUrl": "https://i.etsystatic.com/12345/r/il/abc123/il_794xN.jpg",
+      "imagePath": "https://i.etsystatic.com/12345/r/il/abc123/il_794xN.jpg",
+      "priority": "medium",
+      "category": "Kitchen",
+      "privacy": { "kind": "group", "groupId": "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e" },
+      "privacySummary": "Only Rivera Family",
+      "createdAt": "2026-11-10T09:30:00Z"
+    },
+    {
+      "id": "c4d5e6f7-0a1b-4c2d-9e3f-4a5b6c7d8e9f",
+      "title": "Wool socks",
+      "description": null,
+      "url": null,
+      "price": null,
+      "imageUrl": null,
+      "imagePath": null,
+      "priority": "low",
+      "category": null,
+      "privacy": { "kind": "private" },
+      "privacySummary": "Only you",
+      "createdAt": "2026-11-02T20:15:42Z"
+    },
+    {
+      "id": "e6f7a8b9-1c2d-4e3f-a4b5-c6d7e8f9a0b1",
+      "title": "Christmas Tree 10339",
+      "description": null,
+      "url": "https://www.lego.com/en-us/product/christmas-tree-10339",
+      "price": 99.99,
+      "imageUrl": "https://example.supabase.co/storage/v1/object/sign/wishlist-images/user_2abcDEF/1764604800000-x9q1.jpg?token=fixture",
+      "imagePath": "user_2abcDEF/1764604800000-x9q1.jpg",
+      "priority": "must-have",
+      "category": "Toys",
+      "privacy": { "kind": "legacyTypes", "types": ["family", "friends"] },
+      "privacySummary": "Only your family, friends groups",
+      "createdAt": "2025-12-01T16:00:00Z"
+    }
+  ]
+}
