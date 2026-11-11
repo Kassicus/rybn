@@ -1,7 +1,7 @@
 import { mobileRoute } from "@/lib/mobile/route-live";
-import { listGroups } from "@/lib/mobile/wishlist-live";
+import { groupListAnswer } from "@/lib/mobile/shopping-live";
 
 export const dynamic = "force-dynamic";
 
-/** The groups the caller belongs to, for the privacy picker. */
-export const GET = mobileRoute(() => listGroups());
+/** The groups the caller belongs to, with a member count. */
+export const GET = mobileRoute(() => groupListAnswer());

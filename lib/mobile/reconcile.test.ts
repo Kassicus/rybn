@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { ClaimRow, ClaimedItem, RecipientRow, StoredGift } from "./gifts";
 import { memoryGiftStore, type MemoryGiftStore } from "./test-gift-store";
+import { oven } from "./test-shopping-mocks";
 import { IDS, SAM, TODAY, world } from "./test-shopping";
 import { fileClaim, reconcileGifts, recipientFor } from "./reconcile";
 
@@ -11,10 +12,6 @@ const seeded = (extra: { claims?: ClaimRow[]; gifts?: StoredGift[]; recipients?:
     gifts: [...w.gifts, ...(extra.gifts ?? [])].map((g) => ({ ...g, user_id: SAM })),
     recipients: [...w.recipients, ...(extra.recipients ?? [])].map((r) => ({ ...r, user_id: SAM })),
   });
-const oven = (over: Partial<ClaimRow> = {}, item: Partial<ClaimedItem> = {}) => ({ itemId: IDS.dutchOven, occasionId: IDS.momBirthday,
-  occasionDate: "2027-01-14", owner: w.people.mom, ...over, item: { id: IDS.dutchOven, ownerId: "user_2momABC", title: "Le Creuset Dutch oven",
-  description: "5.5 qt, Flame", url: "https://www.example.com/dutch-oven", price: 419.95, imageValue: "user_2momABC/1793000000000-d7c1.jpg",
-  purchased: false, ...item } });
 const copyOf = (over: Partial<StoredGift> = {}): StoredGift => ({ id: "aaaaaaaa-0000-4000-8000-000000000001", recipient_id: IDS.recipientJoe,
   name: "Le Creuset Dutch oven", description: null, photo_url: null, product_link: "https://www.example.com/dutch-oven", price: null,
   status: "planned", wishlist_item_id: null, from_list: false, occasion_id: null, season_year: 2026, notes: null, is_archived: false,

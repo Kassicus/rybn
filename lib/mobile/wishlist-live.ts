@@ -17,7 +17,7 @@ import {
   type WishlistItemRow,
 } from "./wishlist";
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The groups the caller belongs to, or the Response to send instead. */
 async function loadGroups(): Promise<Response | MobileGroup[]> {
@@ -120,9 +120,4 @@ export async function removeWishlistItem(userId: string, itemId: string): Promis
   if (!lookup.found) return lookup.response;
   const result = await deleteWishlistItem(itemId);
   return databaseFailure(result, "deleteWishlistItem");
-}
-
-export async function listGroups(): Promise<Response | { groups: MobileGroup[] }> {
-  const loaded = await loadGroups();
-  return loaded instanceof Response ? loaded : { groups: loaded };
 }
