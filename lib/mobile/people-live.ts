@@ -19,15 +19,29 @@ function failure(fn: string, error: DbError): Error {
 
 const unique = (ids: string[]) => [...new Set(ids)];
 
+/** A request address has a length limit, so a long id list is asked in chunks of at most this many. */
+const CHUNK = 100;
+
+/** Asks `ask` for each chunk of the (de-duplicated) ids in parallel and joins the answers; any failure fails the read. */
+async function inChunks<T>(ids: string[], ask: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
+  const wanted = unique(ids);
+  const chunks: string[][] = [];
+  for (let i = 0; i < wanted.length; i += CHUNK) chunks.push(wanted.slice(i, i + CHUNK));
+  return (await Promise.all(chunks.map(ask))).flat();
+}
+
 /** The caller's own client throughout: row-level security decides what comes back. */
 export async function profiles(ids: string[]): Promise<Map<string, PersonRow>> {
   const wanted = unique(ids);
   const found = new Map<string, PersonRow>();
   if (wanted.length === 0) return found;
   const supabase = await createClient();
-  const { data, error } = await supabase.from("user_profiles").select(PERSON_COLUMNS).in("id", wanted);
-  if (error) throw failure("profiles", error);
-  for (const p of data ?? []) {
+  const data = await inChunks(wanted, async (chunk) => {
+    const { data, error } = await supabase.from("user_profiles").select(PERSON_COLUMNS).in("id", chunk);
+    if (error) throw failure("profiles", error);
+    return data ?? [];
+  });
+  for (const p of data) {
     found.set(p.id, { id: p.id, username: p.username, display_name: p.display_name, avatar_url: p.avatar_url });
   }
   return found;
@@ -38,9 +52,11 @@ export async function groupMembers(groupIds: string[]): Promise<Map<string, Pers
   const members = new Map<string, PersonRow[]>();
   if (wanted.length === 0) return members;
   const supabase = await createClient();
-  const { data, error } = await supabase.from("group_members").select("group_id, user_id").in("group_id", wanted);
-  if (error) throw failure("groupMembers", error);
-  const rows = data ?? [];
+  const rows = await inChunks(wanted, async (chunk) => {
+    const { data, error } = await supabase.from("group_members").select("group_id, user_id").in("group_id", chunk);
+    if (error) throw failure("groupMembers", error);
+    return data ?? [];
+  });
   const people = await profiles(rows.map((r) => r.user_id));
   for (const r of rows) {
     const person = people.get(r.user_id);
@@ -62,28 +78,45 @@ export async function memberCounts(groupIds: string[]): Promise<Map<string, numb
   const wanted = unique(groupIds);
   if (wanted.length === 0) return new Map();
   const supabase = await createClient();
-  const { data, error } = await supabase.from("group_members").select("group_id").in("group_id", wanted);
-  if (error) throw failure("memberCounts", error);
-  return countBy(data ?? [], "group_id");
+  const rows = await inChunks(wanted, async (chunk) => {
+    const { data, error } = await supabase.from("group_members").select("group_id").in("group_id", chunk);
+    if (error) throw failure("memberCounts", error);
+    return data ?? [];
+  });
+  return countBy(rows, "group_id");
 }
 
-/** Only what the caller may see is counted: row-level security does the filtering. */
+/**
+ * Counted by the database, one request per owner: a list of rows would stop at the API's row limit. Only what the
+ * caller may see is counted, because row-level security applies to the caller's own client.
+ */
 export async function visibleItemCounts(ownerIds: string[]): Promise<Map<string, number>> {
   const wanted = unique(ownerIds);
   if (wanted.length === 0) return new Map();
   const supabase = await createClient();
-  const { data, error } = await supabase.from("wishlist_items").select("user_id").in("user_id", wanted);
-  if (error) throw failure("visibleItemCounts", error);
-  return countBy(data ?? [], "user_id");
+  const counts = await Promise.all(
+    wanted.map(async (owner) => {
+      const { count, error } = await supabase
+        .from("wishlist_items")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", owner);
+      if (error) throw failure("visibleItemCounts", error);
+      return [owner, count ?? 0] as const;
+    }),
+  );
+  return new Map(counts);
 }
 
 export async function occasionRows(ids: string[]): Promise<OccasionRow[]> {
   const wanted = unique(ids);
   if (wanted.length === 0) return [];
   const supabase = await createClient();
-  const { data, error } = await supabase.from("occasions").select(OCCASION_COLUMNS).in("id", wanted);
-  if (error) throw failure("occasionRows", error);
-  return (data ?? []) as unknown as OccasionRow[];
+  const rows = await inChunks(wanted, async (chunk) => {
+    const { data, error } = await supabase.from("occasions").select(OCCASION_COLUMNS).in("id", chunk);
+    if (error) throw failure("occasionRows", error);
+    return (data ?? []) as unknown as OccasionRow[];
+  });
+  return rows;
 }
 
 /**
@@ -95,14 +128,23 @@ export async function linkedItems(ids: string[], viewerId: string): Promise<Map<
   const items = new Map<string, LinkedItem>();
   if (wanted.length === 0) return items;
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("wishlist_items")
-    .select("id, user_id, image_url, purchased")
-    .in("id", wanted);
-  if (error) throw failure("linkedItems", error);
-  const signed = await withSignedWishlistImages(data ?? [], viewerId);
+  const rows = await inChunks(wanted, async (chunk) => {
+    const { data, error } = await supabase
+      .from("wishlist_items")
+      .select("id, user_id, image_url, purchased")
+      .in("id", chunk);
+    if (error) throw failure("linkedItems", error);
+    return data ?? [];
+  });
+  const signed = await withSignedWishlistImages(rows, viewerId);
   for (const r of signed) {
-    items.set(r.id, { id: r.id, ownerId: r.user_id, purchased: r.purchased === true, imageUrl: r.image_url });
+    // An owner is never told their own item is bought (getUserWishlist blanks it too).
+    items.set(r.id, {
+      id: r.id,
+      ownerId: r.user_id,
+      purchased: r.user_id !== viewerId && r.purchased === true,
+      imageUrl: r.image_url,
+    });
   }
   return items;
 }

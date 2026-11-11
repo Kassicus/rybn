@@ -72,6 +72,7 @@ describe("GET /api/mobile/v1/groups", () => {
 
   it("asks for each group's member count once, by id", async () => {
     await GET(get(), ctx);
+    expect(holder.current.memberCounts).toHaveBeenCalledTimes(1);
     expect(holder.current.memberCounts).toHaveBeenCalledWith(expect.arrayContaining([
       "2b8f6c4a-1e3d-4f5a-9b7c-0d1e2f3a4b5c", "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e"]));
   });

@@ -90,9 +90,34 @@ describe("GET /api/mobile/v1/groups/[id]", () => {
 
   it("files a website claim before saying whether a member has a gift", async () => {
     const { store } = holder.current;
-    store.addClaim(oven({ occasionId: IDS.xmas, occasionDate: "2026-12-25" }));
-    await GET(get(IDS.rivera), ctx(IDS.rivera));
-    expect(store.writes).toEqual(["insertGift:Le Creuset Dutch oven"]);
+    const dad = world().people.dad;
+    const hasGift = (body: { members: { person: { id: string }; hasGift: boolean }[] }) =>
+      body.members.find((x) => x.person.id === dad.id)!.hasGift;
+    expect(hasGift(fixture("group"))).toBe(false);
+    // The oven is Dad's in this test, as the database would say.
+    const linked = holder.current.linkedItems.getMockImplementation()!;
+    holder.current.linkedItems.mockImplementation(async (ids: string[], viewer: string) => {
+      const all: Map<string, { ownerId: string }> = await linked(ids, viewer);
+      const oven = all.get(IDS.dutchOven);
+      if (oven) all.set(IDS.dutchOven, { ...oven, ownerId: dad.id } as never);
+      return all;
+    });
+    store.addClaim(oven({ owner: dad, occasionId: IDS.xmas, occasionDate: "2026-12-25" }, { ownerId: dad.id }));
+    const body = await (await GET(get(IDS.rivera), ctx(IDS.rivera))).json();
+    expect(store.writes).toContain("insertGift:Le Creuset Dutch oven");
+    expect(hasGift(body)).toBe(true);
+  });
+
+  it("never says the caller has a gift for themselves, even if a recipient is linked to them", async () => {
+    const w = world();
+    const mine = "cccccccc-0000-4000-8000-000000000003";
+    holder.current.store = memoryGiftStore(SAM, { claims: w.claims,
+      gifts: [...w.gifts.map((g) => ({ ...g, user_id: SAM })),
+        { ...w.gifts[1], id: "cccccccc-0000-4000-8000-000000000004", recipient_id: mine, name: "For me", status: "planned" as const,
+          is_archived: false, user_id: SAM }],
+      recipients: [...w.recipients.map((r) => ({ ...r, user_id: SAM })), { id: mine, name: "Sam Rivera", person_id: SAM, user_id: SAM }] });
+    const body = await (await GET(get(IDS.rivera), ctx(IDS.rivera))).json();
+    expect(body.members.find((x: { isYou: boolean }) => x.isYou).hasGift).toBe(false);
   });
 
   it("shows a member nothing of the gifts or claims others have filed for them", async () => {   // §5.5

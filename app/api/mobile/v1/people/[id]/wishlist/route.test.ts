@@ -69,6 +69,9 @@ describe("GET /api/mobile/v1/people/[id]/wishlist", () => {
     holder.current.getUserWishlist.mockResolvedValue({ data: world().momItems.map((r) => ({ ...r, user_id: SAM, purchased: true })), currentUserId: SAM });
     const body = await (await GET(bearer("http://localhost/api/mobile/v1/people/user_2abcDEF/wishlist"), ctx(SAM))).json();
     expect([body.gifts, body.occasions, body.items.every((i: { state: string }) => i.state === "available")]).toEqual([[], [], true]);
+    // Gloves carry an out-of-stock mark and the scarf a tag in the world: neither shows on the caller's own list.
+    const byId = (id: string) => body.items.find((i: { id: string }) => i.id === id);
+    expect([byId(IDS.gloves).outOfStock, byId(IDS.scarf).tagged]).toEqual([false, false]);
     expect(holder.current.getActiveClaims).not.toHaveBeenCalled();
     expect(holder.current.getTagsForItems).not.toHaveBeenCalled();
   });
