@@ -1,0 +1,9 @@
+{
+  "user": {
+    "id": "user_2abcDEF",
+    "username": "sam",
+    "displayName": "Sam Rivera",
+    "email": "sam@example.com",
+    "avatarUrl": "https://img.clerk.com/abc"
+  }
+}
