@@ -28,11 +28,11 @@ export const RULES = {
 } as const;
 
 /** Control characters: U+0000 to U+001F and U+007F. */
-const CONTROL = /[\u0000-\u001F\u007F]/;
+export const CONTROL = /[\u0000-\u001F\u007F]/;
 /** Control characters other than tab, line feed and carriage return, which notes may hold. */
-const CONTROL_EXCEPT_NOTES_WHITESPACE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+export const CONTROL_EXCEPT_NOTES_WHITESPACE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 /** Whitespace or a control character. */
-const SPACE_OR_CONTROL = /[\s\u0000-\u001F\u007F]/;
+export const SPACE_OR_CONTROL = /[\s\u0000-\u001F\u007F]/;
 
 export interface MobileGroup {
   id: string;
@@ -134,7 +134,7 @@ export function mobileGroups(rows: GroupRow[]): MobileGroup[] {
   return groups.sort((a, b) => a.name.localeCompare(b.name, "en"));
 }
 
-function isWebLink(value: string): boolean {
+export function isWebLink(value: string): boolean {
   try {
     const { protocol } = new URL(value);
     return protocol === "http:" || protocol === "https:";

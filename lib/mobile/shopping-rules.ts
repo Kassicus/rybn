@@ -1,0 +1,18 @@
+/** Every sentence the shopping rules can answer with. */
+export const SHOPPING_RULES = {
+  chooseOccasion: "Choose one of the occasions shown.",
+  notAvailable: "That isn't available to claim any more.",
+  ownItem: "That's on your own list.",
+  alreadyBought: "Someone has already bought that.",
+  alreadyClaimed: "Somebody claimed that a moment ago.",
+  chooseWho: "Choose who it's for.",
+  recipientTooLong: "Keep the name to 100 characters or fewer.",
+  descriptionTooLong: "Keep the description to 1000 characters or fewer.",
+  lastStep: "That gift has already been given.",
+  firstStep: "That's already the first step.",
+  pastOccasion: "That occasion has passed, so it stays at Ordered.",
+  notHeld: "You no longer hold this item.",
+  releaseBought: "It's marked bought, so it can't be released.",
+  releaseStepBack: "Step it back to Claimed before releasing it.",
+  releaseInstead: "Release this claim instead.",
+} as const;

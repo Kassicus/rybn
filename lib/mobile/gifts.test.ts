@@ -1,0 +1,142 @@
+import { describe, it, expect } from "vitest";
+import { INVALID_IMAGE_ERROR } from "@/lib/storage/image-value";
+import { fixture } from "./test-fixtures";
+import { IDS, TODAY, world } from "./test-shopping";
+import { RULES } from "./wishlist";
+import { SHOPPING_RULES } from "./shopping-rules";
+import {
+  buildGiftList,
+  buildGiftViews,
+  giftSeason,
+  parseGiftBody,
+  parseStepBody,
+  planStep,
+  recipientNames,
+  type GiftRow,
+  type StepDirection,
+  type StepFacts,
+  type StepPlan,
+} from "./gifts";
+
+const w = world(), views = w.giftViews(), view = (id: string, vs = views) => vs.find((v) => v.gift.id === id)!;
+const base: StepFacts = { status: "planned", fromList: true, itemLinked: true, held: true, occasionDate: "2026-12-25", today: TODAY };
+const withRows = (change: (r: GiftRow) => GiftRow, ctx = w.giftContext()) => buildGiftViews(w.giftRows().map(change), ctx);
+
+describe("planStep (§5.3, D6, D7, D13)", () => {
+  it.each<[string, Partial<StepFacts>, StepDirection, StepPlan]>([
+    ["Claimed → Ordered marks the item bought", {}, "forward", { ok: true, to: "ordered", markBought: true }],
+    ["Ordered → Claimed marks it not bought", { status: "ordered" }, "back", { ok: true, to: "planned", markBought: false }],
+    ["Ordered → Arrived touches nothing else", { status: "ordered" }, "forward", { ok: true, to: "arrived", markBought: null }],
+    ["Given → Wrapped", { status: "given" }, "back", { ok: true, to: "wrapped", markBought: null }],
+    ["a hand-added gift never touches an item", { fromList: false, itemLinked: false, held: false }, "forward", { ok: true, to: "ordered", markBought: null }],
+    ["an item that has gone or cannot be seen is never touched", { itemLinked: false, held: false }, "forward", { ok: true, to: "ordered", markBought: null }], // Review Focus 5
+    ["refused when the claim is no longer held", { held: false }, "forward", { ok: false, message: SHOPPING_RULES.notHeld }],
+    ["back below Ordered refused once the date has passed", { status: "ordered", occasionDate: "2026-11-10" }, "back", { ok: false, message: SHOPPING_RULES.pastOccasion }],
+    ["back below Ordered allowed on the day itself", { status: "ordered", occasionDate: TODAY }, "back", { ok: true, to: "planned", markBought: false }],
+    ["D13 holds for a hand-added gift too", { status: "ordered", fromList: false, itemLinked: false, held: false, occasionDate: "2026-11-10" }, "back", { ok: false, message: SHOPPING_RULES.pastOccasion }],
+    ["Arrived → Ordered is fine after the date", { status: "arrived", occasionDate: "2026-11-10" }, "back", { ok: true, to: "ordered", markBought: null }],
+    ["nothing after Given", { status: "given" }, "forward", { ok: false, message: SHOPPING_RULES.lastStep }],
+    ["nothing before the first step", {}, "back", { ok: false, message: SHOPPING_RULES.firstStep }],
+  ])("%s", (_, facts, direction, plan) => expect(planStep({ ...base, ...facts }, direction)).toEqual(plan));
+});
+describe("buildGiftViews", () => {
+  it("matches the gift fixture", () => expect(view(IDS.giftScarf).gift).toEqual(fixture("gift").gift));
+  it("matches every gift in the gifts fixture", () => {
+    for (const group of fixture("gifts").groups) for (const g of group.gifts) expect(view(g.id).gift).toEqual(g);
+  });
+  it("sends the named fields only", () => expect(Object.keys(view(IDS.giftScarf).gift).sort()).toEqual(["canGoBack", "canGoForward",
+    "canRelease", "canRemove", "description", "fromList", "held", "id", "imagePath", "imageUrl", "itemGone", "itemId", "itemNotBought",
+    "link", "name", "notes", "occasion", "person", "price", "recipientName", "seasonYear", "status", "updatedAt"]));
+  it("is for the item's owner, whatever its recipient is called", () => {
+    const ctx = w.giftContext(); ctx.recipients.set(IDS.recipientMom, { id: IDS.recipientMom, name: "Mum", person_id: null });
+    const v = view(IDS.giftScarf, buildGiftViews(w.giftRows(), ctx));
+    expect([v.personId, v.gift.person?.name, v.gift.recipientName]).toEqual(["user_2momABC", "Mom", "Mum"]);
+  });
+  it("says the item has gone once it is deleted, and still counts it as from a list", () => {
+    const ctx = w.giftContext(); ctx.held.delete(IDS.scarf);
+    const g = view(IDS.giftScarf, withRows((r) => (r.id === IDS.giftScarf ? { ...r, wishlist_item_id: null } : r), ctx)).gift;
+    expect(g).toMatchObject({ fromList: true, itemGone: true, held: false, canGoForward: true, canRelease: false, canRemove: true, itemId: null });
+  });
+  it("treats an item the caller can no longer see as gone", () => {
+    const ctx = w.giftContext(); ctx.items.delete(IDS.scarf);
+    expect(view(IDS.giftScarf, buildGiftViews(w.giftRows(), ctx)).gift).toMatchObject({ itemGone: true, canGoForward: true, imageUrl: null });
+  });
+  it("says No longer held at Claimed: no step forward, no release, and it can be removed", () => {
+    const ctx = w.giftContext(); ctx.held.clear();
+    expect(view(IDS.giftScarf, buildGiftViews(w.giftRows(), ctx)).gift).toMatchObject(
+      { status: "claimed", held: false, itemGone: false, canGoForward: false, canRelease: false, canRemove: true });
+  });
+  it("says the item is not marked bought when the site un-marked it after Ordered", () => {
+    const ctx = w.giftContext(); ctx.items.set(IDS.catan, { ...ctx.items.get(IDS.catan)!, purchased: false });
+    expect(view(IDS.giftCatan, buildGiftViews(w.giftRows(), ctx)).gift.itemNotBought).toBe(true);
+  });
+  it("offers no Undo at Ordered once the occasion's date has passed", () =>
+    expect(view(IDS.giftCatan, buildGiftViews(w.giftRows(), { ...w.giftContext(), today: "2026-12-26" })).gift.canGoBack).toBe(false));
+  it("never offers release once the item is marked bought", () => {
+    const ctx = w.giftContext(); ctx.items.set(IDS.scarf, { ...ctx.items.get(IDS.scarf)!, purchased: true });
+    expect(view(IDS.giftScarf, buildGiftViews(w.giftRows(), ctx)).gift.canRelease).toBe(false);
+  });
+  it("prefers the gift's own picture and falls back to the item's", () => {
+    expect(view(IDS.giftPhotoBook).gift.imageUrl).toBe(w.signedGiftPhoto("user_2abcDEF/1794500000000-p4b8.jpg"));
+    expect(view(IDS.giftScarf).gift).toMatchObject({ imagePath: null,
+      imageUrl: "https://example.supabase.co/storage/v1/object/sign/wishlist-images/user_2momABC/1793100000000-s2c4.jpg?token=fixture" });
+    const own = view(IDS.giftScarf, withRows((r) => (r.id === IDS.giftScarf
+      ? { ...r, photo_url: w.signedGiftPhoto("user_2abcDEF/1-own.jpg"), photo_path: "user_2abcDEF/1-own.jpg" } : r))).gift;
+    expect([own.imageUrl, own.imagePath]).toEqual([w.signedGiftPhoto("user_2abcDEF/1-own.jpg"), "user_2abcDEF/1-own.jpg"]);
+  });
+});
+describe("giftSeason", () => {
+  it("is the occasion's year", () => expect(giftSeason("2027-01-14", "2026-12-02T10:00:00+00:00")).toBe(2027));
+  it("is the year it was added, in UTC, when it has no occasion", () => expect(giftSeason(null, "2026-12-31T23:30:00-05:00")).toBe(2027));
+});
+describe("buildGiftList", () => {
+  const choices = fixture("gifts").choices;
+  it("matches the gifts fixture", () => expect(buildGiftList({ views, season: null, currentYear: 2026, choices })).toEqual(fixture("gifts")));
+  it("answers another season", () => {
+    const answer = buildGiftList({ views, season: 2025, currentYear: 2026, choices });
+    expect(answer.groups.map((g) => [g.name, g.gifts.map((x) => x.name)])).toEqual([["Grandpa Joe", ["Wool gloves"]]]);
+    expect(answer.counts.given).toBe(1);
+  });
+  it("offers next year's season for a gift filed under next January's birthday", () => {      // Review Focus 3
+    const moved = withRows((r) => (r.id === IDS.giftPhotoBook ? { ...r, occasion_id: IDS.momBirthday } : r));
+    expect(buildGiftList({ views: moved, season: null, currentYear: 2026, choices }).seasons).toEqual([2027, 2026, 2025]);
+    expect(buildGiftList({ views: moved, season: 2027, currentYear: 2026, choices }).groups.map((g) => g.name)).toEqual(["Mom"]);
+  });
+  it("leaves archived gifts out", () => {
+    const archived = withRows((r) => (r.id === IDS.giftHat ? { ...r, is_archived: true } : r));
+    expect(buildGiftList({ views: archived, season: null, currentYear: 2026, choices }).groups.map((g) => g.name)).toEqual(["Alex Rivera", "Mom"]);
+  });
+});
+describe("recipientNames", () => {
+  it("names a recipient after the person, and gives the name for a clash", () =>
+    expect(recipientNames("Mom")).toEqual({ plain: "Mom", fromList: "Mom (from their list)" }));
+  it("keeps both within the tracker's 100 characters", () => {
+    const n = recipientNames("a".repeat(150));
+    expect([[...n.plain].length, [...n.fromList].length, n.fromList.endsWith(" (from their list)")]).toEqual([100, 100, true]);
+  });
+  it("counts an emoji as one character, as the database does", () => expect([...recipientNames("🎁".repeat(100)).fromList]).toHaveLength(100));
+});
+describe("parseGiftBody", () => {
+  const request = fixture("gift-request");
+  it("accepts the request fixture", () => expect(parseGiftBody(request)).toEqual({ ok: true, body: request }));
+  it("accepts a typed name instead of a person", () =>
+    expect(parseGiftBody({ ...request, person: null, recipientName: "  Grandpa Joe " })).toMatchObject({ ok: true, body: { person: null, recipientName: "Grandpa Joe" } }));
+  it.each([
+    ["neither person nor name", { ...request, person: null }, SHOPPING_RULES.chooseWho],
+    ["both", { ...request, recipientName: "Dad" }, SHOPPING_RULES.chooseWho],
+    ["a blank name only", { ...request, person: null, recipientName: "  " }, SHOPPING_RULES.chooseWho],
+    ["a 101-character recipient", { ...request, person: null, recipientName: "a".repeat(101) }, SHOPPING_RULES.recipientTooLong],
+    ["no gift name", { ...request, name: " " }, RULES.nameMissing],
+    ["a 1001-character description", { ...request, description: "a".repeat(1001) }, SHOPPING_RULES.descriptionTooLong],
+    ["a javascript link", { ...request, link: "javascript:alert(1)" }, RULES.linkNotWeb],
+    ["a negative price", { ...request, price: -1 }, RULES.price],
+    ["a picture value that is not text", { ...request, imagePath: 5 }, INVALID_IMAGE_ERROR],
+    ["an occasion that is not text", { ...request, occasion: 7 }, SHOPPING_RULES.chooseOccasion],
+    ["1001 characters of notes", { ...request, notes: "a".repeat(1001) }, RULES.notesTooLong],
+    ["a list", [], RULES.request],
+  ])("refuses %s with a sentence", (_, raw, message) => expect(parseGiftBody(raw)).toEqual({ ok: false, message }));
+});
+describe("parseStepBody", () => {
+  it("accepts the step fixture", () => expect(parseStepBody(fixture("step-request"))).toEqual({ ok: true, direction: "forward" }));
+  it.each([undefined, {}, { direction: "sideways" }])("refuses %j", (raw) => expect(parseStepBody(raw)).toEqual({ ok: false, message: RULES.request }));
+});

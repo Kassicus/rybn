@@ -1,0 +1,167 @@
+{
+  "person": {
+    "id": "user_2momABC",
+    "name": "Mom",
+    "username": "maria",
+    "avatarUrl": "https://img.clerk.com/mom"
+  },
+  "occasion": {
+    "key": "group_date:9c4b2e1a-7d3f-4e5a-8b6c-1d2e3f4a5b6c",
+    "kind": "group_date",
+    "title": "Christmas 2026",
+    "date": "2026-12-25",
+    "group": {
+      "id": "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e",
+      "name": "Rivera Family"
+    }
+  },
+  "occasions": [
+    {
+      "key": "group_date:9c4b2e1a-7d3f-4e5a-8b6c-1d2e3f4a5b6c",
+      "kind": "group_date",
+      "title": "Christmas 2026",
+      "date": "2026-12-25",
+      "group": {
+        "id": "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e",
+        "name": "Rivera Family"
+      }
+    },
+    {
+      "key": "birthday:user_2momABC:2027",
+      "kind": "birthday",
+      "title": "Mom's Birthday",
+      "date": "2027-01-14",
+      "group": null
+    }
+  ],
+  "gifts": [
+    {
+      "id": "e1f2a3b4-0001-4b00-8000-000000000001",
+      "name": "Cashmere scarf",
+      "description": "Grey, the long one",
+      "link": "https://www.example.com/cashmere-scarf",
+      "price": 89,
+      "imageUrl": "https://example.supabase.co/storage/v1/object/sign/wishlist-images/user_2momABC/1793100000000-s2c4.jpg?token=fixture",
+      "imagePath": null,
+      "status": "claimed",
+      "fromList": true,
+      "itemId": "d0a1b2c3-0002-4a00-8000-000000000002",
+      "held": true,
+      "itemGone": false,
+      "itemNotBought": false,
+      "canGoForward": true,
+      "canGoBack": false,
+      "canRelease": true,
+      "canRemove": false,
+      "person": {
+        "id": "user_2momABC",
+        "name": "Mom",
+        "username": "maria",
+        "avatarUrl": "https://img.clerk.com/mom"
+      },
+      "recipientName": "Mom",
+      "occasion": {
+        "key": "group_date:9c4b2e1a-7d3f-4e5a-8b6c-1d2e3f4a5b6c",
+        "kind": "group_date",
+        "title": "Christmas 2026",
+        "date": "2026-12-25",
+        "group": {
+          "id": "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e",
+          "name": "Rivera Family"
+        }
+      },
+      "seasonYear": 2026,
+      "notes": null,
+      "updatedAt": "2026-11-08T19:22:05Z"
+    },
+    {
+      "id": "e1f2a3b4-0002-4b00-8000-000000000002",
+      "name": "Photo book",
+      "description": "Our trip to Lisbon",
+      "link": null,
+      "price": 35,
+      "imageUrl": "https://example.supabase.co/storage/v1/object/sign/gift-photos/user_2abcDEF/1794500000000-p4b8.jpg?token=fixture",
+      "imagePath": "user_2abcDEF/1794500000000-p4b8.jpg",
+      "status": "ordered",
+      "fromList": false,
+      "itemId": null,
+      "held": false,
+      "itemGone": false,
+      "itemNotBought": false,
+      "canGoForward": true,
+      "canGoBack": true,
+      "canRelease": false,
+      "canRemove": true,
+      "person": {
+        "id": "user_2momABC",
+        "name": "Mom",
+        "username": "maria",
+        "avatarUrl": "https://img.clerk.com/mom"
+      },
+      "recipientName": "Mom",
+      "occasion": {
+        "key": "group_date:9c4b2e1a-7d3f-4e5a-8b6c-1d2e3f4a5b6c",
+        "kind": "group_date",
+        "title": "Christmas 2026",
+        "date": "2026-12-25",
+        "group": {
+          "id": "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e",
+          "name": "Rivera Family"
+        }
+      },
+      "seasonYear": 2026,
+      "notes": null,
+      "updatedAt": "2026-11-09T21:10:00Z"
+    }
+  ],
+  "items": [
+    {
+      "id": "d0a1b2c3-0001-4a00-8000-000000000001",
+      "title": "Le Creuset Dutch oven",
+      "description": "5.5 qt, Flame",
+      "url": "https://www.example.com/dutch-oven",
+      "price": 419.95,
+      "imageUrl": "https://example.supabase.co/storage/v1/object/sign/wishlist-images/user_2momABC/1793000000000-d7c1.jpg?token=fixture",
+      "priority": "must-have",
+      "state": "available",
+      "outOfStock": false,
+      "tagged": true
+    },
+    {
+      "id": "d0a1b2c3-0002-4a00-8000-000000000002",
+      "title": "Cashmere scarf",
+      "description": "Grey, the long one",
+      "url": "https://www.example.com/cashmere-scarf",
+      "price": 89,
+      "imageUrl": "https://example.supabase.co/storage/v1/object/sign/wishlist-images/user_2momABC/1793100000000-s2c4.jpg?token=fixture",
+      "priority": "high",
+      "state": "mine",
+      "outOfStock": false,
+      "tagged": true
+    },
+    {
+      "id": "d0a1b2c3-0003-4a00-8000-000000000003",
+      "title": "Kindle Paperwhite",
+      "description": null,
+      "url": "https://www.example.com/kindle",
+      "price": 159.99,
+      "imageUrl": null,
+      "priority": "high",
+      "state": "taken",
+      "outOfStock": false,
+      "tagged": false
+    },
+    {
+      "id": "d0a1b2c3-0004-4a00-8000-000000000004",
+      "title": "Garden gloves",
+      "description": null,
+      "url": null,
+      "price": 18,
+      "imageUrl": null,
+      "priority": "low",
+      "state": "available",
+      "outOfStock": true,
+      "tagged": false
+    }
+  ]
+}

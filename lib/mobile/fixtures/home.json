@@ -1,0 +1,109 @@
+{
+  "occasions": [
+    {
+      "occasion": {
+        "key": "group_date:9c4b2e1a-7d3f-4e5a-8b6c-1d2e3f4a5b6c",
+        "kind": "group_date",
+        "title": "Christmas 2026",
+        "date": "2026-12-25",
+        "group": {
+          "id": "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e",
+          "name": "Rivera Family"
+        }
+      },
+      "people": [
+        {
+          "person": {
+            "id": "user_2alxABC",
+            "name": "Alex Rivera",
+            "username": "alex",
+            "avatarUrl": "https://img.clerk.com/alex"
+          },
+          "giftCount": 1
+        },
+        {
+          "person": {
+            "id": "user_2dadABC",
+            "name": "Dad",
+            "username": "luis",
+            "avatarUrl": null
+          },
+          "giftCount": 0
+        },
+        {
+          "person": {
+            "id": "user_2grnABC",
+            "name": "Gran",
+            "username": "gran",
+            "avatarUrl": null
+          },
+          "giftCount": 0
+        },
+        {
+          "person": {
+            "id": "user_2jrdABC",
+            "name": "jordan",
+            "username": "jordan",
+            "avatarUrl": null
+          },
+          "giftCount": 0
+        },
+        {
+          "person": {
+            "id": "user_2momABC",
+            "name": "Mom",
+            "username": "maria",
+            "avatarUrl": "https://img.clerk.com/mom"
+          },
+          "giftCount": 2
+        }
+      ],
+      "started": 2,
+      "total": 5
+    },
+    {
+      "occasion": {
+        "key": "birthday:user_2momABC:2027",
+        "kind": "birthday",
+        "title": "Mom's Birthday",
+        "date": "2027-01-14",
+        "group": null
+      },
+      "people": [
+        {
+          "person": {
+            "id": "user_2momABC",
+            "name": "Mom",
+            "username": "maria",
+            "avatarUrl": "https://img.clerk.com/mom"
+          },
+          "giftCount": 0
+        }
+      ],
+      "started": 0,
+      "total": 1
+    },
+    {
+      "occasion": {
+        "key": "birthday:user_2prySHA:2027",
+        "kind": "birthday",
+        "title": "Priya Shah's Birthday",
+        "date": "2027-02-03",
+        "group": null
+      },
+      "people": [
+        {
+          "person": {
+            "id": "user_2prySHA",
+            "name": "Priya Shah",
+            "username": "priya",
+            "avatarUrl": null
+          },
+          "giftCount": 0
+        }
+      ],
+      "started": 0,
+      "total": 1
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "gift": {
+    "id": "e1f2a3b4-0001-4b00-8000-000000000001",
+    "name": "Cashmere scarf",
+    "description": "Grey, the long one",
+    "link": "https://www.example.com/cashmere-scarf",
+    "price": 89,
+    "imageUrl": "https://example.supabase.co/storage/v1/object/sign/wishlist-images/user_2momABC/1793100000000-s2c4.jpg?token=fixture",
+    "imagePath": null,
+    "status": "claimed",
+    "fromList": true,
+    "itemId": "d0a1b2c3-0002-4a00-8000-000000000002",
+    "held": true,
+    "itemGone": false,
+    "itemNotBought": false,
+    "canGoForward": true,
+    "canGoBack": false,
+    "canRelease": true,
+    "canRemove": false,
+    "person": {
+      "id": "user_2momABC",
+      "name": "Mom",
+      "username": "maria",
+      "avatarUrl": "https://img.clerk.com/mom"
+    },
+    "recipientName": "Mom",
+    "occasion": {
+      "key": "group_date:9c4b2e1a-7d3f-4e5a-8b6c-1d2e3f4a5b6c",
+      "kind": "group_date",
+      "title": "Christmas 2026",
+      "date": "2026-12-25",
+      "group": {
+        "id": "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e",
+        "name": "Rivera Family"
+      }
+    },
+    "seasonYear": 2026,
+    "notes": null,
+    "updatedAt": "2026-11-08T19:22:05Z"
+  },
+  "occasions": [
+    {
+      "key": "group_date:9c4b2e1a-7d3f-4e5a-8b6c-1d2e3f4a5b6c",
+      "kind": "group_date",
+      "title": "Christmas 2026",
+      "date": "2026-12-25",
+      "group": {
+        "id": "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e",
+        "name": "Rivera Family"
+      }
+    },
+    {
+      "key": "birthday:user_2momABC:2027",
+      "kind": "birthday",
+      "title": "Mom's Birthday",
+      "date": "2027-01-14",
+      "group": null
+    }
+  ]
+}
