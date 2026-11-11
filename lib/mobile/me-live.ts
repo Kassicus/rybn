@@ -15,6 +15,10 @@ export async function loadMe(userId: string): Promise<MeResponse> {
     .maybeSingle();
 
   if (error) throw new Error(`Could not read the profile for ${userId}: ${error.message}`);
-  if (!data) throw new Error(`No profile row for ${userId}`);
+  if (!data) {
+    throw new Error(
+      `No profile row visible for ${userId}: either ensureProfile could not create it, or Supabase did not accept the Clerk token (so RLS hid it)`
+    );
+  }
   return meResponse(data);
 }

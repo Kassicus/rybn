@@ -10,8 +10,9 @@ export const ACTION_FALLBACK = "That didn't work. Please try again.";
  * A sign-in failure answers 401; any other refusal answers 422 with the
  * website's own words.
  */
-export function actionFailure(result: { error?: string }): Response | null {
-  if (result.error === undefined) return null;
-  if (result.error === NOT_SIGNED_IN) return mobileError("unauthorized");
-  return mobileError("invalid", result.error || ACTION_FALLBACK);
+export function actionFailure(result: object): Response | null {
+  const error: unknown = "error" in result ? result.error : undefined;
+  if (error === undefined || error === null) return null;
+  if (error === NOT_SIGNED_IN) return mobileError("unauthorized");
+  return mobileError("invalid", typeof error === "string" && error !== "" ? error : ACTION_FALLBACK);
 }

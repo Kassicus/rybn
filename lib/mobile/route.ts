@@ -49,8 +49,13 @@ interface RouteContext {
 }
 
 export function parseMinBuild(value: string | undefined): number | null {
-  const n = Number.parseInt(value ?? "", 10);
-  return Number.isFinite(n) ? n : null;
+  const text = (value ?? "").trim();
+  return /^[0-9]+$/.test(text) ? Number.parseInt(text, 10) : null;
+}
+
+/** True for `Bearer ` followed by at least one non-space character, matched exactly. */
+function hasBearerToken(request: Request): boolean {
+  return /^Bearer \S/.test(request.headers.get("authorization") ?? "");
 }
 
 function appBuild(request: Request): number {
@@ -79,6 +84,10 @@ export function createMobileRoute(deps: MobileRouteDeps) {
         const min = deps.minBuild();
         if (min !== null && appBuild(request) < min) return mobileError("upgrade_required");
 
+        // Bearer only: with no Authorization header Clerk would fall back to the browser's session cookie,
+        // which a cross-site page can send. Never reach identify without one.
+        if (!hasBearerToken(request)) return mobileError("unauthorized");
+
         const userId = await deps.identify();
         if (userId === null) return mobileError("unauthorized");
 
@@ -91,7 +100,15 @@ export function createMobileRoute(deps: MobileRouteDeps) {
 
         let body = undefined as B;
         if (options.body) {
-          const raw: unknown = await request.json().catch(() => undefined);
+          const text = await request.text();
+          let raw: unknown = undefined;
+          if (text !== "") {
+            try {
+              raw = JSON.parse(text);
+            } catch {
+              return mobileError("invalid", "body: must be JSON");
+            }
+          }
           const parsed = options.body.safeParse(raw);
           if (!parsed.success) return invalid(parsed.error, "body");
           body = parsed.data;

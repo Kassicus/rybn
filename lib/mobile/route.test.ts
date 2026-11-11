@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { createMobileRoute, parseMinBuild, type MobileRouteDeps } from "./route";
@@ -7,8 +7,12 @@ const errorFixture = JSON.parse(readFileSync("lib/mobile/fixtures/error.json", "
 
 const noParams = { params: Promise.resolve({}) };
 
-function request(init: { build?: string; body?: unknown; search?: string } = {}): Request {
+afterEach(() => vi.restoreAllMocks());
+
+function request(init: { build?: string; body?: unknown; search?: string; auth?: string | null } = {}): Request {
   const headers = new Headers();
+  const auth = init.auth === undefined ? "Bearer test-token" : init.auth;
+  if (auth !== null) headers.set("authorization", auth);
   if (init.build !== undefined) headers.set("x-app-build", init.build);
   if (init.body !== undefined) headers.set("content-type", "application/json");
   return new Request(`http://localhost/api/mobile/v1/thing${init.search ?? ""}`, {
@@ -36,15 +40,20 @@ describe("mobileRoute", () => {
     const empty = route()(async () => null);
     expect((await empty(request({ build: "1", body: {} }), noParams)).headers.get("cache-control")).toBe("no-store");
     const own = route()(async () => new Response("teapot", { status: 418 }));
-    expect((await own(request({ build: "1" }), noParams)).headers.get("cache-control")).toBe("no-store");
+    const teapot = await own(request({ build: "1" }), noParams);
+    expect(teapot.headers.get("cache-control")).toBe("no-store");
+    expect(teapot.status).toBe(418);
+    expect(await teapot.text()).toBe("teapot");
     const frozen = route()(async () => Response.redirect("http://localhost/elsewhere", 302));
-    expect((await frozen(request({ build: "1" }), noParams)).headers.get("cache-control")).toBe("no-store");
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const moved = await frozen(request({ build: "1" }), noParams);
+    expect(moved.headers.get("cache-control")).toBe("no-store");
+    expect(moved.status).toBe(302);
+    expect(moved.headers.get("location")).toBe("http://localhost/elsewhere");
+    vi.spyOn(console, "error").mockImplementation(() => {});
     const failing = route()(async () => {
       throw new Error("boom");
     });
     expect((await failing(request({ build: "1" }), noParams)).headers.get("cache-control")).toBe("no-store");
-    spy.mockRestore();
     const old = route({ minBuild: () => 5 })(async () => ({}));
     expect((await old(request({ build: "1" }), noParams)).headers.get("cache-control")).toBe("no-store");
     const out = route({ identify: async () => null })(async () => ({}));
@@ -87,10 +96,26 @@ describe("mobileRoute", () => {
     expect(await res.json()).toEqual(errorFixture);
   });
 
+  it("answers 401 and never identifies the caller when there is no bearer token", async () => {
+    for (const auth of [null, "Basic abc", "bearer abc", "Bearer ", "Bearer  "]) {
+      const identify = vi.fn(async () => "user_1");
+      const GET = route({ identify })(async () => ({}));
+      const res = await GET(request({ build: "1", auth }), noParams);
+      expect(res.status).toBe(401);
+      expect((await res.json()).error.code).toBe("unauthorized");
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(identify).not.toHaveBeenCalled();
+    }
+  });
+
   it("checks the build, then sign-in, then the query, then the body", async () => {
     const options = { query: z.object({ week: z.string() }), body: z.object({ name: z.string() }) };
     const lowAndOut = route({ minBuild: () => 5, identify: async () => null })(async () => ({}), options);
     expect((await lowAndOut(request({ build: "1", body: {} }), noParams)).status).toBe(426);
+    const lowNoBearer = route({ minBuild: () => 5 })(async () => ({}), options);
+    expect((await lowNoBearer(request({ build: "1", auth: null, body: {} }), noParams)).status).toBe(426);
+    const noBearerBadBody = route()(async () => ({}), options);
+    expect((await noBearerBadBody(request({ build: "1", auth: null, body: { name: 5 } }), noParams)).status).toBe(401);
     const out = route({ identify: async () => null })(async () => ({}), options);
     expect((await out(request({ build: "1", body: {} }), noParams)).status).toBe(401);
     const bad = route()(async () => ({}), options);
@@ -112,13 +137,38 @@ describe("mobileRoute", () => {
     const POST = route()(async () => ({}), { body: z.object({ name: z.string() }) });
     const notJson = new Request("http://localhost/api/mobile/v1/thing", {
       method: "POST",
-      headers: { "x-app-build": "1" },
+      headers: { "x-app-build": "1", authorization: "Bearer test-token" },
       body: "not json",
     });
     expect((await POST(notJson, noParams)).status).toBe(422);
     const wrong = await POST(request({ build: "1", body: { name: 5 } }), noParams);
     expect(wrong.status).toBe(422);
     expect((await wrong.json()).error.code).toBe("invalid");
+  });
+
+  it("says the body must be JSON when it is malformed", async () => {
+    const POST = route()(async () => ({}), { body: z.object({ name: z.string() }).optional() });
+    const notJson = new Request("http://localhost/api/mobile/v1/thing", {
+      method: "POST",
+      headers: { authorization: "Bearer test-token" },
+      body: "{oops",
+    });
+    const res = await POST(notJson, noParams);
+    expect(res.status).toBe(422);
+    const { error } = await res.json();
+    expect(error.code).toBe("invalid");
+    expect(error.message).toBe("body: must be JSON");
+  });
+
+  it("lets a schema accept an empty body as no body", async () => {
+    const POST = route()(async ({ body }) => ({ body: body ?? null }), { body: z.object({ name: z.string() }).optional() });
+    const empty = new Request("http://localhost/api/mobile/v1/thing", {
+      method: "POST",
+      headers: { authorization: "Bearer test-token" },
+    });
+    const res = await POST(empty, noParams);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ body: null });
   });
 
   it("hands the parsed query and body to the handler", async () => {
@@ -143,11 +193,10 @@ describe("mobileRoute", () => {
     });
     expect(text).not.toContain("relation");
     expect(spy).toHaveBeenCalledWith(expect.stringContaining("/api/mobile/v1/thing"), expect.anything());
-    spy.mockRestore();
   });
 
   it("answers 500, not 401, when identifying the caller throws", async () => {
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
     const GET = route({
       identify: async () => {
         throw new Error("Auth service unavailable");
@@ -156,7 +205,6 @@ describe("mobileRoute", () => {
     const res = await GET(request({ build: "1" }), noParams);
     expect(res.status).toBe(500);
     expect((await res.json()).error.code).toBe("server_error");
-    spy.mockRestore();
   });
 });
 
@@ -169,5 +217,10 @@ describe("parseMinBuild", () => {
 
   it("reads a whole number", () => {
     expect(parseMinBuild("12")).toBe(12);
+    expect(parseMinBuild(" 12 ")).toBe(12);
+  });
+
+  it("is null for anything that is not all digits", () => {
+    for (const value of ["12abc", "v12", "1.5", "-3"]) expect(parseMinBuild(value)).toBeNull();
   });
 });
