@@ -55,7 +55,7 @@ export function memoryGiftStore(
       await tick();
       const nameClash = mine(recipients).some((r) => r.name === row.name);
       const personClash = row.person_id !== null && mine(recipients).some((r) => r.person_id === row.person_id);
-      // The database most likely reports the name index first; personClashFirst makes it report the other.
+      // The database reports the name index first (observed on the scratch database); personClashFirst makes it report the other.
       if (seed.personClashFirst && personClash) return { ok: false, clash: "person" };
       if (nameClash) return { ok: false, clash: "name" };
       if (personClash) return { ok: false, clash: "person" };

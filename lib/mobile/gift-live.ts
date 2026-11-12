@@ -60,20 +60,28 @@ async function choicesFor(personId: string | null): Promise<Answer<UpcomingOccas
   return personId !== null ? occasionsForPerson(personId) : groupDates();
 }
 
+/** The members of each of the caller's groups, or the Response to send instead. */
+async function myGroupMembers(): Promise<Answer<Map<string, PersonRow[]>>> {
+  const groups = await getMyGroups();
+  const failed = databaseFailure(groups, "getMyGroups");
+  if (failed) return failed;
+  const ids = (groups.data as GroupRow[]).flatMap((r) => (typeof r.id === "string" ? [r.id] : []));
+  return groupMembers(ids);
+}
+
 export async function giftListAnswer(userId: string, season: string | null): Promise<Answer<GiftListAnswer>> {
   if (season !== null && !SEASON.test(season)) return mobileError("invalid", RULES.request);
   const today = todayISO();
   const store = await createGiftStore(userId);
   await reconcileGifts(store, today);
-  const views = await loadGiftViews(userId, store, today);
-  const upcoming = await upcomingForCaller();
+  // The occasions, and the groups with their members, do not depend on the gifts or on each other.
+  const [views, upcoming, members] = await Promise.all([
+    loadGiftViews(userId, store, today),
+    upcomingForCaller(),
+    myGroupMembers(),
+  ]);
   if (upcoming instanceof Response) return upcoming;
-
-  const groups = await getMyGroups();
-  const failed = databaseFailure(groups, "getMyGroups");
-  if (failed) return failed;
-  const ids = (groups.data as GroupRow[]).flatMap((r) => (typeof r.id === "string" ? [r.id] : []));
-  const members = await groupMembers(ids);
+  if (members instanceof Response) return members;
 
   return buildGiftList({
     views,

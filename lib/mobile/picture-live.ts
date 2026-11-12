@@ -11,7 +11,7 @@ export async function storePicture(
   userId: string,
   bytes: Uint8Array,
   kind: PictureKind,
-  bucket: ImageBucket = "wishlist-images",
+  bucket: ImageBucket,
 ): Promise<{ imagePath: string; imageUrl: string }> {
   const path = picturePath(userId, kind.extension, Date.now(), crypto.randomUUID());
   const supabase = await createClient();

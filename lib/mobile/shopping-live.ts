@@ -121,7 +121,8 @@ export async function personListAnswer(
   if (!found) return mobileError("not_found");
 
   if (personId === userId) {
-    // §5.5: the caller's own list is their items alone. No claims, tags, gifts or occasions are read.
+    // §5.5: the caller's own list is their items alone. Nothing about these items' claims, tags, gifts or occasions is
+    // read for it (the reconciling step above has read the caller's own claims, which are on other people's items).
     const own = await getUserWishlist(userId);
     const failed = databaseFailure(own, "getUserWishlist");
     if (failed) return failed;
