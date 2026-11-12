@@ -43,6 +43,7 @@ vi.mock("@/lib/claims/active", async (importOriginal) => ({
 const { POST, DELETE } = await import("./route");
 const { bearer, hideItem, oven, worldMocks, worldStore } = await import("@/lib/mobile/test-shopping-mocks");
 const { memoryGiftStore } = await import("@/lib/mobile/test-gift-store");
+const { reconcileGifts } = await import("@/lib/mobile/reconcile");
 const { SHOPPING_RULES } = await import("@/lib/mobile/shopping-rules");
 const { IDS, SAM, world } = await import("@/lib/mobile/test-shopping");
 
@@ -242,6 +243,19 @@ describe("POST /api/mobile/v1/wishlist/[id]/claim", () => {
     expect((await res.json()).gift).toMatchObject({ id: IDS.giftScarf, held: true, status: "claimed" });
     expect(holder.current.rpc).not.toHaveBeenCalled();
     expect(holder.current.store.allGifts()).toHaveLength(world().gifts.length);
+  });
+
+  it("leaves the season alone when the holder retries in the new year a claim made with no occasion last year", async () => {   // Minor 4
+    holder.current.store.addClaim(oven({ occasionId: null, occasionDate: null, claimedAt: "2026-12-20T10:00:00.000000+00:00" }));
+    holder.current.todayISO.mockReturnValue("2026-12-20");
+    await reconcileGifts(holder.current.store, "2026-12-20");
+    expect(holder.current.store.allGifts().find((g) => g.wishlist_item_id === IDS.dutchOven)?.season_year).toBe(2026);
+    holder.current.store.writes.length = 0;
+    holder.current.todayISO.mockReturnValue("2027-01-05");
+    const res = await POST(post({ occasion: null }), ctx(IDS.dutchOven));
+    expect([res.status, (await res.json()).gift.seasonYear]).toEqual([200, 2026]);
+    expect(holder.current.store.writes).toEqual([]);
+    expect(holder.current.rpc).not.toHaveBeenCalled();
   });
 
   it("files the gift of a held claim that was left without one", async () => {

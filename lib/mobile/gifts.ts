@@ -82,8 +82,11 @@ export interface StoredGift {
   wishlist_item_id: string | null;
   from_list: boolean;
   occasion_id: string | null;
-  /** Never null: types/database.ts types Insert/Update as `season_year?: number`, and every writer sets a year. */
-  season_year: number;
+  /**
+   * The column is nullable in the database (types/database.ts types it as a number, but it has no not-null rule).
+   * Every writer here sets a year (NewGift); a null read is shown under the year the gift was added.
+   */
+  season_year: number | null;
   notes: string | null;
   is_archived: boolean;
   created_at: string;
@@ -113,6 +116,8 @@ export interface ClaimRow {
   itemId: string;
   occasionId: string | null;
   occasionDate: string | null;
+  /** When the claim was made (its claimed_at): an undated claim's gift belongs to that year's season. */
+  claimedAt: string;
   item: ClaimedItem | null;
   owner: PersonRow | null;
 }
@@ -186,9 +191,18 @@ export function heldItemIds(claims: ClaimRow[], today: string): Set<string> {
   return held;
 }
 
-/** §4.6: the year of the occasion's date, else the year the gift was added (UTC). */
-export function giftSeason(occasionDate: string | null, createdAt: string): number {
-  return occasionDate !== null ? Number(occasionDate.slice(0, 4)) : new Date(createdAt).getUTCFullYear();
+/** §4.6, for a gift being written: the year of the occasion's date, else the year of `since` (UTC). */
+export function giftSeason(occasionDate: string | null, since: string): number {
+  return occasionDate !== null ? Number(occasionDate.slice(0, 4)) : new Date(since).getUTCFullYear();
+}
+
+/**
+ * The season the app is told: the year of the gift's occasion when the caller can see it; otherwise the stored season;
+ * otherwise (an empty column) the year the gift was added.
+ */
+function shownSeason(row: StoredGift, occasion: UpcomingOccasion | null): number {
+  if (occasion) return Number(occasion.occasionDate.slice(0, 4));
+  return row.season_year ?? giftSeason(null, row.created_at);
 }
 
 export function buildGiftViews(rows: GiftRow[], ctx: GiftContext): GiftView[] {
@@ -235,7 +249,7 @@ export function buildGiftViews(rows: GiftRow[], ctx: GiftContext): GiftView[] {
       person: personRow ? mobilePerson(personRow) : null,
       recipientName: recipient?.name ?? "Someone",
       occasion: occasion ? mobileOccasion(occasion) : null,
-      seasonYear: giftSeason(occasion?.occasionDate ?? null, row.created_at),
+      seasonYear: shownSeason(row, occasion),
       notes: row.notes,
       updatedAt: utcSeconds(row.updated_at),
     };

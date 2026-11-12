@@ -1,8 +1,8 @@
 import type { GiftStatus } from "@/lib/schemas/gift-tracking";
 import type { ClaimRow, RecipientRow, StoredGift } from "./gifts";
 
-/** A gift to insert: every column the step sets. season_year is always a number. */
-export type NewGift = Omit<StoredGift, "id" | "is_archived" | "created_at" | "updated_at">;
+/** A gift to insert: every column the step sets. season_year is always a number, though a stored one can be null. */
+export type NewGift = Omit<StoredGift, "id" | "is_archived" | "created_at" | "updated_at" | "season_year"> & { season_year: number };
 /** season_year, when present, is a number, never null. */
 export type GiftPatch = Partial<NewGift>;
 

@@ -9,7 +9,7 @@ const GIFT_COLUMNS =
   "id, recipient_id, name, description, photo_url, product_link, price, status, wishlist_item_id, from_list, occasion_id, season_year, notes, is_archived, created_at, updated_at";
 const RECIPIENT_COLUMNS = "id, name, person_id";
 const CLAIM_COLUMNS =
-  "item_id, occasion_id, occasions ( occasion_date ), wishlist_items ( id, user_id, title, description, url, price, image_url, purchased )";
+  "item_id, occasion_id, claimed_at, occasions ( occasion_date ), wishlist_items ( id, user_id, title, description, url, price, image_url, purchased )";
 const OWNER_COLUMNS = "id, username, display_name, avatar_url";
 
 type DbError = { code?: string; message: string };
@@ -68,6 +68,7 @@ const toRecipient = (r: RecipientRow): RecipientRow => ({ id: r.id, name: r.name
 interface ClaimDbRow {
   item_id: string;
   occasion_id: string | null;
+  claimed_at: string;
   occasions: { occasion_date: string } | null;
   wishlist_items: {
     id: string;
@@ -125,6 +126,7 @@ export async function createGiftStore(userId: string): Promise<GiftStore> {
           itemId: r.item_id,
           occasionId: r.occasion_id,
           occasionDate: r.occasions?.occasion_date ?? null,
+          claimedAt: r.claimed_at,
           item: item
             ? {
                 id: item.id,

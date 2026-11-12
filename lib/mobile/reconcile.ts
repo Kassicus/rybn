@@ -20,7 +20,7 @@ export async function reconcileGifts(store: GiftStore, today: string): Promise<v
     const g = gifts.find((x) => x.wishlist_item_id === claim.itemId);
     if (!g) {
       try {
-        gifts.push(await fileClaim(store, claim, today));
+        gifts.push(await fileClaim(store, claim));
       } catch (e) {
         if (!isClaimDataError(e)) throw e;
         // One claim's own data (a value the table refuses): skip it so the rest still show. Id and code only.
@@ -82,10 +82,15 @@ function handMadeCopy(gifts: StoredGift[], recipients: RecipientRow[], claim: He
     .sort(newestFirst)[0];
 }
 
-export async function fileClaim(store: GiftStore, claim: HeldClaim, today: string): Promise<StoredGift> {
+/**
+ * The caller's gift for a held claim: the one already filed for the item, a hand-made copy linked, or a new one. Its
+ * season is the occasion's year, or for a claim with no occasion the year the claim was made: so filing it again, or
+ * first filing an old site claim, never moves it to the year it happens to be filed in.
+ */
+export async function fileClaim(store: GiftStore, claim: HeldClaim): Promise<StoredGift> {
   let gifts = await store.gifts();
   const status = claim.item.purchased ? "ordered" : "planned";
-  const season = giftSeason(claim.occasionDate, today);
+  const season = giftSeason(claim.occasionDate, claim.claimedAt);
   const byItem = (rows: StoredGift[]) => rows.find((g) => g.wishlist_item_id === claim.itemId);
 
   const existing = byItem(gifts);

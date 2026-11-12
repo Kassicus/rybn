@@ -118,11 +118,12 @@ export function bearer(url: string, init: RequestInit = {}): Request {
   return new Request(url, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), authorization: "Bearer test-token" } });
 }
 
-/** Sam's claim on Mom's Dutch oven, made on the site for Mom's birthday: Task 3's `oven()`, moved here for Tasks 4–6. */
+/** Sam's claim on Mom's Dutch oven, made on the site yesterday for Mom's birthday: Task 3's `oven()`, moved here for Tasks 4–6. */
 export function oven(over: Partial<ClaimRow> = {}, item: Partial<ClaimedItem> = {}): ClaimRow & { item: ClaimedItem } {
   const w = world();
   return {
-    itemId: IDS.dutchOven, occasionId: IDS.momBirthday, occasionDate: "2027-01-14", owner: w.people.mom, ...over,
+    itemId: IDS.dutchOven, occasionId: IDS.momBirthday, occasionDate: "2027-01-14", claimedAt: "2026-11-10T09:00:00.000000+00:00",
+    owner: w.people.mom, ...over,
     item: {
       id: IDS.dutchOven, ownerId: "user_2momABC", title: "Le Creuset Dutch oven", description: "5.5 qt, Flame",
       url: "https://www.example.com/dutch-oven", price: 419.95, imageValue: "user_2momABC/1793000000000-d7c1.jpg",

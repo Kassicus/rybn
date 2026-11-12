@@ -143,11 +143,11 @@ export function world() {
   ];
 
   const claims: ClaimRow[] = [
-    { itemId: IDS.scarf, occasionId: IDS.xmas, occasionDate: "2026-12-25", owner: people.mom,
+    { itemId: IDS.scarf, occasionId: IDS.xmas, occasionDate: "2026-12-25", claimedAt: "2026-11-08T19:21:40.000000+00:00", owner: people.mom,
       item: { id: IDS.scarf, ownerId: people.mom.id, title: "Cashmere scarf", description: "Grey, the long one",
         url: "https://www.example.com/cashmere-scarf", price: 89, imageValue: "user_2momABC/1793100000000-s2c4.jpg",
         purchased: false } },
-    { itemId: IDS.catan, occasionId: IDS.xmas, occasionDate: "2026-12-25", owner: people.alex,
+    { itemId: IDS.catan, occasionId: IDS.xmas, occasionDate: "2026-12-25", claimedAt: "2026-11-01T18:29:00.000000+00:00", owner: people.alex,
       item: { id: IDS.catan, ownerId: people.alex.id, title: "Catan", description: null,
         url: "https://www.example.com/catan", price: 49.99, imageValue: null, purchased: true } },
   ];

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import type { ClaimRow, ClaimedItem, RecipientRow, StoredGift } from "./gifts";
+import { buildGiftViews, type ClaimRow, type ClaimedItem, type RecipientRow, type StoredGift } from "./gifts";
 import type { NewGift } from "./gift-store";
 import { memoryGiftStore, type MemoryGiftStore } from "./test-gift-store";
 import { oven } from "./test-shopping-mocks";
@@ -20,6 +20,11 @@ const copyOf = (over: Partial<StoredGift> = {}): StoredGift => ({ id: "aaaaaaaa-
   status: "planned", wishlist_item_id: null, from_list: false, occasion_id: null, season_year: 2026, notes: null, is_archived: false,
   created_at: "2026-10-02T10:00:00.000000+00:00", updated_at: "2026-10-02T10:00:00.000000+00:00", ...over });
 const forItem = (s: MemoryGiftStore, itemId: string) => s.allGifts().filter((g) => g.wishlist_item_id === itemId);
+/** The season the app is told for the item's gift: what a person is shown, not only the stored column. */
+const shownSeason = (s: MemoryGiftStore, itemId: string) => {
+  const row = forItem(s, itemId)[0];
+  return buildGiftViews([{ ...row, photo_path: row.photo_url }], w.giftContext())[0].gift.seasonYear;
+};
 const scarfClaim = (over: Partial<ClaimRow>, item: Partial<ClaimedItem> = {}) => ({ ...w.claims[0], ...over, item: { ...w.claims[0].item!, ...item } });
 
 describe("reconcileGifts", () => {
@@ -29,6 +34,7 @@ describe("reconcileGifts", () => {
     expect(forItem(s, IDS.dutchOven)).toEqual([expect.objectContaining({ recipient_id: IDS.recipientMom, name: "Le Creuset Dutch oven",
       description: "5.5 qt, Flame", product_link: "https://www.example.com/dutch-oven", price: 419.95, photo_url: null, status: "planned",
       from_list: true, occasion_id: IDS.momBirthday, season_year: 2027, notes: null })]);
+    expect(shownSeason(s, IDS.dutchOven)).toBe(2027);
   });
   it("copies the item's picture only when it is an outside address", async () => {
     const s = seeded({ claims: [oven({}, { imageValue: "https://images.example.com/oven.jpg" })] }); await reconcileGifts(s, TODAY);
@@ -44,9 +50,16 @@ describe("reconcileGifts", () => {
     const s = seeded({ claims: [oven({}, { purchased: true })] }); await reconcileGifts(s, TODAY);
     expect(forItem(s, IDS.dutchOven)[0].status).toBe("ordered");
   });
-  it("files a claim with no occasion under No occasion, in this year's season", async () => {
+  it("files a claim with no occasion under No occasion, in the season of the year it was claimed", async () => {
     const s = seeded({ claims: [oven({ occasionId: null, occasionDate: null })] }); await reconcileGifts(s, TODAY);
     expect(forItem(s, IDS.dutchOven)[0]).toMatchObject({ occasion_id: null, season_year: 2026 });
+    expect(shownSeason(s, IDS.dutchOven)).toBe(2026);
+  });
+  it("files a site claim made last year, and first filed today, under last year's season", async () => {   // Important 3
+    const s = seeded({ claims: [oven({ occasionId: null, occasionDate: null, claimedAt: "2025-12-20T10:00:00.000000+00:00" })] });
+    await reconcileGifts(s, TODAY);
+    expect(forItem(s, IDS.dutchOven)[0]).toMatchObject({ occasion_id: null, season_year: 2025 });
+    expect(shownSeason(s, IDS.dutchOven)).toBe(2025);
   });
   it("makes a recipient named after a person who has none", async () => {
     const s = seeded({ claims: [oven({ owner: w.people.dad }, { ownerId: "user_2dadABC" })] }); await reconcileGifts(s, TODAY);
@@ -56,6 +69,7 @@ describe("reconcileGifts", () => {
     const s = seeded({ claims: [oven()], gifts: [copyOf()] }); await reconcileGifts(s, TODAY);
     expect(forItem(s, IDS.dutchOven)).toEqual([expect.objectContaining({ id: "aaaaaaaa-0000-4000-8000-000000000001",
       recipient_id: IDS.recipientJoe, from_list: true, occasion_id: IDS.momBirthday, season_year: 2027, status: "planned" })]);
+    expect(shownSeason(s, IDS.dutchOven)).toBe(2027);
     expect(s.writes.filter((x) => x.startsWith("insert"))).toEqual([]);
   });
   it("links the newest of several qualifying copies", async () => {
@@ -99,10 +113,11 @@ describe("reconcileGifts", () => {
     expect(forItem(s, IDS.dutchOven).map((g) => g.recipient_id)).toEqual([IDS.recipientMom]);
     expect(s.writes).toContain("insertGift:Le Creuset Dutch oven");
   });
-  it("seasons a linked copy by today's year when the claim has no occasion, however old the copy", async () => {
+  it("seasons a linked copy by the year it was claimed when the claim has no occasion, however old the copy", async () => {
     const s = seeded({ claims: [oven({ occasionId: null, occasionDate: null })], gifts: [copyOf({ created_at: "2025-12-30T10:00:00.000000+00:00" })] });
     await reconcileGifts(s, TODAY);
     expect(forItem(s, IDS.dutchOven)[0]).toMatchObject({ occasion_id: null, season_year: 2026 });
+    expect(shownSeason(s, IDS.dutchOven)).toBe(2026);
   });
   it("breaks a tie in created_at by id, whichever order the copies come in", async () => {
     const a = copyOf({ id: "aaaaaaaa-0000-4000-8000-000000000002" });
@@ -134,6 +149,7 @@ describe("reconcileGifts", () => {
     const s = seeded({ replaceClaims: true, claims: [scarfClaim({ occasionId: IDS.momBirthday, occasionDate: "2027-01-14" }), w.claims[1]] });
     await reconcileGifts(s, TODAY);
     expect(forItem(s, IDS.scarf)[0]).toMatchObject({ occasion_id: IDS.momBirthday, season_year: 2027 });
+    expect(shownSeason(s, IDS.scarf)).toBe(2027);
   });
   it("leaves a gift at Claimed whose claim is no longer held", async () => {
     const s = seeded({ replaceClaims: true, claims: [w.claims[1]] }); await reconcileGifts(s, TODAY);
@@ -230,7 +246,7 @@ describe("a gift or copy deleted at the same instant", () => {
   it("is filed afresh when the item's gift goes away as it is moved", async () => {
     const s = seeded({ replaceClaims: true, claims: [] });
     const store = { ...s, updateGift: async (id: string) => { await s.deleteGift(id); return null; } };
-    const gift = await fileClaim(store, scarfClaim({ occasionId: IDS.momBirthday, occasionDate: "2027-01-14" }) as ClaimRow & { item: ClaimedItem }, TODAY);
+    const gift = await fileClaim(store, scarfClaim({ occasionId: IDS.momBirthday, occasionDate: "2027-01-14" }) as ClaimRow & { item: ClaimedItem });
     expect(gift.id).not.toBe(IDS.giftScarf);
     expect(forItem(s, IDS.scarf)).toEqual([expect.objectContaining({ id: gift.id, occasion_id: IDS.momBirthday })]);
   });
@@ -258,32 +274,43 @@ describe("fileClaim", () => {
   it("gives a linked copy and a claim made again the same season", async () => {
     const s = seeded({ gifts: [copyOf({ created_at: "2025-12-30T10:00:00.000000+00:00" })] });
     const claim = oven({ occasionId: null, occasionDate: null });
-    expect(await fileClaim(s, claim, TODAY)).toMatchObject({ id: "aaaaaaaa-0000-4000-8000-000000000001", occasion_id: null, season_year: 2026 });
-    const after = s.writes.length; await fileClaim(s, claim, TODAY);
+    expect(await fileClaim(s, claim)).toMatchObject({ id: "aaaaaaaa-0000-4000-8000-000000000001", occasion_id: null, season_year: 2026 });
+    expect(shownSeason(s, IDS.dutchOven)).toBe(2026);   // the copy was added in 2025: the app is told the stored season
+    const after = s.writes.length; await fileClaim(s, claim);
     expect(s.writes.length).toBe(after);
   });
   it("moves a claim made again in a later year into this year's season, and a second run writes nothing", async () => {
     const stale = { ...w.gifts.find((g) => g.id === IDS.giftScarf)!, season_year: 2025 };
     const t = memoryGiftStore(SAM, { gifts: [{ ...stale, user_id: SAM }], recipients: w.recipients.map((r) => ({ ...r, user_id: SAM })) });
     const claim = scarfClaim({}) as ClaimRow & { item: ClaimedItem };
-    expect(await fileClaim(t, claim, TODAY)).toMatchObject({ id: IDS.giftScarf, occasion_id: IDS.xmas, season_year: 2026 });
-    const after = t.writes.length; await fileClaim(t, claim, TODAY);
+    expect(await fileClaim(t, claim)).toMatchObject({ id: IDS.giftScarf, occasion_id: IDS.xmas, season_year: 2026 });
+    expect(shownSeason(t, IDS.scarf)).toBe(2026);
+    const after = t.writes.length; await fileClaim(t, claim);
     expect(t.writes.length).toBe(after);
+  });
+  it("moves last year's gift into this year's season when its claim, with no occasion, is made again this year", async () => {
+    const lastYears = copyOf({ wishlist_item_id: IDS.dutchOven, from_list: true, recipient_id: IDS.recipientMom, season_year: 2025,
+      created_at: "2025-12-01T10:00:00.000000+00:00" });
+    const s = seeded({ replaceClaims: true, claims: [], gifts: [lastYears] });
+    const again = oven({ occasionId: null, occasionDate: null, claimedAt: "2026-11-10T09:00:00.000000+00:00" });
+    expect(await fileClaim(s, again)).toMatchObject({ id: lastYears.id, occasion_id: null, season_year: 2026 });
+    expect(shownSeason(s, IDS.dutchOven)).toBe(2026);
   });
   it("answers the same gift to two calls at once, filing it afresh", async () => {
     const s = seeded();
-    const [a, b] = await Promise.all([fileClaim(s, oven(), TODAY), fileClaim(s, oven(), TODAY)]);
+    const [a, b] = await Promise.all([fileClaim(s, oven()), fileClaim(s, oven())]);
     expect(a.id).toBe(b.id); expect(forItem(s, IDS.dutchOven)).toHaveLength(1);
   });
   it("answers the same gift to two calls at once, linking a copy", async () => {
     const s = seeded({ gifts: [copyOf()] });
-    const [a, b] = await Promise.all([fileClaim(s, oven(), TODAY), fileClaim(s, oven(), TODAY)]);
+    const [a, b] = await Promise.all([fileClaim(s, oven()), fileClaim(s, oven())]);
     expect(a.id).toBe(b.id); expect(a.id).toBe("aaaaaaaa-0000-4000-8000-000000000001"); expect(forItem(s, IDS.dutchOven)).toHaveLength(1);
   });
   it("returns the gift already filed for the item, moved to the claim's occasion (Claim again)", async () => {
     const s = seeded({ replaceClaims: true, claims: [] });
-    const gift = await fileClaim(s, scarfClaim({ occasionId: IDS.momBirthday, occasionDate: "2027-01-14" }) as ClaimRow & { item: ClaimedItem }, TODAY);
-    expect(gift).toMatchObject({ id: IDS.giftScarf, occasion_id: IDS.momBirthday });
+    const gift = await fileClaim(s, scarfClaim({ occasionId: IDS.momBirthday, occasionDate: "2027-01-14" }) as ClaimRow & { item: ClaimedItem });
+    expect(gift).toMatchObject({ id: IDS.giftScarf, occasion_id: IDS.momBirthday, season_year: 2027 });
+    expect(shownSeason(s, IDS.scarf)).toBe(2027);
     expect(s.writes.filter((x) => x.startsWith("insert"))).toEqual([]);
   });
 });

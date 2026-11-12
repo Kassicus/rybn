@@ -86,13 +86,14 @@ export async function claimAnswer(userId: string, itemId: string, raw: unknown):
   const today = todayISO();
   // The store is made before the claim is asked for: once the claim stands, nothing may throw outside the try below.
   const store = await createGiftStore(userId);
-  const fileFor = async (occasionId: string | null, occasionDate: string | null): Promise<StoredGift> =>
+  const fileFor = async (occasionId: string | null, occasionDate: string | null, claimedAt: string): Promise<StoredGift> =>
     fileClaim(
       store,
       {
         itemId,
         occasionId,
         occasionDate,
+        claimedAt,
         owner: (await profiles([owner])).get(owner) ?? null,
         item: {
           id: itemId,
@@ -105,7 +106,6 @@ export async function claimAnswer(userId: string, itemId: string, raw: unknown):
           purchased: data.purchased ?? false,
         },
       },
-      today,
     );
   const answer = async (giftId: string) => {
     const view = (await loadGiftViews(userId, store, today)).find((v) => v.gift.id === giftId);
@@ -114,9 +114,9 @@ export async function claimAnswer(userId: string, itemId: string, raw: unknown):
   };
 
   // A retry by the claim's own holder (a lost answer, or a gift that was never filed): the claim stands as it is,
-  // with its own occasion, and only its gift is filed. The database is not asked again.
+  // with its own occasion and date, and only its gift is filed. The database is not asked again.
   const mine = (await store.activeClaims()).find((c) => c.itemId === itemId && heldItemIds([c], today).has(itemId));
-  if (mine) return answer((await fileFor(mine.occasionId, mine.occasionDate)).id);
+  if (mine) return answer((await fileFor(mine.occasionId, mine.occasionDate, mine.claimedAt)).id);
 
   let occasionId: string | null = null;
   let occasionDate: string | null = null;
@@ -136,10 +136,10 @@ export async function claimAnswer(userId: string, itemId: string, raw: unknown):
     throw new Error(`claim_wishlist_item failed: ${error.code ?? ""} ${error.message}`);
   }
 
-  // From here the claim stands. It must never stand without its gift.
+  // From here the claim stands. It must never stand without its gift. It was made just now, within this request.
   let giftId: string;
   try {
-    giftId = (await fileFor(occasionId, occasionDate)).id;
+    giftId = (await fileFor(occasionId, occasionDate, today)).id;
   } catch (filing) {
     await giveUpClaim(itemId);
     throw filing;

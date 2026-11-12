@@ -51,7 +51,7 @@ describe("createGiftStore", () => {
     scripted = [
       {
         data: [{
-          item_id: "i1", occasion_id: "o1", occasions: { occasion_date: "2026-12-25" },
+          item_id: "i1", occasion_id: "o1", claimed_at: "2026-11-08T19:21:40.123456+00:00", occasions: { occasion_date: "2026-12-25" },
           wishlist_items: { id: "i1", user_id: "user_2momABC", title: "Scarf", description: null, url: null, price: 89, image_url: null, purchased: false },
         }],
         error: null,
@@ -61,7 +61,7 @@ describe("createGiftStore", () => {
     const claims = await (await createGiftStore(ME)).activeClaims();
     expect(calls.slice(0, 4)).toEqual([
       ["from", "wishlist_claims"],
-      ["select", "item_id, occasion_id, occasions ( occasion_date ), wishlist_items ( id, user_id, title, description, url, price, image_url, purchased )"],
+      ["select", "item_id, occasion_id, claimed_at, occasions ( occasion_date ), wishlist_items ( id, user_id, title, description, url, price, image_url, purchased )"],
       ["eq", "claimed_by", ME],
       ["is", "released_at", null],
     ]);
@@ -73,7 +73,7 @@ describe("createGiftStore", () => {
       ["in", "id", ["user_2momABC"]],
     ]);
     expect(claims).toEqual([{
-      itemId: "i1", occasionId: "o1", occasionDate: "2026-12-25",
+      itemId: "i1", occasionId: "o1", occasionDate: "2026-12-25", claimedAt: "2026-11-08T19:21:40.123456+00:00",
       item: { id: "i1", ownerId: "user_2momABC", title: "Scarf", description: null, url: null, price: 89, imageValue: null, purchased: false },
       owner: { id: "user_2momABC", username: "maria", display_name: "Mom", avatar_url: null },
     }]);
@@ -87,10 +87,10 @@ describe("createGiftStore", () => {
 
   it("maps a claim whose item cannot be seen to item null", async () => {
     scripted = [
-      { data: [{ item_id: "i1", occasion_id: null, occasions: null, wishlist_items: null }], error: null },
+      { data: [{ item_id: "i1", occasion_id: null, claimed_at: "2026-11-08T19:21:40+00:00", occasions: null, wishlist_items: null }], error: null },
     ];
     expect(await (await createGiftStore(ME)).activeClaims()).toEqual([
-      { itemId: "i1", occasionId: null, occasionDate: null, item: null, owner: null },
+      { itemId: "i1", occasionId: null, occasionDate: null, claimedAt: "2026-11-08T19:21:40+00:00", item: null, owner: null },
     ]);
     expect(callsOf("from")).toEqual([["wishlist_claims"]]);
   });

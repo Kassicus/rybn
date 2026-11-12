@@ -106,6 +106,17 @@ describe("buildGiftViews", () => {
     expect([own.imageUrl, own.imagePath]).toEqual([w.signedGiftPhoto("user_2abcDEF/1-own.jpg"), "user_2abcDEF/1-own.jpg"]);
   });
 });
+describe("a gift's seasonYear", () => {
+  const gloves = (over: Partial<GiftRow>) => view(IDS.giftGloves, withRows((r) => (r.id === IDS.giftGloves ? { ...r, ...over } : r))).gift;
+  it("is the stored season when it has no occasion, not the year it was added", () =>
+    expect(gloves({ season_year: 2026, created_at: "2025-12-20T09:00:00.000000+00:00", occasion_id: null }).seasonYear).toBe(2026));
+  it("is the stored season when its occasion can no longer be seen", () =>
+    expect(gloves({ season_year: 2026, created_at: "2025-12-20T09:00:00.000000+00:00", occasion_id: "99999999-9999-4999-8999-999999999999" }).seasonYear).toBe(2026));
+  it("is the year it was added when the stored season is empty", () =>
+    expect(gloves({ season_year: null, created_at: "2025-12-20T09:00:00.000000+00:00", occasion_id: null }).seasonYear).toBe(2025));
+  it("is the occasion's year when it has one the caller can see, whatever is stored", () =>
+    expect(gloves({ season_year: 2025, occasion_id: IDS.momBirthday }).seasonYear).toBe(2027));
+});
 describe("giftSeason", () => {
   it("is the occasion's year", () => expect(giftSeason("2027-01-14", "2026-12-02T10:00:00+00:00")).toBe(2027));
   it("is the year it was added, in UTC, when it has no occasion, whatever the machine's zone", () => {
@@ -119,7 +130,8 @@ describe("giftSeason", () => {
   });
 });
 describe("held claims", () => {
-  const claim = (purchased: boolean, date: string | null) => ({ itemId: "i1", occasionId: "o1", occasionDate: date, owner: null,
+  const claim = (purchased: boolean, date: string | null) => ({ itemId: "i1", occasionId: "o1", occasionDate: date,
+    claimedAt: "2026-11-01T10:00:00+00:00", owner: null,
     item: { id: "i1", ownerId: "u", title: "t", description: null, url: null, price: null, imageValue: null, purchased } });
   it("lapses after the occasion's date when the item is not bought", () => {
     expect(heldItemIds([claim(false, "2026-11-10")], TODAY).size).toBe(0);
