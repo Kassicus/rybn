@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import type { GiftStatus } from "@/lib/schemas/gift-tracking";
 import { resolveStoredImageValue } from "@/lib/storage/image-value";
+import { failure, type DbError } from "./database";
 import type { GiftPatch, GiftStore, NewGift } from "./gift-store";
 import type { ClaimRow, RecipientRow, StoredGift } from "./gifts";
 import type { PersonRow } from "./occasions";
@@ -11,8 +12,6 @@ const RECIPIENT_COLUMNS = "id, name, person_id";
 const CLAIM_COLUMNS =
   "item_id, occasion_id, claimed_at, occasions ( occasion_date ), wishlist_items ( id, user_id, title, description, url, price, image_url, purchased )";
 const OWNER_COLUMNS = "id, username, display_name, avatar_url";
-
-type DbError = { code?: string; message: string };
 
 /** The clash an insert or update reported, by the index it names; null for anything else. */
 function clashOf(error: DbError, indexes: Record<string, string>): string | null {
@@ -38,10 +37,6 @@ async function readAll<T>(method: string, page: (from: number, to: number) => Pa
     all.push(...rows);
     if (rows.length < PAGE) return all;
   }
-}
-
-function failure(method: string, error: DbError): Error {
-  return Object.assign(new Error(`${method} failed: ${error.message}`), { code: error.code });
 }
 
 const toGift = (r: StoredGift): StoredGift => ({

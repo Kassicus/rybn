@@ -9,7 +9,6 @@ import {
   occasionFromRow,
   occasionKey,
   occasionsInvolving,
-  parseOccasionKey,
   sharedGroupIds,
   shoppingPeople,
   type PersonRow,
@@ -35,12 +34,6 @@ describe("occasion keys", () => {
     ["birthday:user_2abcDEF:2026", "group_date:9c4b2e1a-7d3f-4e5a-8b6c-1d2e3f4a5b6c", "birthday:user_2momABC:2027", "birthday:user_2prySHA:2027"]));
   it("is the same before and after a birthday has a row", () =>
     expect(occasionKey({ ...w.upcoming[3], occasionId: "11111111-1111-4111-8111-111111111111" })).toBe("birthday:user_2prySHA:2027"));
-  it("parses what it builds", () => {
-    expect(parseOccasionKey(IDS.xmasKey)).toEqual({ kind: "group_date", occasionId: IDS.xmas });
-    expect(parseOccasionKey("anniversary:user_2momABC:2027")).toEqual({ kind: "anniversary", celebrantId: "user_2momABC", year: 2027 });
-  });
-  it.each(["", "group_date:not-a-uuid", "birthday:user_2momABC", "birthday:user_2momABC:27", "christmas:user_2momABC:2026",
-    "birthday:user:2momABC:2027", `${"group_date:9c4b2e1a-7d3f-4e5a-8b6c-1d2e3f4a5b6c"}:extra`])("refuses %j", (k) => expect(parseOccasionKey(k)).toBeNull());
 });
 describe("mobileOccasion", () => {
   it("matches the fixture's occasions", () =>
@@ -78,8 +71,6 @@ describe("gaps", () => {
       { id: "user_2dadABC", username: "luis", display_name: "Dad", avatar_url: null },
       { id: "user_2momABC", username: "maria", display_name: "Mom", avatar_url: null }]);
   });
-  it("refuses an upper-case UUID in an occasion key", () =>
-    expect(parseOccasionKey("group_date:9C4B2E1A-7D3F-4E5A-8B6C-1D2E3F4A5B6C")).toBeNull());
 });
 describe("occasions that involve a person (§5.1)", () => {
   it("Mom: the family's Christmas and her birthday", () => expect(occasionsInvolving("user_2momABC", w.upcoming,

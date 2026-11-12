@@ -4,6 +4,7 @@ import { todayISO } from "@/lib/claims/active";
 import type { UpcomingOccasion } from "@/lib/occasions/display";
 import { createClient } from "@/lib/supabase/server";
 import { NOT_SIGNED_IN } from "./action-response";
+import { NOT_SIGNED_IN_CODE, REFUSED, pathUuid } from "./database";
 import { createGiftStore } from "./gift-store-live";
 import { loadGiftViews } from "./gift-views-live";
 import { heldItemIds, type MobileGift, type StoredGift } from "./gifts";
@@ -13,36 +14,35 @@ import { fileClaim } from "./reconcile";
 import { mobileError } from "./route";
 import { SHOPPING_RULES } from "./shopping-rules";
 import { claimRefusal, parseClaimBody } from "./shopping";
-import { UUID } from "./wishlist-live";
-
-/** The database's refusals are all SQLSTATE 22023 (types/database.ts); anything else is a fault. */
-const REFUSED = "22023";
 
 /**
  * The row id for an occasion key among `allowed`: a group date's own id; a birthday's or anniversary's id, made through
- * get_or_create_celebrated_occasion when it has none yet (§5.2 step 2). ok:false when the key is not among them, or the
- * database refuses it (22023). Any other database error throws.
+ * get_or_create_celebrated_occasion when it has none yet (§5.2 step 2). The 422 to send when the key is not among them
+ * or the database refuses it (22023); the 401 when the database finds nobody signed in (28000). Any other database
+ * error throws.
  */
 export async function resolveOccasionId(
   key: string,
   allowed: UpcomingOccasion[],
-): Promise<{ ok: true; occasionId: string; occasionDate: string } | { ok: false }> {
+): Promise<Response | { occasionId: string; occasionDate: string }> {
+  const refused = () => mobileError("invalid", SHOPPING_RULES.chooseOccasion);
   const occasion = allowed.find((o) => occasionKey(o) === key);
-  if (!occasion) return { ok: false };
-  if (occasion.occasionId !== null) return { ok: true, occasionId: occasion.occasionId, occasionDate: occasion.occasionDate };
+  if (!occasion) return refused();
+  if (occasion.occasionId !== null) return { occasionId: occasion.occasionId, occasionDate: occasion.occasionDate };
   // A group date always has its row; a birthday or anniversary without one is made for its celebrant.
-  if (occasion.kind === "group_date" || occasion.celebrantId === null) return { ok: false };
+  if (occasion.kind === "group_date" || occasion.celebrantId === null) return refused();
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("get_or_create_celebrated_occasion", {
     p_celebrant_id: occasion.celebrantId,
     p_kind: occasion.kind,
   });
   if (error) {
-    if (error.code === REFUSED) return { ok: false };
+    if (error.code === NOT_SIGNED_IN_CODE) return mobileError("unauthorized");
+    if (error.code === REFUSED) return refused();
     throw new Error(`get_or_create_celebrated_occasion failed: ${error.code ?? ""} ${error.message}`);
   }
   if (typeof data !== "string") throw new Error("get_or_create_celebrated_occasion answered no id");
-  return { ok: true, occasionId: data, occasionDate: occasion.occasionDate };
+  return { occasionId: data, occasionDate: occasion.occasionDate };
 }
 
 /** What getWishlistItem answers for a visible item, in the columns this file reads. */
@@ -70,10 +70,11 @@ async function findItem(itemId: string): Promise<Found> {
   return { item: (result as { data: ItemRow }).data };
 }
 
-export async function claimAnswer(userId: string, itemId: string, raw: unknown): Promise<Response | { gift: MobileGift }> {
+export async function claimAnswer(userId: string, rawItemId: string, raw: unknown): Promise<Response | { gift: MobileGift }> {
   const parsed = parseClaimBody(raw);
   if (!parsed.ok) return mobileError("invalid", parsed.message);
-  if (!UUID.test(itemId)) return mobileError("not_found");
+  const itemId = pathUuid(rawItemId);
+  if (itemId === null) return mobileError("not_found");
 
   const found = await findItem(itemId);
   if ("response" in found) return found.response;
@@ -124,7 +125,7 @@ export async function claimAnswer(userId: string, itemId: string, raw: unknown):
     const allowed = await occasionsForPerson(owner);
     if (allowed instanceof Response) return allowed;
     const resolved = await resolveOccasionId(parsed.body.occasion, allowed);
-    if (!resolved.ok) return mobileError("invalid", SHOPPING_RULES.chooseOccasion);
+    if (resolved instanceof Response) return resolved;
     occasionId = resolved.occasionId;
     occasionDate = resolved.occasionDate;
   }
@@ -132,6 +133,7 @@ export async function claimAnswer(userId: string, itemId: string, raw: unknown):
   const supabase = await createClient();
   const { error } = await supabase.rpc("claim_wishlist_item", { p_item_id: itemId, p_occasion_id: occasionId });
   if (error) {
+    if (error.code === NOT_SIGNED_IN_CODE) return mobileError("unauthorized");
     if (error.code === REFUSED) return mobileError("invalid", claimRefusal(error.message));
     throw new Error(`claim_wishlist_item failed: ${error.code ?? ""} ${error.message}`);
   }
@@ -157,8 +159,9 @@ async function giveUpClaim(itemId: string): Promise<void> {
   }
 }
 
-export async function releaseAnswer(userId: string, itemId: string): Promise<Response | null> {
-  if (!UUID.test(itemId)) return null;
+export async function releaseAnswer(userId: string, rawItemId: string): Promise<Response | null> {
+  const itemId = pathUuid(rawItemId);
+  if (itemId === null) return null;
 
   const found = await findItem(itemId);
   if ("response" in found) return found.response;

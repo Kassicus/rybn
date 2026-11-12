@@ -5,7 +5,8 @@ import { getUserWishlist } from "@/lib/actions/wishlist";
 import { getSharedGroups } from "@/lib/actions/profile";
 import { todayISO } from "@/lib/claims/active";
 import type { UpcomingOccasion } from "@/lib/occasions/display";
-import { NOT_SIGNED_IN, databaseFailure } from "./action-response";
+import { GROUP_NOT_FOUND, NOT_A_MEMBER, NOT_SIGNED_IN, databaseFailure } from "./action-response";
+import { PERSON_ID, pathUuid } from "./database";
 import { createGiftStore } from "./gift-store-live";
 import { loadGiftViews } from "./gift-views-live";
 import type { PersonRow } from "./occasions";
@@ -29,11 +30,7 @@ import {
   type PersonListAnswer,
   type ShoppingOccasion,
 } from "./shopping";
-import { UUID } from "./wishlist-live";
 import type { GroupRow, MobileGroup } from "./wishlist";
-
-/** Clerk ids are letters, digits and underscores; anything else cannot be a person, so it is never sent to the database. */
-const PERSON_ID = /^[A-Za-z0-9_]{1,128}$/;
 
 /** The celebrants and partners of these occasions, whose names the occasions are titled with. */
 const celebrantIds = (upcoming: UpcomingOccasion[]) =>
@@ -70,8 +67,9 @@ interface GroupData {
   group_members: { user_profiles: PersonRow | null }[];
 }
 
-export async function groupAnswer(userId: string, groupId: string): Promise<Response | GroupPage> {
-  if (!UUID.test(groupId)) return mobileError("not_found");
+export async function groupAnswer(userId: string, rawGroupId: string): Promise<Response | GroupPage> {
+  const groupId = pathUuid(rawGroupId);
+  if (groupId === null) return mobileError("not_found");
   const today = todayISO();
   const store = await createGiftStore(userId);
   await reconcileGifts(store, today);
@@ -79,9 +77,7 @@ export async function groupAnswer(userId: string, groupId: string): Promise<Resp
   const result = await getGroupById(groupId);
   if ("error" in result && result.error) {
     if (result.error === NOT_SIGNED_IN) return mobileError("unauthorized");
-    if (result.error === "Group not found" || result.error === "You are not a member of this group") {
-      return mobileError("not_found");
-    }
+    if (result.error === GROUP_NOT_FOUND || result.error === NOT_A_MEMBER) return mobileError("not_found");
     throw new Error(`getGroupById failed: ${result.error}`);
   }
   const group = (result as { data: GroupData }).data;

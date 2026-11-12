@@ -4,18 +4,13 @@ import { createClient } from "@/lib/supabase/server";
 import { withSignedWishlistImages } from "@/lib/supabase/signed-image";
 import type { UpcomingOccasion } from "@/lib/occasions/display";
 import { databaseFailure } from "./action-response";
+import { failure } from "./database";
 import type { LinkedItem } from "./gifts";
 import { occasionsInvolving, type OccasionRow, type PersonRow } from "./occasions";
 
 const PERSON_COLUMNS = "id, username, display_name, avatar_url";
 const OCCASION_COLUMNS =
   "id, kind, name, occasion_date, celebrant_id, partner_id, group_id, groups ( name )";
-
-type DbError = { message: string };
-
-function failure(fn: string, error: DbError): Error {
-  return new Error(`${fn} failed: ${error.message}`);
-}
 
 const unique = (ids: string[]) => [...new Set(ids)];
 

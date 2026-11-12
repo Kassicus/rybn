@@ -1,5 +1,15 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
-import { ACTION_FALLBACK, NOT_SIGNED_IN, actionFailure, databaseFailure } from "./action-response";
+import {
+  ACTION_FALLBACK,
+  GROUP_NOT_FOUND,
+  NOT_A_MEMBER,
+  NOT_SIGNED_IN,
+  NOT_THE_CLAIMER,
+  actionFailure,
+  databaseFailure,
+} from "./action-response";
 
 // Typed as the unions the real server actions return, so these also prove the signature accepts them.
 const ok = (v: boolean): { ok: boolean } | { error: string } => ({ ok: v });
@@ -46,6 +56,25 @@ describe("actionFailure", () => {
 
   it("treats a null error as success", () => {
     expect(actionFailure({ data: {}, error: null })).toBeNull();
+  });
+});
+
+/** The source of one exported function of a server action module, which lib/mobile may not change. */
+function actionSource(file: string, name: string): string {
+  const text = readFileSync(fileURLToPath(new URL(`../actions/${file}`, import.meta.url)), "utf8");
+  const start = text.indexOf(`export async function ${name}(`);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const end = text.indexOf("\nexport ", start + 1);
+  return text.slice(start, end === -1 ? undefined : end);
+}
+
+describe("the site's sentences the routes match", () => {                                          // Minor 6
+  it("NOT_THE_CLAIMER is the refusal markAsPurchased answers", () =>
+    expect(actionSource("wishlist.ts", "markAsPurchased")).toContain(`error: ${JSON.stringify(NOT_THE_CLAIMER)}`));
+  it("GROUP_NOT_FOUND and NOT_A_MEMBER are the two refusals getGroupById answers", () => {
+    const source = actionSource("groups.ts", "getGroupById");
+    expect(source).toContain(`error: ${JSON.stringify(GROUP_NOT_FOUND)}`);
+    expect(source).toContain(`error: ${JSON.stringify(NOT_A_MEMBER)}`);
   });
 });
 

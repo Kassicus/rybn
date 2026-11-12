@@ -97,6 +97,10 @@ describe("GET /api/mobile/v1/gifts/[id]", () => {
     expect(theirs.status).toBe(404);
   });
   it("answers 404 for an id that is not a UUID", async () => expect((await GET(get("x"), ctx("x"))).status).toBe(404));
+  it("reads an upper-case gift id as the same gift", async () => {                                   // Minor 7
+    const upper = IDS.giftScarf.toUpperCase();
+    expect(await (await GET(get(upper), ctx(upper))).json()).toEqual(fixture("gift"));
+  });
   it("offers a typed name's gift only the group dates", async () => {
     const body = await (await GET(get(IDS.giftHat), ctx(IDS.giftHat))).json();
     expect(body.occasions.map((o: { key: string }) => o.key)).toEqual([IDS.xmasKey]);

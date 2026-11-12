@@ -164,6 +164,22 @@ describe("POST /api/mobile/v1/wishlist/[id]/claim", () => {
     expect(holder.current.rpc).toHaveBeenCalledTimes(1);
   });
 
+  it("answers 401, filing nothing, when the database says nobody is signed in as it claims", async () => {   // Minor 7
+    holder.current.rpc.mockResolvedValue({ data: null, error: { code: "28000", message: "not signed in" } });
+    const res = await POST(post(fixture("claim-request")), ctx(IDS.dutchOven));
+    expect(res.status).toBe(401);
+    expect(holder.current.store.writes).toEqual([]);
+  });
+
+  it("answers 401 when the database says nobody is signed in as it makes a birthday's row", async () => {   // Minor 7
+    priyasItem();
+    holder.current.rpc.mockResolvedValue({ data: null, error: { code: "28000", message: "not signed in" } });
+    const res = await POST(post({ occasion: "birthday:user_2prySHA:2027" }, PRIYA_ITEM), ctx(PRIYA_ITEM));
+    expect(res.status).toBe(401);
+    expect(holder.current.rpc).toHaveBeenCalledTimes(1);
+    expect(holder.current.store.writes).toEqual([]);
+  });
+
   it("answers 500 and logs any other database error", async () => {
     holder.current.rpc.mockResolvedValue({ data: null, error: { code: "XX000", message: "boom" } });
     const res = await POST(post(fixture("claim-request")), ctx(IDS.dutchOven));
@@ -414,6 +430,15 @@ describe("DELETE /api/mobile/v1/wishlist/[id]/claim", () => {
     hideItem(holder.current, IDS.scarf);
     holder.current.releaseClaim.mockResolvedValue({ ok: true });
     expect((await DELETE(del(), ctx(IDS.scarf))).status).toBe(204);
+    expect(holder.current.releaseClaim).toHaveBeenCalledWith(IDS.scarf);
+    expect(holder.current.store.allGifts().map((g) => g.id)).not.toContain(IDS.giftScarf);
+  });
+
+  it("reads an upper-case item id as the same item: it releases the claim and removes its gift", async () => {   // Minor 7
+    holder.current.releaseClaim.mockResolvedValue({ ok: true });
+    const upper = IDS.scarf.toUpperCase();
+    expect((await DELETE(del(upper), ctx(upper))).status).toBe(204);
+    expect(holder.current.getWishlistItem).toHaveBeenCalledWith(IDS.scarf);
     expect(holder.current.releaseClaim).toHaveBeenCalledWith(IDS.scarf);
     expect(holder.current.store.allGifts().map((g) => g.id)).not.toContain(IDS.giftScarf);
   });

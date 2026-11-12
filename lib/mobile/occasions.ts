@@ -36,10 +36,6 @@ export function byPersonName(a: MobilePerson, b: MobilePerson): number {
   return a.name.localeCompare(b.name, "en") || a.id.localeCompare(b.id, "en");
 }
 
-export type OccasionKey =
-  | { kind: "group_date"; occasionId: string }
-  | { kind: "birthday" | "anniversary"; celebrantId: string; year: number };
-
 /**
  * Names an occasion whether or not it has a row yet: a group date by its row, a birthday or anniversary by what the
  * row's unique index uses (kind, celebrant, year).
@@ -47,20 +43,6 @@ export type OccasionKey =
 export function occasionKey(o: UpcomingOccasion): string {
   if (o.kind === "group_date") return `group_date:${o.occasionId ?? ""}`;
   return `${o.kind}:${o.celebrantId ?? ""}:${o.occasionDate.slice(0, 4)}`;
-}
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
-export function parseOccasionKey(key: string): OccasionKey | null {
-  const parts = key.split(":");
-  if (parts.length === 2 && parts[0] === "group_date" && UUID.test(parts[1])) {
-    return { kind: "group_date", occasionId: parts[1] };
-  }
-  if (parts.length === 3 && (parts[0] === "birthday" || parts[0] === "anniversary")
-    && /^[A-Za-z0-9_]+$/.test(parts[1]) && /^\d{4}$/.test(parts[2])) {
-    return { kind: parts[0], celebrantId: parts[1], year: Number(parts[2]) };
-  }
-  return null;
 }
 
 export interface MobileOccasion {

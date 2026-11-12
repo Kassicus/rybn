@@ -6,8 +6,9 @@ import type { UpcomingOccasion } from "@/lib/occasions/display";
 import { createClient } from "@/lib/supabase/server";
 import type { GiftStatus } from "@/lib/schemas/gift-tracking";
 import { resolveStoredImageValue } from "@/lib/storage/image-value";
-import { NOT_SIGNED_IN, databaseFailure } from "./action-response";
+import { NOT_SIGNED_IN, NOT_THE_CLAIMER, databaseFailure } from "./action-response";
 import { resolveOccasionId } from "./claim-live";
+import { NOT_SIGNED_IN_CODE, PERSON_ID, REFUSED, pathUuid } from "./database";
 import type { GiftPatch, GiftStore } from "./gift-store";
 import { createGiftStore } from "./gift-store-live";
 import { loadGiftViews } from "./gift-views-live";
@@ -30,27 +31,13 @@ import { mobileError } from "./route";
 import { SHOPPING_RULES } from "./shopping-rules";
 import { buildChoices } from "./shopping";
 import { RULES, type GroupRow } from "./wishlist";
-import { UUID } from "./wishlist-live";
-
-/** The database's refusals are all SQLSTATE 22023 (types/database.ts); anything else is a fault. */
-const REFUSED = "22023";
-
-/** The SQLSTATE the database raises for a request with no signed-in caller. */
-const NOT_SIGNED_IN_CODE = "28000";
-
-/** The refusal text markAsPurchased answers for a claim the caller does not hold (lib/actions/wishlist.ts). */
-const NOT_THE_CLAIMER = "Only the person who claimed this item can mark it purchased";
-
-/** Clerk ids are letters, digits and underscores; anything else cannot be a person, so it is never sent to the database. */
-const PERSON_ID = /^[A-Za-z0-9_]{1,128}$/;
 
 const SEASON = /^\d{4}$/;
 
 type Answer<T> = Response | T;
 
-/** The caller's gift with this id, as the app shows it; undefined when it is not the caller's (or not a gift at all). */
+/** The caller's gift with this (lower-case) id, as the app shows it; undefined when it is not the caller's. */
 async function findView(userId: string, store: GiftStore, today: string, giftId: string): Promise<GiftView | undefined> {
-  if (!UUID.test(giftId)) return undefined;
   return (await loadGiftViews(userId, store, today)).find((v) => v.gift.id === giftId);
 }
 
@@ -98,9 +85,10 @@ export async function giftListAnswer(userId: string, season: string | null): Pro
 
 export async function giftAnswer(
   userId: string,
-  giftId: string,
+  rawGiftId: string,
 ): Promise<Answer<{ gift: MobileGift; occasions: MobileOccasion[] }>> {
-  if (!UUID.test(giftId)) return mobileError("not_found");
+  const giftId = pathUuid(rawGiftId);
+  if (giftId === null) return mobileError("not_found");
   const today = todayISO();
   const store = await createGiftStore(userId);
   await reconcileGifts(store, today);
@@ -164,9 +152,7 @@ async function occasionFor(
   allowed: UpcomingOccasion[],
 ): Promise<Response | { occasionId: string | null; occasionDate: string | null }> {
   if (key === null) return { occasionId: null, occasionDate: null };
-  const resolved = await resolveOccasionId(key, allowed);
-  if (!resolved.ok) return mobileError("invalid", SHOPPING_RULES.chooseOccasion);
-  return { occasionId: resolved.occasionId, occasionDate: resolved.occasionDate };
+  return resolveOccasionId(key, allowed);
 }
 
 export async function addGiftAnswer(userId: string, raw: unknown): Promise<Answer<{ gift: MobileGift }>> {
@@ -209,12 +195,14 @@ export async function addGiftAnswer(userId: string, raw: unknown): Promise<Answe
   return answerView(userId, store, today, inserted.row.id);
 }
 
-export async function saveGiftAnswer(userId: string, giftId: string, raw: unknown): Promise<Answer<{ gift: MobileGift }>> {
+export async function saveGiftAnswer(userId: string, rawGiftId: string, raw: unknown): Promise<Answer<{ gift: MobileGift }>> {
   const parsed = parseGiftBody(raw);
   if (!parsed.ok) return mobileError("invalid", parsed.message);
   const body = parsed.body;
   const picture = pictureValue(userId, body.imagePath);
   if (picture instanceof Response) return picture;
+  const giftId = pathUuid(rawGiftId);
+  if (giftId === null) return mobileError("not_found");
 
   const today = todayISO();
   const store = await createGiftStore(userId);
@@ -303,10 +291,11 @@ async function moveClaim(itemId: string, occasionId: string | null): Promise<Res
  * answer, or a second tap, finds the gift moved and gets it as it now is, so a gift never moves twice. The write
  * itself is conditional on the stored status, so two requests at once cannot both make the step.
  */
-export async function stepGiftAnswer(userId: string, giftId: string, raw: unknown): Promise<Answer<{ gift: MobileGift }>> {
+export async function stepGiftAnswer(userId: string, rawGiftId: string, raw: unknown): Promise<Answer<{ gift: MobileGift }>> {
   const parsed = parseStepBody(raw);
   if (!parsed.ok) return mobileError("invalid", parsed.message);
-  if (!UUID.test(giftId)) return mobileError("not_found");
+  const giftId = pathUuid(rawGiftId);
+  if (giftId === null) return mobileError("not_found");
   const { direction, from } = parsed;
 
   const today = todayISO();
@@ -374,8 +363,9 @@ async function putBack(store: GiftStore, giftId: string, was: GiftStatus, now: G
   }
 }
 
-export async function deleteGiftAnswer(userId: string, giftId: string): Promise<Answer<null>> {
-  if (!UUID.test(giftId)) return null;
+export async function deleteGiftAnswer(userId: string, rawGiftId: string): Promise<Answer<null>> {
+  const giftId = pathUuid(rawGiftId);
+  if (giftId === null) return null;
   const today = todayISO();
   const store = await createGiftStore(userId);
   const view = await findView(userId, store, today, giftId);
