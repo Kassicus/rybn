@@ -2,6 +2,7 @@ import { createWishlistItem, deleteWishlistItem, getMyWishlist, getWishlistItem,
 import { getMyGroups } from "@/lib/actions/groups";
 import { resolveStoredImageValue } from "@/lib/storage/image-value";
 import { NOT_SIGNED_IN, databaseFailure } from "./action-response";
+import { pathUuid } from "./database";
 import { mobileError } from "./route";
 import {
   RULES,
@@ -16,8 +17,6 @@ import {
   type WishlistBody,
   type WishlistItemRow,
 } from "./wishlist";
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The groups the caller belongs to, or the Response to send instead. */
 async function loadGroups(): Promise<Response | MobileGroup[]> {
@@ -49,14 +48,18 @@ async function checkedBody(
   return { body, groups };
 }
 
-/** The caller's own item, or what to answer instead. Someone else's item looks the same as one that is gone. */
+/**
+ * The caller's own item, or what to answer instead. Someone else's item looks the same as one that is gone. Found, it
+ * carries the item's id lower-cased, the one every later call uses.
+ */
 async function findMine(
   userId: string,
-  itemId: string,
+  rawItemId: string,
   whenMissing: Response | null,
-): Promise<{ found: true } | { found: false; response: Response | null }> {
+): Promise<{ found: true; itemId: string } | { found: false; response: Response | null }> {
   // An id that is not a UUID can match nothing, and sent to the database it would only make it error.
-  if (!UUID.test(itemId)) return { found: false, response: whenMissing };
+  const itemId = pathUuid(rawItemId);
+  if (itemId === null) return { found: false, response: whenMissing };
   const result = await getWishlistItem(itemId);
   if ("error" in result && result.error) {
     if (result.error === NOT_SIGNED_IN) return { found: false, response: mobileError("unauthorized") };
@@ -66,7 +69,7 @@ async function findMine(
   if (!("data" in result) || !result.data || result.data.user_id !== userId) {
     return { found: false, response: whenMissing };
   }
-  return { found: true };
+  return { found: true, itemId };
 }
 
 export async function listWishlist(): Promise<Response | { items: MobileItem[] }> {
@@ -103,10 +106,10 @@ export async function replaceWishlistItem(
   if (checked instanceof Response) return checked;
   const lookup = await findMine(userId, itemId, mobileError("not_found"));
   if (!lookup.found) return lookup.response ?? mobileError("not_found");
-  const result = await updateWishlistItem(itemId, formDataFromBody(checked.body));
+  const result = await updateWishlistItem(lookup.itemId, formDataFromBody(checked.body));
   if ("error" in result && result.error && result.error !== NOT_SIGNED_IN) {
     // The update may have failed because the item was deleted since the lookup.
-    const again = await findMine(userId, itemId, mobileError("not_found"));
+    const again = await findMine(userId, lookup.itemId, mobileError("not_found"));
     if (!again.found) return again.response ?? mobileError("not_found");
   }
   const failure = databaseFailure(result, "updateWishlistItem");
@@ -118,11 +121,6 @@ export async function replaceWishlistItem(
 export async function removeWishlistItem(userId: string, itemId: string): Promise<Response | null> {
   const lookup = await findMine(userId, itemId, null);
   if (!lookup.found) return lookup.response;
-  const result = await deleteWishlistItem(itemId);
+  const result = await deleteWishlistItem(lookup.itemId);
   return databaseFailure(result, "deleteWishlistItem");
-}
-
-export async function listGroups(): Promise<Response | { groups: MobileGroup[] }> {
-  const loaded = await loadGroups();
-  return loaded instanceof Response ? loaded : { groups: loaded };
 }

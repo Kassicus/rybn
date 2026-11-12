@@ -1,45 +1,90 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fixture, groupRows } from "@/lib/mobile/test-fixtures";
+import { fixture } from "@/lib/mobile/test-fixtures";
+import type { WorldMocks } from "@/lib/mobile/test-shopping-mocks";
 
-const ensureProfile = vi.fn();
-const getMyGroups = vi.fn();
+const holder = vi.hoisted(() => ({ current: undefined as unknown as WorldMocks }));
 
-vi.mock("@/lib/auth/ensure-profile", () => ({ ensureProfile: () => ensureProfile() }));
-vi.mock("@/lib/actions/wishlist", () => ({
-  getMyWishlist: vi.fn(),
-  createWishlistItem: vi.fn(),
-  updateWishlistItem: vi.fn(),
-  getWishlistItem: vi.fn(),
-  deleteWishlistItem: vi.fn(),
+vi.mock("@/lib/auth/ensure-profile", () => ({ ensureProfile: async () => "user_2abcDEF" }));
+vi.mock("@/lib/actions/occasions", () => ({ getUpcomingOccasions: (...a: unknown[]) => holder.current.getUpcomingOccasions(...a) }));
+vi.mock("@/lib/actions/groups", () => ({
+  getMyGroups: (...a: unknown[]) => holder.current.getMyGroups(...a),
+  getGroupById: (...a: unknown[]) => holder.current.getGroupById(...a),
 }));
-vi.mock("@/lib/actions/groups", () => ({ getMyGroups: () => getMyGroups() }));
+vi.mock("@/lib/actions/wishlist", () => ({
+  getUserWishlist: (...a: unknown[]) => holder.current.getUserWishlist(...a),
+  getWishlistItem: (...a: unknown[]) => holder.current.getWishlistItem(...a),
+}));
+vi.mock("@/lib/actions/claims", () => ({
+  getActiveClaims: (...a: unknown[]) => holder.current.getActiveClaims(...a),
+  releaseClaim: (...a: unknown[]) => holder.current.releaseClaim(...a),
+}));
+vi.mock("@/lib/actions/item-occasions", () => ({ getTagsForItems: (...a: unknown[]) => holder.current.getTagsForItems(...a) }));
+vi.mock("@/lib/actions/profile", () => ({ getSharedGroups: (...a: unknown[]) => holder.current.getSharedGroups(...a) }));
+vi.mock("@/lib/mobile/people-live", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/mobile/people-live")>()),
+  profiles: (...a: unknown[]) => holder.current.profiles(...a),
+  groupMembers: (...a: unknown[]) => holder.current.groupMembers(...a),
+  memberCounts: (...a: unknown[]) => holder.current.memberCounts(...a),
+  visibleItemCounts: (...a: unknown[]) => holder.current.visibleItemCounts(...a),
+  occasionRows: (...a: unknown[]) => holder.current.occasionRows(...a),
+  linkedItems: (...a: unknown[]) => holder.current.linkedItems(...a),
+}));
+vi.mock("@/lib/mobile/gift-store-live", () => ({ createGiftStore: async () => holder.current.store }));
+vi.mock("@/lib/supabase/signed-image", () => ({
+  withSignedGiftPhotos: (...a: unknown[]) => holder.current.withSignedGiftPhotos(...a),
+  withSignedGiftPhoto: (...a: unknown[]) => holder.current.withSignedGiftPhoto(...a),
+}));
+vi.mock("@/lib/supabase/server", () => ({ createClient: async () => ({ rpc: holder.current.rpc }) }));
+vi.mock("@/lib/claims/active", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/claims/active")>()),
+  todayISO: () => holder.current.todayISO(),
+}));
 
 const { GET } = await import("./route");
+const { bearer, worldMocks } = await import("@/lib/mobile/test-shopping-mocks");
 
-const get = () => new Request("http://localhost/api/mobile/v1/groups", { headers: { authorization: "Bearer test-token" } });
+const get = () => bearer("http://localhost/api/mobile/v1/groups");
 const ctx = { params: Promise.resolve({}) };
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  holder.current = worldMocks();
   vi.stubEnv("MOBILE_MIN_BUILD", "");
   vi.spyOn(console, "error").mockImplementation(() => {});
-  ensureProfile.mockResolvedValue("user_2abcDEF");
 });
 
 describe("GET /api/mobile/v1/groups", () => {
-  it("answers the caller's groups in the fixture's shape, never invite codes", async () => {
-    getMyGroups.mockResolvedValue({ data: groupRows() });
+  it("answers the group-list fixture: named fields and a member count, never invite codes", async () => {
     const res = await GET(get(), ctx);
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
     const text = await res.text();
-    expect(JSON.parse(text)).toEqual(fixture("groups"));
+    expect(JSON.parse(text)).toEqual(fixture("group-list"));
     expect(text).not.toMatch(/SECRET12|invite/);
   });
+
   it("answers 500 for a database error", async () => {
-    getMyGroups.mockResolvedValue({ error: "boom", data: [] });
+    holder.current.getMyGroups.mockResolvedValue({ error: "boom", data: [] });
     const res = await GET(get(), ctx);
     expect(res.status).toBe(500);
     expect(await res.text()).not.toMatch(/boom/);
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("/api/mobile/v1/groups"), expect.anything());
+  });
+
+  it("asks for each group's member count once, by id", async () => {
+    await GET(get(), ctx);
+    expect(holder.current.memberCounts).toHaveBeenCalledTimes(1);
+    expect(holder.current.memberCounts).toHaveBeenCalledWith(expect.arrayContaining([
+      "2b8f6c4a-1e3d-4f5a-9b7c-0d1e2f3a4b5c", "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e"]));
+  });
+
+  it("says nothing of gifts, claims or anyone's items", async () => {   // §5.5
+    const text = await (await GET(get(), ctx)).text();
+    expect(holder.current.getActiveClaims).not.toHaveBeenCalled();
+    expect(holder.current.getUserWishlist).not.toHaveBeenCalled();
+    expect(holder.current.getTagsForItems).not.toHaveBeenCalled();
+    expect(holder.current.linkedItems).not.toHaveBeenCalled();
+    expect(holder.current.visibleItemCounts).not.toHaveBeenCalled();
+    expect(holder.current.store.writes).toEqual([]);
+    expect(text).not.toMatch(/gift|claimedBy|purchased|out_of_stock|email|@example\.com|SECRET12|invite/);
   });
 });

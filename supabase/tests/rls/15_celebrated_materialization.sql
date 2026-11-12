@@ -1,6 +1,6 @@
 -- get_or_create_celebrated_occasion() must materialize SOMEBODY ELSE's
 -- occasion only when the caller can actually see that person's date, must do
--- so idempotently, must stamp celebrant_id/created_by the right way round,
+-- so idempotently, must carry the celebrant and no creator (D14),
 -- must roll a passed date to the following year using the same helper the
 -- read path uses (in both directions -- a date not yet passed must NOT
 -- roll), and must never create a row for a caller the privacy model would
@@ -441,13 +441,13 @@ begin
   perform set_config('role', 'authenticated', true);
 
   ---------------------------------------------------------------------------
-  -- Assertion 4: celebrant_id and created_by, checked EXPLICITLY and
-  -- separately. This is the shape that distinguishes this function from
-  -- get_or_create_occasion(), which always sets both to the caller -- a
-  -- swapped implementation (celebrant_id := v_caller, created_by :=
-  -- p_celebrant_id) would fail BOTH of these on its own, but only because
-  -- both are checked; checking just one (or just "the row exists") would
-  -- let a swap through.
+  -- Assertion 4: the row carries the celebrant and no creator, checked
+  -- EXPLICITLY and separately. celebrant_id is the celebrant, never the
+  -- calling giver; created_by is null, because the caller is usually a giver
+  -- and the celebrant can read the row (D14,
+  -- 20261111000000_shopping_links.sql). The celebrant check also proves the
+  -- row was read at all, so the null created_by below cannot be an empty
+  -- read.
   ---------------------------------------------------------------------------
   select celebrant_id, created_by into v_row_celebrant, v_row_created_by
     from public.occasions where id = v_id1;
@@ -459,10 +459,10 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_row_created_by is distinct from v_giver then
+  if v_row_created_by is not null then
     raise exception
-      'RLS FAIL: materialized row has created_by=%, expected the calling giver % (not the celebrant %)',
-      v_row_created_by, v_giver, v_celeb;
+      'RLS FAIL: materialized row has created_by=%, expected null -- a giver who materializes someone else''s occasion must not be recorded on it (D14, 20261111000000_shopping_links.sql)',
+      v_row_created_by;
   end if;
   v_checks := v_checks + 1;
 

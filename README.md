@@ -116,7 +116,18 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 | `PUT /wishlist/{id}` | `{ item }`, the replaced item; 404 when it is not the caller's. |
 | `DELETE /wishlist/{id}` | 204, also when the item is already gone or not the caller's. |
 | `POST /wishlist/images` | `{ imagePath, imageUrl }` for a JPEG or PNG sent as raw bytes. |
-| `GET /groups` | `{ groups }`, the groups the caller belongs to. |
+| `GET /groups` | `{ groups }`, the groups the caller belongs to, each with a `memberCount`. |
+| `GET /home` | `{ occasions }`, a year ahead, not the caller's own birthday, each with the people to shop for and the caller's gift count for each. |
+| `GET /groups/{id}` | `{ group, members, occasions }`; 404 when the caller is not in it. |
+| `GET /people/{id}/wishlist?occasion=<key>` | `{ person, occasion, occasions, gifts, items }`; the caller's own list answers items alone. |
+| `POST /wishlist/{id}/claim` | `{ gift }`, body `{ occasion }` (a key or null). A second POST by the person who already holds the item answers their gift again (it does not claim twice). |
+| `DELETE /wishlist/{id}/claim` | 204; 422 once the item is bought or its gift is past Claimed. |
+| `GET /gifts?season=<year>` | `{ season, seasons, counts, groups, choices }`. |
+| `GET /gifts/{id}` | `{ gift, occasions }`. |
+| `POST /gifts` and `PUT /gifts/{id}` | `{ gift }`. `PUT` replaces the whole gift, as the wishlist's does, so the app sends back every field it was given. Saving a different occasion on a gift from a list moves its claim to that occasion too. |
+| `POST /gifts/{id}/step` | Body `{ direction, from }`: `{ gift }`. `from` is the stage the app is showing; the gift moves only if it is still at that stage, and otherwise the answer is the gift as it is, so a retry or a second tap never moves it twice. Stepping a gift from a list from Claimed to Ordered marks the item bought on its owner's list, and stepping it back un-marks it. |
+| `DELETE /gifts/{id}` | 204; 422 while its claim is held, except as below for an item that can no longer be seen. |
+| `POST /gifts/images` | As `/wishlist/images`, in `gift-photos`. |
 
 - Requests are checked at the door (`lib/mobile/wishlist.ts`). A rule the person broke answers 422 with a sentence for them. An action's database error is logged and answered with the standard 500, never passed on.
 - Items are built field by field (`mobileItem`). Never send a row: rows carry `purchased`, stock marks and the owner's id, and the owner must never learn an item was bought.
@@ -127,7 +138,16 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 - An item can come back with `imageUrl` null and `imagePath` set, when the picture's address could not be signed. Keep sending `imagePath` back on an edit.
 - A body larger than Vercel's own limit (about 4.5 MB) is refused by Vercel with its own error, before the route's size sentence.
 
-`lib/mobile/fixtures/*.json` are the contract, including `wishlist.json`, `wishlist-item.json`, `groups.json` and `wishlist-item-request.json`. They are copied into `rybn-mobile/Packages/RybnKit/Tests/RybnKitTests/Fixtures/`, so change both together.
+- Every route that shows gifts first runs the reconciling step (`lib/mobile/reconcile.ts`). It files the caller's claims, made in the app or on the site, as gifts: under the claim's occasion, and at Ordered if the item is already bought. A gift the person had already added by hand is linked instead of duplicated only when it is not archived and not yet given, has exactly the item's name, is not filed under someone else, and either has exactly the item's link or, when neither has a link, is filed under the item's owner. It moves a gift at Claimed to Ordered when its item was marked bought while its claim is held, and brings a gift's occasion into step with its claim's. It is safe to repeat and touches only the caller's own gifts. A claim whose data cannot be filed is logged and skipped so the rest still load, and the two unique indexes are its backstop when two screens run it at once.
+- An occasion is sent with a `key`: `group_date:<id>`, or `birthday|anniversary:<person id>:<year>`, so it names a birthday before it has a row. The app sends the key back to claim or file a gift; the server checks that it is one of the occasions involving that person, and makes the row then.
+- Claims are made with the database's own `claim_wishlist_item`, never `claimItem`, so a claim can be for a group date and its occasion comes from the item's owner. A gift's status is sent as `claimed` for `planned` on a gift from a list.
+- A gift from a list whose item the caller can no longer see (the owner hid it from them, or they left the group, but did not delete it) is never stepped between Claimed and Ordered, because the item cannot be marked; past Claimed it can be deleted while its claim is held, and the claim stays as the record that the item was bought.
+- A gift's `seasonYear` is the year of its occasion, else its stored season, which for a gift from a list whose claim has no occasion is the year the claim was made (when it is filed, claimed again or moved to No occasion), and for a hand-added gift with no occasion, the year it was added.
+- Owner-blindness: Home, groups and a person's list never read claims on the caller's own items; the caller's own list answers with no claim state. Never send `claimedBy`, `out_of_stock_marked_by` or an email.
+- The migration `20261111000000_shopping_links.sql` must be applied before these routes are merged (`npx supabase db push`).
+- Adding a value to an enumerated field (a priority, a privacy kind, a gift's step) is a breaking change for v1, because the app decodes strictly.
+
+`lib/mobile/fixtures/*.json` are the contract, including `wishlist.json`, `wishlist-item.json`, `groups.json`, `wishlist-item-request.json`, `home.json`, `group-list.json`, `group.json`, `person-wishlist.json`, `gift.json`, `gifts.json`, `claim-request.json`, `gift-request.json` and `step-request.json`. They are copied into `rybn-mobile/Packages/RybnKit/Tests/RybnKitTests/Fixtures/`, so change both together.
 
 ## Tech Stack
 

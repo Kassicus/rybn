@@ -29,6 +29,7 @@ export type Database = {
           is_archived: boolean
           created_at: string
           updated_at: string
+          person_id: string | null
         }
         Insert: {
           id?: string
@@ -38,6 +39,7 @@ export type Database = {
           is_archived?: boolean
           created_at?: string
           updated_at?: string
+          person_id?: string | null
         }
         Update: {
           id?: string
@@ -47,6 +49,7 @@ export type Database = {
           is_archived?: boolean
           created_at?: string
           updated_at?: string
+          person_id?: string | null
         }
         Relationships: [
           {
@@ -54,6 +57,13 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gift_recipients_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
             referencedColumns: ["id"]
           }
         ]
@@ -76,6 +86,9 @@ export type Database = {
           is_archived: boolean
           created_at: string
           updated_at: string
+          wishlist_item_id: string | null
+          from_list: boolean
+          occasion_id: string | null
         }
         Insert: {
           id?: string
@@ -94,6 +107,9 @@ export type Database = {
           is_archived?: boolean
           created_at?: string
           updated_at?: string
+          wishlist_item_id?: string | null
+          from_list?: boolean
+          occasion_id?: string | null
         }
         Update: {
           id?: string
@@ -112,6 +128,9 @@ export type Database = {
           is_archived?: boolean
           created_at?: string
           updated_at?: string
+          wishlist_item_id?: string | null
+          from_list?: boolean
+          occasion_id?: string | null
         }
         Relationships: [
           {
@@ -126,6 +145,20 @@ export type Database = {
             columns: ["recipient_id"]
             isOneToOne: false
             referencedRelation: "gift_recipients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tracked_gifts_wishlist_item_id_fkey"
+            columns: ["wishlist_item_id"]
+            isOneToOne: false
+            referencedRelation: "wishlist_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tracked_gifts_occasion_id_fkey"
+            columns: ["occasion_id"]
+            isOneToOne: false
+            referencedRelation: "occasions"
             referencedColumns: ["id"]
           }
         ]
@@ -1331,6 +1364,29 @@ export type Database = {
           p_item_id: string
         }
         Returns: boolean
+      }
+      // Moves the CALLER's own held claim on p_item_id to p_occasion_id, or
+      // to no occasion when it is null -- the only way to change a claim's
+      // occasion (D12: for a gift from a list, the claim's occasion is the
+      // truth). Only a claim that is not released and not lapsed, on an item
+      // the caller can still see; the new occasion passes the same gate as
+      // claim_wishlist_item's. SECURITY DEFINER
+      // (20261111000000_shopping_links.sql).
+      //
+      // Error codes, verified against the migration:
+      //   28000 NOT AUTHENTICATED                 -- no Clerk JWT
+      //   22023 you no longer hold that item      -- no such claim of the
+      //         caller's, or it was released or has lapsed, or the caller
+      //         can no longer see the item (one message for all of these)
+      //   22023 that occasion is not available    -- p_occasion_id given but
+      //         not one the caller can see (same message whether it does not
+      //         exist or is merely invisible to them)
+      set_claim_occasion: {
+        Args: {
+          p_item_id: string
+          p_occasion_id: string | null
+        }
+        Returns: undefined
       }
       // Requests sharing one anniversary with p_partner_id, at p_date
       // (Task 3, 20260912000003_anniversary_link_rpcs.sql). SECURITY

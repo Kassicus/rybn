@@ -38,7 +38,12 @@
 # when its policy is dropped -- review of the tests, not this script.
 set -uo pipefail
 
-SUPABASE="npx --yes supabase@latest"
+# Pinned, not @latest. CLI v3 changed `db query`: it asks for confirmation
+# before running SQL on a hosted project (and refuses when stdout is not a
+# terminal) and deprecates --linked, so every file failed before any SQL was
+# sent. SUPABASE_CLI overrides the command for one run, for example
+# SUPABASE_CLI=supabase to use an installed copy.
+SUPABASE="${SUPABASE_CLI:-npx --yes supabase@2.120.0}"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_DIR="$DIR/supabase/tests/rls"
 MANIFEST="$TEST_DIR/MANIFEST"
@@ -148,7 +153,9 @@ is_unreachable() {
 run_with_retry() {
   local sql="$1" attempt=1
   while [ "$attempt" -le 4 ]; do
-    $SUPABASE db query "$sql" "${TARGET[@]}" > "$OUT_FILE" 2>&1
+    # JSON, asked for by name: this CLI prints a box-drawn table by default,
+    # which snapshot_public_relations cannot read.
+    $SUPABASE db query "$sql" "${TARGET[@]}" --output-format json > "$OUT_FILE" 2>&1
     CLI_RC=$?
     if is_unreachable "$(cat "$OUT_FILE")"; then
       [ "$attempt" -lt 4 ] && sleep $((attempt * 5))
@@ -242,10 +249,19 @@ snapshot_public_relations() {
     | tr '|' '\n' | grep -v '^$' | sort
 }
 
+# Says why a snapshot failed: the CLI's exit status and the start of what it
+# printed. Without it the error gives nothing to act on.
+explain_snapshot_failure() {
+  echo "      CLI exit status: $CLI_RC; its output began:"
+  head -c 400 "$OUT_FILE" 2>/dev/null | sed 's/^/      | /'
+  echo
+}
+
 leak_check=1
 if ! snapshot_public_relations > "$WORK_DIR/relations-before" 2>/dev/null; then
   echo "ERROR could not snapshot public relations before the suite"
   echo "      the rollback guarantee cannot be verified for this run"
+  explain_snapshot_failure
   leak_check=0
   failed=1
 fi
@@ -484,6 +500,7 @@ if [ "$leak_check" -eq 1 ]; then
   if ! snapshot_public_relations > "$WORK_DIR/relations-after" 2>/dev/null; then
     echo "ERROR could not snapshot public relations after the suite"
     echo "      the rollback guarantee could not be verified for this run"
+    explain_snapshot_failure
     failed=1
   else
     leaked="$(grep -vxF -f "$WORK_DIR/relations-before" "$WORK_DIR/relations-after" | grep -v '^$')"

@@ -3,6 +3,13 @@ import { mobileError } from "./route";
 /** What the website's server actions return when nobody is signed in. */
 export const NOT_SIGNED_IN = "Not authenticated";
 
+/** What markAsPurchased returns for a claim the caller does not hold (lib/actions/wishlist.ts). */
+export const NOT_THE_CLAIMER = "Only the person who claimed this item can mark it purchased";
+
+/** What getGroupById returns for a group the caller cannot see, and for one they are not in (lib/actions/groups.ts). */
+export const GROUP_NOT_FOUND = "Group not found";
+export const NOT_A_MEMBER = "You are not a member of this group";
+
 export const ACTION_FALLBACK = "That didn't work. Please try again.";
 
 /**
