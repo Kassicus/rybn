@@ -919,6 +919,39 @@ export type Database = {
           }
         ]
       }
+      // Each person's choice of which kinds of group may see their profile
+      // fields (20261112000000_profile_visibility.sql): one row per person,
+      // keyed on user_id. No row means all four kinds, a new field's
+      // default. The Settings page writes the choice onto every
+      // profile_info field, and a field added later takes it; who can see a
+      // field is still decided by the field's own privacy_settings. Read
+      // and written by its person only (RLS); authenticated holds no
+      // DELETE, so a row goes only with its user_profiles row (on delete
+      // cascade). The migration's one-time start_profile_visibility() is
+      // executable by no API role, so it is not in the Functions block.
+      profile_visibility: {
+        Row: {
+          user_id: string
+          visible_to_group_types: ("family" | "friends" | "work" | "custom")[]
+        }
+        Insert: {
+          user_id: string
+          visible_to_group_types?: ("family" | "friends" | "work" | "custom")[]
+        }
+        Update: {
+          user_id?: string
+          visible_to_group_types?: ("family" | "friends" | "work" | "custom")[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profile_visibility_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       user_profiles: {
         Row: {
           id: string
