@@ -116,11 +116,26 @@ describe("PUT /api/mobile/v1/gifts/[id]", () => {
     const body = await (await PUT(put(scarfBody({ occasion: "birthday:user_2momABC:2027" })), ctx(IDS.giftScarf))).json();
     expect(holder.current.rpc).toHaveBeenCalledWith("set_claim_occasion", { p_item_id: IDS.scarf, p_occasion_id: IDS.momBirthday });
     expect([body.gift.occasion.key, body.gift.seasonYear]).toEqual(["birthday:user_2momABC:2027", 2027]);
+    expect([giftRow(IDS.giftScarf).occasion_id, giftRow(IDS.giftScarf).season_year]).toEqual([IDS.momBirthday, 2027]);
+  });
+  it("answers 401 when the database says nobody is signed in, updating nothing", async () => {
+    holder.current.rpc.mockResolvedValue({ data: null, error: { code: "28000", message: "not signed in" } });
+    const res = await PUT(put(scarfBody({ occasion: "birthday:user_2momABC:2027" })), ctx(IDS.giftScarf));
+    expect(res.status).toBe(401);
+    expect(holder.current.store.writes).toEqual([]);
+  });
+  it("answers not held before reading anyone's occasions, so a failing read cannot make it a 500", async () => {
+    holder.current.store = worldStore([world().claims[1]]);          // the scarf's claim is gone
+    holder.current.getUpcomingOccasions.mockResolvedValue({ error: "connection reset" });
+    holder.current.getSharedGroups.mockResolvedValue({ error: "connection reset" });
+    const res = await PUT(put(scarfBody({ occasion: "birthday:user_2momABC:2027" })), ctx(IDS.giftScarf));
+    expect([res.status, (await res.json()).error.message]).toEqual([422, "You no longer hold this item."]);
   });
   it("moves a gift from a list to No occasion, keeping the year it was added", async () => {
     const body = await (await PUT(put(scarfBody({ occasion: null })), ctx(IDS.giftScarf))).json();
     expect(holder.current.rpc).toHaveBeenCalledWith("set_claim_occasion", { p_item_id: IDS.scarf, p_occasion_id: null });
     expect([body.gift.occasion, body.gift.seasonYear]).toEqual([null, 2026]);
+    expect([giftRow(IDS.giftScarf).occasion_id, giftRow(IDS.giftScarf).season_year]).toEqual([null, 2026]);
   });
   it("refuses an occasion that is not among the owner's, before asking the database", async () => {
     const res = await PUT(put(scarfBody({ occasion: "birthday:user_2prySHA:2027" })), ctx(IDS.giftScarf));
@@ -169,6 +184,18 @@ describe("PUT /api/mobile/v1/gifts/[id]", () => {
       expect(body.gift).toMatchObject({ recipientName: "Dad", person: { id: "user_2dadABC" } });
       expect(holder.current.rpc).not.toHaveBeenCalled();
     });
+    it("saves the notes of a gift for someone who is no longer in the caller's groups, keeping its recipient", async () => {
+      holder.current.getSharedGroups.mockResolvedValue({ data: [] });
+      const res = await PUT(put(photoBookBody({ notes: "Ask Mom first" }), IDS.giftPhotoBook), ctx(IDS.giftPhotoBook));
+      expect([res.status, (await res.json()).gift.notes]).toEqual([200, "Ask Mom first"]);
+      expect(giftRow(IDS.giftPhotoBook).recipient_id).toBe(IDS.recipientMom);
+    });
+    it("saves the notes of a gift for a typed name without making anything", async () => {
+      const res = await PUT(put(photoBookBody({ person: null, recipientName: "Mom", notes: "x" }), IDS.giftPhotoBook), ctx(IDS.giftPhotoBook));
+      expect(res.status).toBe(200);
+      expect(giftRow(IDS.giftPhotoBook).recipient_id).toBe(IDS.recipientMom);
+      expect(holder.current.store.allRecipients()).toHaveLength(world().recipients.length);
+    });
     it("moves to a typed name", async () => {
       const body = await (await PUT(put(photoBookBody({ person: null, recipientName: "Grandpa Joe" }), IDS.giftPhotoBook), ctx(IDS.giftPhotoBook))).json();
       expect(body.gift).toMatchObject({ recipientName: "Grandpa Joe", person: null });
@@ -198,6 +225,7 @@ describe("PUT /api/mobile/v1/gifts/[id]", () => {
       const body = await (await PUT(put(photoBookBody({ occasion: "birthday:user_2momABC:2027" }), IDS.giftPhotoBook), ctx(IDS.giftPhotoBook))).json();
       expect([body.gift.occasion.key, body.gift.seasonYear]).toEqual(["birthday:user_2momABC:2027", 2027]);
       expect(giftRow(IDS.giftPhotoBook).season_year).toBe(2027);
+      expect(giftRow(IDS.giftPhotoBook).occasion_id).toBe(IDS.momBirthday);
       expect(holder.current.rpc).not.toHaveBeenCalled();
     });
     it("leaves the year alone when the occasion is not changed", async () => {

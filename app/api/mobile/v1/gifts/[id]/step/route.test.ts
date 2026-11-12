@@ -176,23 +176,27 @@ describe("POST /api/mobile/v1/gifts/[id]/step", () => {
     expect([a.status, b.status]).toEqual([200, 200]);
     expect([(await a.json()).gift.status, (await b.json()).gift.status]).toEqual(["ordered", "ordered"]);
     expect(statusOf(IDS.giftScarf)).toBe("ordered");
+    // exactly one request moved the gift, so exactly one status write took effect and only that request marked the item
+    expect(holder.current.store.writes.filter((w) => w.startsWith("updateGift"))).toHaveLength(1);
+    expect(holder.current.markAsPurchased).toHaveBeenCalledTimes(1);
   });
   it("answers the gift as another request left it when its own conditional write finds it moved", async () => {
     holder.current.markAsPurchased.mockResolvedValue({ data: {} });
     const store = holder.current.store;
     const write = store.updateGift.bind(store);
     let raced = false;
-    store.updateGift = async (id, patch, expect) => {
-      if (!raced && expect) {            // another request gets in between this one's read and its write
+    store.updateGift = async (...args) => {
+      if (!raced) {                      // another request gets in between this one's read and its write, and goes further
         raced = true;
-        await write(id, { status: "ordered" });
+        await write(args[0], { status: "arrived" });
       }
-      return write(id, patch, expect);
+      return write(...args);
     };
     const res = await POST(post(fixture("step-request")), ctx(IDS.giftScarf));
-    expect([res.status, (await res.json()).gift.status]).toEqual([200, "ordered"]);
-    expect(statusOf(IDS.giftScarf)).toBe("ordered");
+    expect([res.status, (await res.json()).gift.status]).toEqual([200, "arrived"]);
+    expect(statusOf(IDS.giftScarf)).toBe("arrived");
     expect(store.writes.filter((w) => w.startsWith("updateGift"))).toHaveLength(1);
+    expect(holder.current.markAsPurchased).not.toHaveBeenCalled();   // a lost write never touches the item
   });
   it("answers 404 when the gift is gone by the time its write is made", async () => {
     const store = holder.current.store;
@@ -202,6 +206,68 @@ describe("POST /api/mobile/v1/gifts/[id]/step", () => {
       return write(id, patch, expect);
     };
     expect((await POST(post({ direction: "forward", from: "ordered" }, IDS.giftPhotoBook), ctx(IDS.giftPhotoBook))).status).toBe(404);
+  });
+
+  it.each([["back first", ["back", "forward"], "planned"], ["forward first", ["forward", "back"], "arrived"]] as const)(
+    "leaves the stage and the item's mark in agreement when a back and a forward step start together from Ordered (%s)",
+    async (_name, order, final) => {
+      await holder.current.store.updateGift(IDS.giftScarf, { status: "ordered" });
+      holder.current.store.writes.length = 0;
+      holder.current.markAsPurchased.mockImplementation(async (_id: string, bought: boolean) => {
+        if (!bought) await new Promise((r) => setTimeout(r, 20));   // un-marking is slow
+        return { data: {} };
+      });
+      const responses = await Promise.all(order.map((direction) => POST(post({ direction, from: "ordered" }), ctx(IDS.giftScarf))));
+      expect(responses.map((r) => r.status)).toEqual([200, 200]);
+      expect(statusOf(IDS.giftScarf)).toBe(final);
+      const calls = holder.current.markAsPurchased.mock.calls;
+      // At Arrived the item is still marked bought; at Claimed it was un-marked exactly once.
+      expect(calls).toEqual(final === "arrived" ? [] : [[IDS.scarf, false]]);
+    });
+  it("puts the gift back and answers the not-held sentence when the item cannot be marked", async () => {
+    holder.current.markAsPurchased.mockResolvedValue({ error: "Only the person who claimed this item can mark it purchased" });
+    const res = await POST(post(fixture("step-request")), ctx(IDS.giftScarf));
+    expect([res.status, (await res.json()).error.message]).toEqual([422, "You no longer hold this item."]);
+    expect(statusOf(IDS.giftScarf)).toBe("planned");
+    expect(holder.current.store.writes).toEqual([`updateGift:${IDS.giftScarf}`, `updateGift:${IDS.giftScarf}`]);
+  });
+  it("puts the gift back and answers 401 when the website says nobody is signed in", async () => {
+    holder.current.markAsPurchased.mockResolvedValue({ error: "Not authenticated" });
+    expect((await POST(post(fixture("step-request")), ctx(IDS.giftScarf))).status).toBe(401);
+    expect(statusOf(IDS.giftScarf)).toBe("planned");
+  });
+  it("puts the gift back and answers the standard 500 when marking the item fails", async () => {
+    for (const failing of [() => holder.current.markAsPurchased.mockRejectedValue(new Error("boom")),
+      () => holder.current.markAsPurchased.mockResolvedValue({ error: "connection reset" })]) {
+      failing();
+      const res = await POST(post(fixture("step-request")), ctx(IDS.giftScarf));
+      expect(res.status).toBe(500);
+      expect(await res.text()).not.toMatch(/boom|connection/);
+      expect(statusOf(IDS.giftScarf)).toBe("planned");
+    }
+  });
+  it("leaves a gift alone that another request has moved on again, when its put-back finds it moved", async () => {
+    holder.current.markAsPurchased.mockImplementation(async () => {
+      await holder.current.store.updateGift(IDS.giftScarf, { status: "arrived" });   // another request, meanwhile
+      return { error: "Only the person who claimed this item can mark it purchased" };
+    });
+    const res = await POST(post(fixture("step-request")), ctx(IDS.giftScarf));
+    expect(res.status).toBe(422);
+    expect(statusOf(IDS.giftScarf)).toBe("arrived");
+  });
+  it("answers the first failure, logging both, when the put-back fails too", async () => {
+    vi.mocked(console.error).mockClear();
+    holder.current.markAsPurchased.mockResolvedValue({ error: "Only the person who claimed this item can mark it purchased" });
+    const store = holder.current.store;
+    const write = store.updateGift.bind(store);
+    let calls = 0;
+    store.updateGift = async (...args) => {
+      if (++calls === 2) throw new Error("put-back failed");
+      return write(...args);
+    };
+    const res = await POST(post(fixture("step-request")), ctx(IDS.giftScarf));
+    expect([res.status, (await res.json()).error.message]).toEqual([422, "You no longer hold this item."]);
+    expect(vi.mocked(console.error).mock.calls.flat().map(String).join(" ")).toMatch(/put-back failed/);
   });
 
   it("says nothing of an owner in what it answers or logs", async () => {   // §5.5

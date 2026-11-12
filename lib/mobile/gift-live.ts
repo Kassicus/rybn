@@ -4,6 +4,7 @@ import { markAsPurchased } from "@/lib/actions/wishlist";
 import { todayISO } from "@/lib/claims/active";
 import type { UpcomingOccasion } from "@/lib/occasions/display";
 import { createClient } from "@/lib/supabase/server";
+import type { GiftStatus } from "@/lib/schemas/gift-tracking";
 import { resolveStoredImageValue } from "@/lib/storage/image-value";
 import { NOT_SIGNED_IN, databaseFailure } from "./action-response";
 import { resolveOccasionId } from "./claim-live";
@@ -33,6 +34,9 @@ import { UUID } from "./wishlist-live";
 
 /** The database's refusals are all SQLSTATE 22023 (types/database.ts); anything else is a fault. */
 const REFUSED = "22023";
+
+/** The SQLSTATE the database raises for a request with no signed-in caller. */
+const NOT_SIGNED_IN_CODE = "28000";
 
 /** The refusal text markAsPurchased answers for a claim the caller does not hold (lib/actions/wishlist.ts). */
 const NOT_THE_CLAIMER = "Only the person who claimed this item can mark it purchased";
@@ -215,11 +219,18 @@ export async function saveGiftAnswer(userId: string, giftId: string, raw: unknow
   const gift = view.gift;
 
   // Who: a gift from a list keeps its recipient whatever the body says (its person can be unseen by now).
+  // A hand-added gift for the same person (or typed name) it already has is not checked again: they may have left the
+  // caller's groups since, and a notes-only edit must still go through.
   let who: Who | null = null;
   if (!gift.fromList) {
-    const resolved = await resolveWho(userId, body);
-    if (resolved instanceof Response) return resolved;
-    who = resolved;
+    const current = (await store.recipients()).find((r) => r.id === view.recipientId);
+    const unchanged = current !== undefined &&
+      (body.person !== null ? current.person_id === body.person : current.person_id === null && current.name === body.recipientName);
+    if (!unchanged) {
+      const resolved = await resolveWho(userId, body);
+      if (resolved instanceof Response) return resolved;
+      who = resolved;
+    }
   }
 
   const patch: GiftPatch = {
@@ -233,11 +244,12 @@ export async function saveGiftAnswer(userId: string, giftId: string, raw: unknow
 
   // Occasion: left alone when it is the one the gift has, even if it has passed or is no longer offered.
   if (body.occasion !== (gift.occasion?.key ?? null)) {
+    // D12: for a gift from a list the claim's occasion is the truth; whether it is held is checked before anything is read.
+    if (gift.fromList && (!gift.held || gift.itemId === null)) return mobileError("invalid", SHOPPING_RULES.notHeld);
     const allowed = await choicesFor(who !== null ? (who.kind === "person" ? who.profile.id : null) : view.personId);
     if (allowed instanceof Response) return allowed;
-    if (gift.fromList) {
-      // D12: the claim's occasion is the truth; the database moves it, and its word is final.
-      if (!gift.held || gift.itemId === null) return mobileError("invalid", SHOPPING_RULES.notHeld);
+    if (gift.fromList && gift.itemId !== null) {
+      // The database moves the claim, and its word is final.
       const resolved = await occasionFor(body.occasion, allowed);
       if (resolved instanceof Response) return resolved;
       const refused = await moveClaim(gift.itemId, resolved.occasionId);
@@ -264,6 +276,7 @@ async function moveClaim(itemId: string, occasionId: string | null): Promise<Res
   const supabase = await createClient();
   const { error } = await supabase.rpc("set_claim_occasion", { p_item_id: itemId, p_occasion_id: occasionId });
   if (!error) return null;
+  if (error.code === NOT_SIGNED_IN_CODE) return mobileError("unauthorized");
   if (error.code === REFUSED) {
     const message = error.message.toLowerCase();
     if (message.includes("you no longer hold that item")) return mobileError("invalid", SHOPPING_RULES.notHeld);
@@ -304,20 +317,46 @@ export async function stepGiftAnswer(userId: string, giftId: string, raw: unknow
   );
   if (!plan.ok) return mobileError("invalid", plan.message);
 
-  if (plan.markBought !== null && gift.itemId !== null) {
-    const marked = await markAsPurchased(gift.itemId, plan.markBought);
-    if ("error" in marked && marked.error) {
-      if (marked.error === NOT_SIGNED_IN) return mobileError("unauthorized");
-      if (marked.error === NOT_THE_CLAIMER) return mobileError("invalid", SHOPPING_RULES.notHeld);
-      throw new Error(`markAsPurchased failed: ${marked.error}`);
-    }
-  }
-
+  // The gift moves first, and only if it is still where it was read. Only the request that moved it touches the item.
   const updated = await store.updateGift(giftId, { status: plan.to }, { status: view.status });
   if (updated !== null && !updated.ok) throw new Error("updateGift reported an item clash for a status change");
+  if (updated !== null && plan.markBought !== null && gift.itemId !== null) {
+    const refusal = await markItem(gift.itemId, plan.markBought);
+    if (refusal) {
+      await putBack(store, giftId, view.status, plan.to, refusal.failure);
+      if (refusal.response) return refusal.response;
+      throw refusal.failure;
+    }
+  }
   // null: another request moved it first (or it has gone). Answer it as it now is.
   const now = await findView(userId, store, today, giftId);
   return now ? { gift: now.gift } : mobileError("not_found");
+}
+
+/** Marks or un-marks the item. Null when done; otherwise the answer to send (a Response) or the fault to throw. */
+async function markItem(itemId: string, bought: boolean): Promise<{ response: Response | null; failure: unknown } | null> {
+  try {
+    const marked = await markAsPurchased(itemId, bought);
+    if (!("error" in marked) || !marked.error) return null;
+    if (marked.error === NOT_SIGNED_IN) return { response: mobileError("unauthorized"), failure: marked.error };
+    if (marked.error === NOT_THE_CLAIMER) return { response: mobileError("invalid", SHOPPING_RULES.notHeld), failure: marked.error };
+    return { response: null, failure: new Error(`markAsPurchased failed: ${marked.error}`) };
+  } catch (failure) {
+    return { response: null, failure };
+  }
+}
+
+/**
+ * The item could not be marked, so the gift goes back to the stage it had: conditional on it still being where this
+ * request put it, so a later step by another request is never undone. A put-back that fails is logged beside the
+ * first failure, which still decides the answer.
+ */
+async function putBack(store: GiftStore, giftId: string, was: GiftStatus, now: GiftStatus, first: unknown): Promise<void> {
+  try {
+    await store.updateGift(giftId, { status: was }, { status: now });
+  } catch (putBackFailure) {
+    console.error("stepGiftAnswer: putting the gift back failed too:", putBackFailure, "after:", first);
+  }
 }
 
 export async function deleteGiftAnswer(userId: string, giftId: string): Promise<Answer<null>> {

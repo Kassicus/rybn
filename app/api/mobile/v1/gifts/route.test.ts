@@ -91,10 +91,14 @@ describe("POST /api/mobile/v1/gifts", () => {
   it("files the gift under the year of its occasion", async () => {
     const body = await (await POST(post({ ...request(), person: "user_2momABC", occasion: "birthday:user_2momABC:2027" }), ctx)).json();
     expect([body.gift.occasion.key, body.gift.seasonYear]).toEqual(["birthday:user_2momABC:2027", 2027]);
+    const stored = holder.current.store.allGifts().find((g) => g.id === body.gift.id)!;
+    expect([stored.occasion_id, stored.season_year]).toEqual([IDS.momBirthday, 2027]);
   });
   it("files a gift with no occasion under this year", async () => {
     const body = await (await POST(post({ ...request(), occasion: null }), ctx)).json();
     expect([body.gift.occasion, body.gift.seasonYear]).toEqual([null, 2026]);
+    const stored = holder.current.store.allGifts().find((g) => g.id === body.gift.id)!;
+    expect([stored.occasion_id, stored.season_year]).toEqual([null, 2026]);
   });
   it("files a typed name under the caller's recipient of that name", async () => {
     const body = await (await POST(post({ ...request(), person: null, recipientName: "Grandpa Joe", occasion: null }), ctx)).json();
