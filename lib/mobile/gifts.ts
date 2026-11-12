@@ -137,6 +137,8 @@ export interface GiftContext {
   recipients: ReadonlyMap<string, RecipientRow>;
   items: ReadonlyMap<string, LinkedItem>;
   held: ReadonlySet<string>;
+  /** When each of the caller's claims was made, by item id (its claimed_at). */
+  claimedAt: ReadonlyMap<string, string>;
   occasions: ReadonlyMap<string, UpcomingOccasion>;
   profiles: ReadonlyMap<string, PersonRow>;
   today: string;
@@ -178,6 +180,8 @@ export interface GiftView {
   recipientId: string;
   archived: boolean;
   createdAt: string;
+  /** When the claim the caller holds on the gift's item was made; null when none is held. Not sent. */
+  claimedAt: string | null;
 }
 
 /** The item ids the caller holds an active claim on. */
@@ -262,6 +266,7 @@ export function buildGiftViews(rows: GiftRow[], ctx: GiftContext): GiftView[] {
       recipientId: row.recipient_id,
       archived: row.is_archived,
       createdAt: row.created_at,
+      claimedAt: held && row.wishlist_item_id !== null ? ctx.claimedAt.get(row.wishlist_item_id) ?? null : null,
     };
   });
 }

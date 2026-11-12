@@ -151,6 +151,30 @@ describe("reconcileGifts", () => {
     expect(forItem(s, IDS.scarf)[0]).toMatchObject({ occasion_id: IDS.momBirthday, season_year: 2027 });
     expect(shownSeason(s, IDS.scarf)).toBe(2027);
   });
+  it("moves last Christmas's gift into the new year when its lapsed claim is made again on the site in January with no occasion", async () => {   // re-review, Question 1
+    const s = seeded({ replaceClaims: true, claims: [scarfClaim({ occasionId: null, occasionDate: null, claimedAt: "2027-01-03T10:00:00.000000+00:00" })] });
+    await reconcileGifts(s, "2027-01-05");
+    expect(forItem(s, IDS.scarf)[0]).toMatchObject({ occasion_id: null, season_year: 2027 });
+    expect(shownSeason(s, IDS.scarf)).toBe(2027);
+  });
+  it("moves an undated claim's gift into the year it is claimed again on the site, with no occasion either time, in one write", async () => {   // re-review, Question 1
+    const lastYears = copyOf({ wishlist_item_id: IDS.dutchOven, from_list: true, recipient_id: IDS.recipientMom, season_year: 2025,
+      created_at: "2025-06-01T10:00:00.000000+00:00" });
+    const s = seeded({ replaceClaims: true, gifts: [lastYears],
+      claims: [oven({ occasionId: null, occasionDate: null, claimedAt: "2026-03-01T10:00:00.000000+00:00" })] });
+    await reconcileGifts(s, TODAY);
+    expect(forItem(s, IDS.dutchOven)[0]).toMatchObject({ occasion_id: null, season_year: 2026 });
+    expect(shownSeason(s, IDS.dutchOven)).toBe(2026);
+    expect(s.writes).toEqual([`updateGift:${lastYears.id}`]);
+    await reconcileGifts(s, TODAY);
+    expect(s.writes).toHaveLength(1);
+  });
+  it("does not re-season a gift whose claim has an occasion the caller cannot see the date of", async () => {   // pin
+    const s = seeded({ replaceClaims: true, claims: [scarfClaim({ occasionDate: null, claimedAt: "2025-12-20T10:00:00.000000+00:00" })] });
+    await reconcileGifts(s, TODAY);
+    expect(s.writes).toEqual([]);
+    expect(forItem(s, IDS.scarf)[0]).toMatchObject({ occasion_id: IDS.xmas, season_year: 2026 });
+  });
   it("leaves a gift at Claimed whose claim is no longer held", async () => {
     const s = seeded({ replaceClaims: true, claims: [w.claims[1]] }); await reconcileGifts(s, TODAY);
     expect([forItem(s, IDS.scarf)[0].status, s.writes]).toEqual(["planned", []]);

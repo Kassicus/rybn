@@ -171,6 +171,7 @@ export function world() {
       recipients: new Map(recipients.map((r) => [r.id, r])),
       items: new Map(linkedItems),
       held: heldItemIds(claims, TODAY),
+      claimedAt: new Map(claims.map((c) => [c.itemId, c.claimedAt])),
       occasions: new Map(occasionRows.map((r) => [r.id, occasionFromRow(r, profiles)])),
       profiles,
       today: TODAY,

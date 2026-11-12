@@ -40,10 +40,12 @@ export async function reconcileGifts(store: GiftStore, today: string): Promise<v
     }
     const patch: GiftPatch = {};
     if (g.status === "planned" && claim.item.purchased) patch.status = "ordered";
-    if (g.occasion_id !== claim.occasionId) {
-      patch.occasion_id = claim.occasionId;
-      patch.season_year = giftSeason(claim.occasionDate, g.created_at);
-    }
+    // The season rule fileClaim uses: the occasion's year, else the year the claim was made. It is written when the
+    // occasion changed, or when the claim has no occasion and the stored season is another year (an undated claim made
+    // again in a later year). A dated claim whose date the caller cannot see is left as it is.
+    const season = giftSeason(claim.occasionDate, claim.claimedAt);
+    if (g.occasion_id !== claim.occasionId) patch.occasion_id = claim.occasionId;
+    if (g.occasion_id !== claim.occasionId || (claim.occasionId === null && g.season_year !== season)) patch.season_year = season;
     if (Object.keys(patch).length === 0) continue;
     try {
       await store.updateGift(g.id, patch);

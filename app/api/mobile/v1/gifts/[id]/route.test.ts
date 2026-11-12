@@ -43,6 +43,7 @@ vi.mock("@/lib/claims/active", async (importOriginal) => ({
 }));
 
 const { GET, PUT, DELETE } = await import("./route");
+const { POST: CLAIM } = await import("@/app/api/mobile/v1/wishlist/[id]/claim/route");
 const { bearer, hideItem, oven, worldMocks, worldStore } = await import("@/lib/mobile/test-shopping-mocks");
 const { memoryGiftStore } = await import("@/lib/mobile/test-gift-store");
 const { reconcileGifts } = await import("@/lib/mobile/reconcile");
@@ -136,11 +137,31 @@ describe("PUT /api/mobile/v1/gifts/[id]", () => {
     const res = await PUT(put(scarfBody({ occasion: "birthday:user_2momABC:2027" })), ctx(IDS.giftScarf));
     expect([res.status, (await res.json()).error.message]).toEqual([422, "You no longer hold this item."]);
   });
-  it("moves a gift from a list to No occasion, keeping the year it was added", async () => {
+  it("moves a gift from a list to No occasion, under the year its claim was made", async () => {
     const body = await (await PUT(put(scarfBody({ occasion: null })), ctx(IDS.giftScarf))).json();
     expect(holder.current.rpc).toHaveBeenCalledWith("set_claim_occasion", { p_item_id: IDS.scarf, p_occasion_id: null });
     expect([body.gift.occasion, body.gift.seasonYear]).toEqual([null, 2026]);
     expect([giftRow(IDS.giftScarf).occasion_id, giftRow(IDS.giftScarf).season_year]).toEqual([null, 2026]);
+  });
+  it("moves a gift from a list older than its claim to No occasion under the claim's year, and a holder's retry leaves it there", async () => {   // re-review, Question 1
+    const w = world();
+    const claim = { ...w.claims[0] };                                 // the scarf's, made 2026-11-08
+    holder.current.store = memoryGiftStore(SAM, {
+      claims: [claim, w.claims[1]],
+      gifts: w.gifts.map((g) => ({ ...g, user_id: SAM, created_at: g.id === IDS.giftScarf ? "2025-12-01T10:00:00.000000+00:00" : g.created_at })),
+      recipients: w.recipients.map((r) => ({ ...r, user_id: SAM })),
+    });
+    holder.current.rpc.mockImplementation(async (fn: string, args: { p_occasion_id: string | null }) => {
+      if (fn === "set_claim_occasion") Object.assign(claim, { occasionId: args.p_occasion_id, occasionDate: null });   // the database moves the claim
+      return { data: null, error: null };
+    });
+    const saved = await (await PUT(put(scarfBody({ occasion: null })), ctx(IDS.giftScarf))).json();
+    expect([saved.gift.occasion, saved.gift.seasonYear, giftRow(IDS.giftScarf).season_year]).toEqual([null, 2026, 2026]);
+    holder.current.store.writes.length = 0;
+    const retry = await CLAIM(bearer(`http://localhost/api/mobile/v1/wishlist/${IDS.scarf}/claim`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ occasion: null }) }), ctx(IDS.scarf));
+    expect([retry.status, (await retry.json()).gift.seasonYear]).toEqual([200, 2026]);
+    expect(holder.current.store.writes).toEqual([]);
   });
   it("refuses an occasion that is not among the owner's, before asking the database", async () => {
     const res = await PUT(put(scarfBody({ occasion: "birthday:user_2prySHA:2027" })), ctx(IDS.giftScarf));
@@ -204,6 +225,22 @@ describe("PUT /api/mobile/v1/gifts/[id]", () => {
       const res = await PUT(put(photoBookBody({ notes: "Ask Mom first" }), IDS.giftPhotoBook), ctx(IDS.giftPhotoBook));
       expect([res.status, (await res.json()).gift.notes]).toEqual([200, "Ask Mom first"]);
       expect(giftRow(IDS.giftPhotoBook).recipient_id).toBe(IDS.recipientMom);
+    });
+    it("saves the notes of a gift for someone who has left the caller's groups, filed under last Christmas", async () => {   // re-review, New Breakage 1
+      // Mom has left: no profile and no shared group, so the gift has no person and the app sends her name. Christmas has
+      // passed, so it is not among the upcoming group dates, though the caller can still see it.
+      holder.current.todayISO.mockReturnValue("2027-01-05");
+      holder.current.getUpcomingOccasions.mockResolvedValue({ data: world().upcoming.filter((o) => o.occasionId !== IDS.xmas) });
+      holder.current.getSharedGroups.mockResolvedValue({ data: [] });
+      holder.current.profiles.mockImplementation(async (ids: string[]) =>
+        new Map([...world().profiles].filter(([id]) => id !== "user_2momABC" && ids.includes(id))));
+      const shown = (await (await GET(get(IDS.giftPhotoBook), ctx(IDS.giftPhotoBook))).json()).gift;
+      expect([shown.person, shown.recipientName, shown.occasion?.key]).toEqual([null, "Mom", IDS.xmasKey]);
+      const res = await PUT(put(photoBookBody({ person: null, recipientName: shown.recipientName, notes: "Ask first" }), IDS.giftPhotoBook),
+        ctx(IDS.giftPhotoBook));
+      expect([res.status, (await res.json()).gift?.occasion?.key]).toEqual([200, IDS.xmasKey]);
+      expect(giftRow(IDS.giftPhotoBook)).toMatchObject({ recipient_id: IDS.recipientMom, occasion_id: IDS.xmas, notes: "Ask first" });
+      expect(holder.current.store.allRecipients()).toHaveLength(world().recipients.length);
     });
     it("saves the notes of a gift for a typed name without making anything", async () => {
       const res = await PUT(put(photoBookBody({ person: null, recipientName: "Mom", notes: "x" }), IDS.giftPhotoBook), ctx(IDS.giftPhotoBook));

@@ -26,6 +26,7 @@ export async function loadGiftViews(userId: string, store: GiftStore, today: str
     recipients: new Map(recipients.map((r) => [r.id, r])),
     items,
     held: heldItemIds(claims, today),
+    claimedAt: new Map(claims.map((c) => [c.itemId, c.claimedAt])),
     occasions: new Map(rows.map((r) => [r.id, occasionFromRow(r, people)])),
     profiles: people,
     today,

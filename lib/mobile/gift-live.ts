@@ -220,15 +220,14 @@ export async function saveGiftAnswer(userId: string, rawGiftId: string, raw: unk
 
   // Who: a gift from a list keeps its recipient whatever the body says (its person can be unseen by now).
   // A hand-added gift for the same person (or typed name) it already has is not checked again: they may have left the
-  // caller's groups since, and a notes-only edit must still go through. A typed name is compared trimmed, as the door
-  // trims what the app sends back.
+  // caller's groups since, and a notes-only edit must still go through. A typed name is the same recipient when it is
+  // the stored name, compared trimmed (the door trims what the app sends back), whether or not that recipient is linked
+  // to a person: a person the caller can no longer see is shown, and sent back, by their recipient's name.
   let who: Who | null = null;
   if (!gift.fromList) {
     const current = (await store.recipients()).find((r) => r.id === view.recipientId);
     const unchanged = current !== undefined &&
-      (body.person !== null
-        ? current.person_id === body.person
-        : current.person_id === null && current.name.trim() === body.recipientName);
+      (body.person !== null ? current.person_id === body.person : current.name.trim() === body.recipientName);
     if (!unchanged) {
       const resolved = await resolveWho(userId, body);
       if (resolved instanceof Response) return resolved;
@@ -258,7 +257,8 @@ export async function saveGiftAnswer(userId: string, rawGiftId: string, raw: unk
       const refused = await moveClaim(gift.itemId, resolved.occasionId);
       if (refused) return refused;
       patch.occasion_id = resolved.occasionId;
-      patch.season_year = giftSeason(resolved.occasionDate, view.createdAt);
+      // The season rule fileClaim uses: with no occasion, the year the held claim was made, not the year the gift was.
+      patch.season_year = giftSeason(resolved.occasionDate, view.claimedAt ?? view.createdAt);
     } else {
       const resolved = await occasionFor(body.occasion, allowed);
       if (resolved instanceof Response) return resolved;
