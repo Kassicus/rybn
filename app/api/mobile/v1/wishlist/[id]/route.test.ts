@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fixture, groupRows, rowFor } from "@/lib/mobile/test-fixtures";
-import { IDS } from "@/lib/mobile/test-shopping";
+import { IDS, world } from "@/lib/mobile/test-shopping";
 import { KEYS, TAG_IDS, tagging, tagsFor } from "@/lib/mobile/test-wishlist";
 import { formDataFromBody } from "@/lib/mobile/wishlist";
 
@@ -258,6 +258,92 @@ describe("PUT /api/mobile/v1/wishlist/[id]", () => {
     expect(res.status).toBe(422);
     expect((await res.json()).error.message).toBe("Give it a name.");
     expect(getWishlistItem).not.toHaveBeenCalled();
+  });
+});
+
+describe("PUT /api/mobile/v1/wishlist/[id], a tag for one of the caller's own dates", () => {
+  // A couple's anniversary is stored once, under one partner. Here the item is tagged for that row (STORED), while the
+  // caller is offered their own anniversary with no row yet (OFFERED); tagging it lands on the stored row.
+  const STORED_ROW = "44444444-4444-4444-8444-444444444444";
+  const STORED = "anniversary:user_2alxABC:2027";
+  const OFFERED = "anniversary:user_2abcDEF:2027";
+  const storedRow = { id: STORED_ROW, kind: "anniversary" as const, name: null, occasion_date: "2027-03-08",
+    celebrant_id: "user_2alxABC", partner_id: "user_2abcDEF", group_id: null, groups: null };
+  const offered = { occasionId: null, kind: "anniversary" as const, name: null, occasionDate: "2027-03-08",
+    celebrantId: "user_2abcDEF", celebrantUsername: "sam", celebrantDisplayName: "Sam Rivera", groupId: null, groupName: null,
+    partnerId: null, partnerUsername: null, partnerDisplayName: null };
+  const anniversaryAt = (key: string) => ({ key, kind: "anniversary", title: "Your anniversary", date: "2027-03-08", group: null });
+
+  beforeEach(() => {
+    const t = tagging();
+    getWishlistItem.mockResolvedValue(mine());
+    updateWishlistItem.mockResolvedValue({ data: rowFor(fixture("wishlist-item").item) });
+    getUpcomingOccasions.mockResolvedValue({ data: [...t.upcoming, offered] });
+    occasionRows.mockImplementation(async (ids: string[]) => [...t.occasionRows, storedRow].filter((r) => ids.includes(r.id)));
+    taggedFor([STORED_ROW]);
+  });
+
+  it("lists a tag once when tagging for a date lands on one the item already has", async () => {
+    tagItemForMyOccasion.mockResolvedValue({ data: { occasionId: STORED_ROW } });
+    const res = await PUT(saving([STORED, OFFERED]), ctx(ID));
+    expect(res.status).toBe(200);
+    expect((await res.json()).item.occasions).toEqual([anniversaryAt(STORED)]);
+    expect(tagItemForMyOccasion).toHaveBeenCalledWith(ID, "anniversary");
+  });
+  it("finishes every removal before it adds, and names the date the tag landed on from its row", async () => {
+    let removed = false;
+    let removedBeforeAdding: boolean | undefined;
+    untagItem.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      removed = true;
+      return { ok: true };
+    });
+    tagItemForMyOccasion.mockImplementation(async () => {
+      removedBeforeAdding = removed;
+      return { data: { occasionId: STORED_ROW } };
+    });
+    const res = await PUT(saving([OFFERED]), ctx(ID));
+    expect(res.status).toBe(200);
+    expect(removedBeforeAdding).toBe(true);
+    expect(untagItem).toHaveBeenCalledWith(ID, STORED_ROW);
+    expect((await res.json()).item.occasions).toEqual([anniversaryAt(STORED)]);
+  });
+  it("names a date made on the spot from the row it was made as", async () => {
+    getUpcomingOccasions.mockResolvedValue({ data: world().upcoming });
+    taggedFor([]);
+    const res = await PUT(saving([KEYS.samBirthday]), ctx(ID));
+    expect(await keysOf(res)).toEqual([KEYS.samBirthday]);
+    expect(occasionRows).toHaveBeenLastCalledWith([TAG_IDS.samBirthday]);
+  });
+  it("names it as offered, and logs, when that row cannot be read", async () => {
+    getUpcomingOccasions.mockResolvedValue({ data: world().upcoming });
+    taggedFor([]);
+    occasionRows.mockImplementation(async (ids: string[]) => {
+      if (ids.length > 0) throw new Error("occasionRows failed: timeout");
+      return [];
+    });
+    const res = await PUT(saving([KEYS.samBirthday]), ctx(ID));
+    expect(res.status).toBe(200);
+    expect((await res.json()).item.occasions).toEqual([
+      { key: KEYS.samBirthday, kind: "birthday", title: "Your birthday", date: "2026-11-30", group: null }]);
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining(`reading what ${ID} was just tagged for`), expect.any(Error));
+  });
+  it("after 'already tagged' for one of the caller's own dates, answers the item's tags as read again", async () => {
+    tagItemForMyOccasion.mockResolvedValue({ error: "You've already tagged this item for that occasion" });
+    const res = await PUT(saving([OFFERED]), ctx(ID));
+    expect(res.status).toBe(200);
+    expect(getTagsForItems).toHaveBeenCalledTimes(2);
+    expect((await res.json()).item.occasions).toEqual([anniversaryAt(STORED)]);
+  });
+  it("answers what it worked out, and logs, when reading the tags again fails", async () => {
+    tagItemForMyOccasion.mockResolvedValue({ error: "You've already tagged this item for that occasion" });
+    let reads = 0;
+    getTagsForItems.mockImplementation(async (ids: string[]) =>
+      (reads++ === 0 ? tagsFor({ [ID]: [STORED_ROW] }, ids) : { error: "Failed to load tags. Please try again." }));
+    const res = await PUT(saving([OFFERED]), ctx(ID));
+    expect(res.status).toBe(200);
+    expect(await keysOf(res)).toEqual([OFFERED]);
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining(`reading ${ID}'s tags again`), expect.anything());
   });
 });
 

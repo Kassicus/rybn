@@ -47,6 +47,25 @@ export async function wishlistChoices(userId: string): Promise<Response | { occa
   return { occasions: choices.map((o) => wishlistOccasion(o, userId)) };
 }
 
+/** The occasion ids each of these items is tagged for, or the Response to send instead. A database fault throws. */
+async function readTagged(itemIds: string[]): Promise<Response | Record<string, string[]>> {
+  const result = await getTagsForItems(itemIds);
+  const failed = databaseFailure(result, "getTagsForItems");
+  if (failed) return failed;
+  return (result as { data: Record<string, string[]> }).data;
+}
+
+/** Each item's tags (itemTags), a date that is not among the choices described from its row. A database fault throws. */
+async function describeTags(
+  userId: string,
+  tagged: Record<string, string[]>,
+  choices: UpcomingOccasion[],
+): Promise<Map<string, Tag[]>> {
+  const rows = await occasionRows(rowsToRead(tagged, choices));
+  const names = await profiles(namesToRead(rows, userId));
+  return itemTags(tagged, choices, rows, names, userId);
+}
+
 /**
  * The choices, and each of these items' tags (itemTags), or the Response to send instead. A failed read fails the
  * request: an item answered with no tags could be saved back with none.
@@ -55,53 +74,122 @@ async function loadTags(
   userId: string,
   itemIds: string[],
 ): Promise<Response | { choices: UpcomingOccasion[]; tags: Map<string, Tag[]> }> {
-  const [choices, result] = await Promise.all([loadChoices(userId), getTagsForItems(itemIds)]);
+  const [choices, tagged] = await Promise.all([loadChoices(userId), readTagged(itemIds)]);
   if (choices instanceof Response) return choices;
-  const failed = databaseFailure(result, "getTagsForItems");
-  if (failed) return failed;
-  const tagged = (result as { data: Record<string, string[]> }).data;
-  const rows = await occasionRows(rowsToRead(tagged, choices));
-  const names = await profiles(namesToRead(rows, userId));
-  return { choices, tags: itemTags(tagged, choices, rows, names, userId) };
+  if (tagged instanceof Response) return tagged;
+  return { choices, tags: await describeTags(userId, tagged, choices) };
 }
 
 const occasionsOf = (tags: Map<string, Tag[]>, itemId: string): MobileOccasion[] =>
   (tags.get(itemId) ?? []).map((tag) => tag.occasion);
 
-/** One tag write: true once it is done. Any other answer, or a throw, is logged and is false. */
-async function tagWrite(what: string, write: () => Promise<object>, alreadyDone: string): Promise<boolean> {
+/**
+ * One tag write. Done, it gives the action's answer, or "already" when the action said it was done before; anything
+ * else, or a throw, is logged and gives null.
+ */
+async function tagWrite(what: string, write: () => Promise<object>, alreadyDone: string): Promise<object | "already" | null> {
   try {
     const result = await write();
     const error: unknown = "error" in result ? result.error : undefined;
-    if (error === undefined || error === null || error === alreadyDone) return true;
+    if (error === undefined || error === null) return result;
+    if (error === alreadyDone) return "already";
     console.error(`[mobile] wishlist: ${what} failed:`, error);
   } catch (thrown) {
     console.error(`[mobile] wishlist: ${what} failed:`, thrown);
   }
-  return false;
+  return null;
+}
+
+/** The occasion a tagging action says it tagged; null when it said only that the tag was there already. */
+function landedOn(outcome: object | "already"): string | null {
+  if (outcome === "already") return null;
+  const data: unknown = "data" in outcome ? outcome.data : undefined;
+  const id: unknown = typeof data === "object" && data !== null && "occasionId" in data ? data.occasionId : undefined;
+  return typeof id === "string" ? id : null;
+}
+
+/** The dates just tagged on occasions other than the ones offered, described from their rows; as offered if unreadable. */
+async function describeLanded(
+  userId: string,
+  itemId: string,
+  landed: { occasionId: string; offered: UpcomingOccasion }[],
+): Promise<MobileOccasion[]> {
+  if (landed.length === 0) return [];
+  try {
+    return occasionsOf(await describeTags(userId, { [itemId]: landed.map((l) => l.occasionId) }, []), itemId);
+  } catch (error) {
+    console.error(`[mobile] wishlist: reading what ${itemId} was just tagged for failed:`, error);
+    return landed.map((l) => wishlistOccasion(l.offered, userId));
+  }
+}
+
+/** The item's tags read again after it was written; null, logged, when they cannot be. */
+async function readAgain(userId: string, itemId: string, choices: UpcomingOccasion[]): Promise<MobileOccasion[] | null> {
+  try {
+    const tagged = await readTagged([itemId]);
+    if (tagged instanceof Response) throw new Error("getTagsForItems found nobody signed in");
+    return occasionsOf(await describeTags(userId, tagged, choices), itemId);
+  } catch (error) {
+    console.error(`[mobile] wishlist: reading ${itemId}'s tags again failed:`, error);
+    return null;
+  }
 }
 
 /**
- * Carries out `plan` on an item that is already written, through the website's own actions. A tag that cannot be
- * written then (say its date was deleted in between) does not fail the request: it is logged, and the answer is the
- * item's tags as they then stand.
+ * Carries out `plan` on an item that is already written, through the website's own actions, and answers its tags as
+ * they then stand. Every removal finishes before any addition starts, so the two never meet on one row.
+ *
+ * A group date is tagged on its own row. A date of the caller's own lands on whichever row get_or_create_occasion
+ * picks, which for a couple's anniversary can be one the item already has, or one stored under a key other than the
+ * one offered: the answer names the row it landed on. When the action says only that the tag was already there, the
+ * item's tags are read again.
+ *
+ * Nothing here fails the request: a tag that cannot be written (say its date was deleted in between), or a read that
+ * fails, is logged, and the answer is what the writes said.
  */
-async function writeTags(userId: string, itemId: string, current: Tag[], plan: TagPlan): Promise<MobileOccasion[]> {
-  const [removed, added] = await Promise.all([
-    Promise.all(plan.remove.map((tag) =>
-      tagWrite(`untagging ${itemId} from ${tag.occasion.key}`, () => untagItem(itemId, tag.occasionId), TAG_GONE))),
-    Promise.all(plan.add.map(({ occasion, target }) =>
-      tagWrite(
-        `tagging ${itemId} for ${occasionKey(occasion)}`,
-        () => (target.via === "my" ? tagItemForMyOccasion(itemId, target.kind) : tagItemForGroupDate(itemId, target.occasionId)),
-        ALREADY_TAGGED,
-      ))),
-  ]);
-  const gone = new Set(plan.remove.filter((_, i) => removed[i]));
-  return [
-    ...current.filter((tag) => !gone.has(tag)).map((tag) => tag.occasion),
-    ...plan.add.filter((_, i) => added[i]).map(({ occasion }) => wishlistOccasion(occasion, userId)),
-  ].sort(bySoonest);
+async function writeTags(
+  userId: string,
+  itemId: string,
+  current: Tag[],
+  plan: TagPlan,
+  choices: UpcomingOccasion[],
+): Promise<MobileOccasion[]> {
+  const removed = await Promise.all(plan.remove.map((tag) =>
+    tagWrite(`untagging ${itemId} from ${tag.occasion.key}`, () => untagItem(itemId, tag.occasionId), TAG_GONE)));
+  const added = await Promise.all(plan.add.map(({ occasion, target }) =>
+    tagWrite(
+      `tagging ${itemId} for ${occasionKey(occasion)}`,
+      () => (target.via === "my" ? tagItemForMyOccasion(itemId, target.kind) : tagItemForGroupDate(itemId, target.occasionId)),
+      ALREADY_TAGGED,
+    )));
+
+  const gone = new Set(plan.remove.filter((_, i) => removed[i] !== null));
+  const stands = current.filter((tag) => !gone.has(tag));
+  const tagged = new Set(stands.map((tag) => tag.occasionId));
+  const answer = stands.map((tag) => tag.occasion);
+  const landedElsewhere: { occasionId: string; offered: UpcomingOccasion }[] = [];
+  let readAgainNeeded = false;
+  plan.add.forEach(({ occasion, target }, i) => {
+    const outcome = added[i];
+    if (outcome === null) return;
+    const landed = target.via === "group" ? target.occasionId : landedOn(outcome);
+    if (landed === null) {
+      readAgainNeeded = true;
+      answer.push(wishlistOccasion(occasion, userId));
+      return;
+    }
+    if (tagged.has(landed)) return;
+    tagged.add(landed);
+    if (landed === occasion.occasionId) answer.push(wishlistOccasion(occasion, userId));
+    else landedElsewhere.push({ occasionId: landed, offered: occasion });
+  });
+
+  if (readAgainNeeded) {
+    const again = await readAgain(userId, itemId, choices);
+    if (again !== null) return again;
+  }
+  answer.push(...(await describeLanded(userId, itemId, landedElsewhere)));
+  return answer.sort(bySoonest);
 }
 
 /** The groups the caller belongs to, or the Response to send instead. */
@@ -181,10 +269,12 @@ export async function addWishlistItem(userId: string, raw: unknown): Promise<Res
   if (checked instanceof Response) return checked;
   // A new item has no tags, so every key must be one of the choices. Decided before anything is written.
   let plan = NO_TAG_CHANGES;
+  let choices: UpcomingOccasion[] = [];
   const keys = checked.body.occasions;
   if (keys !== null && keys.length > 0) {
-    const choices = await loadChoices(userId);
-    if (choices instanceof Response) return choices;
+    const loaded = await loadChoices(userId);
+    if (loaded instanceof Response) return loaded;
+    choices = loaded;
     const planned = planTags(keys, [], choices);
     if (planned === null) return mobileError("invalid", RULES.chooseDate);
     plan = planned;
@@ -193,7 +283,7 @@ export async function addWishlistItem(userId: string, raw: unknown): Promise<Res
   const failure = databaseFailure(result, "createWishlistItem");
   if (failure) return failure;
   const row = (result as { data: WishlistItemRow }).data;
-  return { item: mobileItem(row, checked.groups, await writeTags(userId, row.id, [], plan)) };
+  return { item: mobileItem(row, checked.groups, await writeTags(userId, row.id, [], plan, choices)) };
 }
 
 export async function replaceWishlistItem(
@@ -222,7 +312,7 @@ export async function replaceWishlistItem(
   const failure = databaseFailure(result, "updateWishlistItem");
   if (failure) return failure;
   const row = (result as { data: WishlistItemRow }).data;
-  return { item: mobileItem(row, checked.groups, await writeTags(userId, lookup.itemId, current, plan)) };
+  return { item: mobileItem(row, checked.groups, await writeTags(userId, lookup.itemId, current, plan, loaded.choices)) };
 }
 
 /** Deleting what is not there, or not yours, answers like deleting your own: nothing to report. */
