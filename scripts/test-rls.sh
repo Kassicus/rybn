@@ -38,7 +38,12 @@
 # when its policy is dropped -- review of the tests, not this script.
 set -uo pipefail
 
-SUPABASE="npx --yes supabase@latest"
+# Pinned, not @latest. CLI v3 changed `db query`: it asks for confirmation
+# before running SQL on a hosted project (and refuses when stdout is not a
+# terminal) and deprecates --linked, so every file failed before any SQL was
+# sent. SUPABASE_CLI overrides the command for one run, for example
+# SUPABASE_CLI=supabase to use an installed copy.
+SUPABASE="${SUPABASE_CLI:-npx --yes supabase@2.120.0}"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_DIR="$DIR/supabase/tests/rls"
 MANIFEST="$TEST_DIR/MANIFEST"
@@ -148,7 +153,9 @@ is_unreachable() {
 run_with_retry() {
   local sql="$1" attempt=1
   while [ "$attempt" -le 4 ]; do
-    $SUPABASE db query "$sql" "${TARGET[@]}" > "$OUT_FILE" 2>&1
+    # JSON, asked for by name: this CLI prints a box-drawn table by default,
+    # which snapshot_public_relations cannot read.
+    $SUPABASE db query "$sql" "${TARGET[@]}" --output-format json > "$OUT_FILE" 2>&1
     CLI_RC=$?
     if is_unreachable "$(cat "$OUT_FILE")"; then
       [ "$attempt" -lt 4 ] && sleep $((attempt * 5))
