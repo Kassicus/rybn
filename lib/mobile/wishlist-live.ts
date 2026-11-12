@@ -1,8 +1,11 @@
 import { createWishlistItem, deleteWishlistItem, getMyWishlist, getWishlistItem, updateWishlistItem } from "@/lib/actions/wishlist";
 import { getMyGroups } from "@/lib/actions/groups";
+import type { UpcomingOccasion } from "@/lib/occasions/display";
 import { resolveStoredImageValue } from "@/lib/storage/image-value";
 import { NOT_SIGNED_IN, databaseFailure } from "./action-response";
 import { pathUuid } from "./database";
+import type { MobileOccasion } from "./occasions";
+import { upcomingForCaller } from "./people-live";
 import { mobileError } from "./route";
 import {
   RULES,
@@ -11,12 +14,27 @@ import {
   mobileGroups,
   mobileItem,
   parseWishlistBody,
+  tagChoices,
+  wishlistOccasion,
   type GroupRow,
   type MobileGroup,
   type MobileItem,
   type WishlistBody,
   type WishlistItemRow,
 } from "./wishlist";
+
+/** What the caller may tag one of their items for now, or the Response to send instead. */
+async function loadChoices(userId: string): Promise<Response | UpcomingOccasion[]> {
+  const upcoming = await upcomingForCaller();
+  if (upcoming instanceof Response) return upcoming;
+  return tagChoices(upcoming, userId);
+}
+
+export async function wishlistChoices(userId: string): Promise<Response | { occasions: MobileOccasion[] }> {
+  const choices = await loadChoices(userId);
+  if (choices instanceof Response) return choices;
+  return { occasions: choices.map((o) => wishlistOccasion(o, userId)) };
+}
 
 /** The groups the caller belongs to, or the Response to send instead. */
 async function loadGroups(): Promise<Response | MobileGroup[]> {

@@ -1,0 +1,21 @@
+{
+  "occasions": [
+    {
+      "key": "birthday:user_2abcDEF:2026",
+      "kind": "birthday",
+      "title": "Your birthday",
+      "date": "2026-11-30",
+      "group": null
+    },
+    {
+      "key": "group_date:9c4b2e1a-7d3f-4e5a-8b6c-1d2e3f4a5b6c",
+      "kind": "group_date",
+      "title": "Christmas 2026",
+      "date": "2026-12-25",
+      "group": {
+        "id": "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e",
+        "name": "Rivera Family"
+      }
+    }
+  ]
+}

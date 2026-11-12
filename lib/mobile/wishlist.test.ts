@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
+import type { UpcomingOccasion } from "@/lib/occasions/display";
 import { INVALID_IMAGE_ERROR } from "@/lib/storage/image-value";
+import { occasionKey } from "./occasions";
 import { fixture, groupRows, rowFor } from "./test-fixtures";
+import { IDS, SAM, world } from "./test-shopping";
+import { KEYS, tagging } from "./test-wishlist";
 import {
   RULES,
   formDataFromBody,
@@ -8,7 +12,9 @@ import {
   mobileGroups,
   mobileItem,
   parseWishlistBody,
+  tagChoices,
   utcSeconds,
+  wishlistOccasion,
   type MobileItem,
   type WishlistBody,
 } from "./wishlist";
@@ -159,6 +165,37 @@ describe("formDataFromBody", () => {
     expect(formDataFromBody(body({ kind: "legacyTypes", types: ["friends", "family"] })))
       .toMatchObject({ visible_to_group_types: ["family", "friends"], restrict_to_group: null });
   });
+});
+
+describe("the dates an item can be tagged for", () => {
+  const t = tagging();
+  it("are the website's own, titled for the caller, matching the fixture", () =>
+    expect({ occasions: tagChoices(t.upcoming, SAM).map((o) => wishlistOccasion(o, SAM)) }).toEqual(fixture("wishlist-occasions")));
+  it("never include someone else's birthday", () =>
+    expect(tagChoices(t.upcoming, SAM).map(occasionKey)).not.toContain("birthday:user_2momABC:2027"));
+  it("come soonest first, whatever order they arrive in", () =>
+    expect(tagChoices([...t.upcoming].reverse(), SAM).map(occasionKey)).toEqual([KEYS.samBirthday, KEYS.xmas]));
+  it("offer the caller's birthday before it has a row", () =>
+    expect(tagChoices(world().upcoming, SAM).map(occasionKey)).toEqual([KEYS.samBirthday, KEYS.xmas]));
+});
+
+describe("wishlistOccasion", () => {
+  const w = world();
+  const anniversary = (celebrant: string, partner: string | null): UpcomingOccasion => ({ occasionId: null, kind: "anniversary",
+    name: null, occasionDate: "2027-03-08", celebrantId: celebrant, celebrantUsername: null, celebrantDisplayName: "Alex Rivera",
+    groupId: null, groupName: null, partnerId: partner, partnerUsername: null, partnerDisplayName: partner === null ? null : "Sam Rivera" });
+  it("titles the caller's own birthday 'Your birthday'", () =>
+    expect(wishlistOccasion(w.upcoming[0], SAM)).toEqual(
+      { key: KEYS.samBirthday, kind: "birthday", title: "Your birthday", date: "2026-11-30", group: null }));
+  it("titles the caller's own anniversary 'Your anniversary', also when it is stored under their partner", () => {
+    expect(wishlistOccasion(anniversary(SAM, null), SAM).title).toBe("Your anniversary");
+    expect(wishlistOccasion(anniversary(w.people.alex.id, SAM), SAM).title).toBe("Your anniversary");
+  });
+  it("keeps a group date's name and its group", () =>
+    expect(wishlistOccasion(w.upcoming[1], SAM)).toEqual(
+      { key: KEYS.xmas, kind: "group_date", title: "Christmas 2026", date: "2026-12-25", group: { id: IDS.rivera, name: "Rivera Family" } }));
+  it("keeps the site's title for anyone else's", () =>
+    expect(wishlistOccasion(w.upcoming[2], SAM).title).toBe("Mom's Birthday"));
 });
 
 describe("isOneOfMyGroups", () => {

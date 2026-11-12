@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { isOccasionFor } from "@/lib/occasions/celebrant";
+import type { UpcomingOccasion } from "@/lib/occasions/display";
+import { taggableOccasions } from "@/lib/occasions/taggable";
 import {
   ALL_GROUP_TYPES,
   describeChoice,
@@ -10,6 +13,7 @@ import {
 import { priorityLevels, type Priority, type WishlistItemFormData } from "@/lib/schemas/wishlist";
 import { INVALID_IMAGE_ERROR } from "@/lib/storage/image-value";
 import type { GroupType } from "@/types/privacy";
+import { mobileOccasion, occasionKey, type MobileOccasion } from "./occasions";
 
 /** Every sentence the rules at the door can answer with. */
 export const RULES = {
@@ -232,6 +236,26 @@ export function formDataFromBody(body: WishlistBody): WishlistItemFormData {
     visible_to_group_types: stored.visibleToGroupTypes,
     restrict_to_group: stored.restrictToGroup,
   };
+}
+
+/** On the caller's own list their own birthday or anniversary is theirs; any other occasion keeps the website's title. */
+export function wishlistOccasion(o: UpcomingOccasion, callerId: string): MobileOccasion {
+  const occasion = mobileOccasion(o);
+  if (o.kind === "group_date" || !isOccasionFor(o, callerId)) return occasion;
+  return { ...occasion, title: o.kind === "birthday" ? "Your birthday" : "Your anniversary" };
+}
+
+const ordinal = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+/** Soonest first, and on the same day by key, so the order never rests on the database's. */
+export function bySoonest(a: MobileOccasion, b: MobileOccasion): number {
+  return ordinal(a.date, b.date) || ordinal(a.key, b.key);
+}
+
+/** What the caller may tag one of their items for now: the website's own rule (taggableOccasions), soonest first. */
+export function tagChoices(upcoming: UpcomingOccasion[], callerId: string): UpcomingOccasion[] {
+  return [...taggableOccasions(upcoming, callerId)].sort(
+    (a, b) => ordinal(a.occasionDate, b.occasionDate) || ordinal(occasionKey(a), occasionKey(b)));
 }
 
 /** True unless the choice names one group and that group is not among the caller's. */

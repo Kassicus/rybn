@@ -15,6 +15,14 @@ vi.mock("@/lib/actions/wishlist", () => ({
   deleteWishlistItem: (id: string) => deleteWishlistItem(id),
 }));
 vi.mock("@/lib/actions/groups", () => ({ getMyGroups: () => getMyGroups() }));
+vi.mock("@/lib/actions/occasions", () => ({ getUpcomingOccasions: () => ({ error: "not used" }) }));
+vi.mock("@/lib/actions/profile", () => ({}));
+vi.mock("@/lib/supabase/signed-image", () => ({}));
+vi.mock("@/lib/supabase/server", () => ({
+  createClient: async () => {
+    throw new Error("no database in tests");
+  },
+}));
 
 const { PUT, DELETE } = await import("./route");
 
