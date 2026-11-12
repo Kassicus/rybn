@@ -22,3 +22,21 @@ describe("memoryGiftStore.updateGift with an expected status", () => {
     expect(await s.updateGift(SCARF.id, { status: "arrived" })).toMatchObject({ ok: true });
   });
 });
+describe("memoryGiftStore.deleteGift with an expected status", () => {                                  // Minor 10
+  it("deletes when the stored status is the expected one", async () => {
+    const s = store();
+    await s.deleteGift(SCARF.id, { status: "planned" });
+    expect(s.allGifts().map((g) => g.id)).not.toContain(SCARF.id);
+  });
+  it("deletes nothing when the stored status has moved", async () => {
+    const s = store();
+    await s.deleteGift(SCARF.id, { status: "ordered" });
+    expect(s.allGifts().map((g) => g.id)).toContain(SCARF.id);
+    expect(s.writes).toEqual([]);
+  });
+  it("still deletes without an expectation", async () => {
+    const s = store();
+    await s.deleteGift(SCARF.id);
+    expect(s.allGifts().map((g) => g.id)).not.toContain(SCARF.id);
+  });
+});

@@ -12,6 +12,7 @@ import {
   parseGiftBody,
   parseStepBody,
   planStep,
+  recipientNameChoices,
   recipientNames,
   type GiftRow,
   type StepDirection,
@@ -184,6 +185,14 @@ describe("recipientNames", () => {
     expect([[...n.plain].length, [...n.fromList].length, n.fromList.endsWith(" (from their list)")]).toEqual([100, 100, true]);
   });
   it("counts an emoji as one character, as the database does", () => expect([...recipientNames("🎁".repeat(100)).fromList]).toHaveLength(100));
+  it("offers numbered names after the two, each within 100 characters with its suffix whole", () => {   // Minor 2
+    expect(recipientNameChoices("Mom")).toEqual(["Mom", "Mom (from their list)",
+      ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => `Mom (from their list) ${n}`)]);
+    for (const [i, name] of recipientNameChoices("🎁".repeat(150)).entries()) {
+      expect([...name].length).toBe(100);
+      if (i >= 2) expect(name.endsWith(` (from their list) ${i}`)).toBe(true);
+    }
+  });
 });
 describe("parseGiftBody", () => {
   const request = fixture("gift-request");
@@ -210,6 +219,12 @@ describe("parseGiftBody", () => {
   ])("refuses %s with a sentence", (_, raw, message) => expect(parseGiftBody(raw)).toEqual({ ok: false, message }));
   it("accepts 100 emoji as a typed recipient, as the database does", () =>
     expect(parseGiftBody({ ...request, person: null, recipientName: "🎁".repeat(100) })).toMatchObject({ ok: true }));
+  it("counts a name, a description and notes by code points, as the database does", () => {          // Minor 3
+    expect(parseGiftBody({ ...request, name: "🎁".repeat(200), description: "🎁".repeat(1000), notes: "🎁".repeat(1000) })).toMatchObject({ ok: true });
+    expect(parseGiftBody({ ...request, name: "🎁".repeat(201) })).toEqual({ ok: false, message: RULES.nameTooLong });
+    expect(parseGiftBody({ ...request, description: "🎁".repeat(1001) })).toEqual({ ok: false, message: SHOPPING_RULES.descriptionTooLong });
+    expect(parseGiftBody({ ...request, notes: "🎁".repeat(1001) })).toEqual({ ok: false, message: RULES.notesTooLong });
+  });
 });
 describe("parseStepBody", () => {
   it("accepts the step fixture", () => expect(parseStepBody(fixture("step-request"))).toEqual({ ok: true, direction: "forward", from: "claimed" }));

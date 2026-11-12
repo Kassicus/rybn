@@ -23,5 +23,6 @@ export interface GiftStore {
    * conditional on it, so a request that lost a race changes nothing).
    */
   updateGift(id: string, patch: GiftPatch, expect?: { status: GiftStatus }): Promise<{ ok: true; row: StoredGift } | { ok: false; clash: "item" } | null>;
-  deleteGift(id: string): Promise<void>;
+  /** With `expect`, deletes only while the stored status is that one (otherwise nothing is deleted). */
+  deleteGift(id: string, expect?: { status: GiftStatus }): Promise<void>;
 }

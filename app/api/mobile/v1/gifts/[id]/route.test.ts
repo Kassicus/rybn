@@ -43,10 +43,11 @@ vi.mock("@/lib/claims/active", async (importOriginal) => ({
 }));
 
 const { GET, PUT, DELETE } = await import("./route");
-const { bearer, hideItem, worldMocks, worldStore } = await import("@/lib/mobile/test-shopping-mocks");
+const { bearer, hideItem, oven, worldMocks, worldStore } = await import("@/lib/mobile/test-shopping-mocks");
 const { memoryGiftStore } = await import("@/lib/mobile/test-gift-store");
+const { reconcileGifts } = await import("@/lib/mobile/reconcile");
 const { SHOPPING_RULES } = await import("@/lib/mobile/shopping-rules");
-const { IDS, SAM, world } = await import("@/lib/mobile/test-shopping");
+const { IDS, SAM, TODAY, world } = await import("@/lib/mobile/test-shopping");
 
 const NOBODY = "44444444-4444-4444-8444-444444444444";
 const DADS_GIFT = "55555555-5555-4555-8555-555555555555";
@@ -173,6 +174,16 @@ describe("PUT /api/mobile/v1/gifts/[id]", () => {
     expect([res.status, (await res.json()).gift.notes]).toEqual([200, "Wrap in red"]);
     expect(holder.current.store.allGifts().find((g) => g.id === IDS.giftScarf)!.recipient_id).toBe(IDS.recipientMom);
   });
+  it("saves only the notes of a gift filed from an item with an odd link and an emoji-heavy title", async () => {   // Minor 3
+    holder.current.store.addClaim(oven({}, { url: "ftp://files.example.com/dutch-oven", title: `${"\u{1F372}".repeat(150)} Dutch oven` }));
+    await reconcileGifts(holder.current.store, TODAY);
+    const id = holder.current.store.allGifts().find((g) => g.wishlist_item_id === IDS.dutchOven)!.id;
+    const shown = (await (await GET(get(id), ctx(id))).json()).gift;
+    const res = await PUT(put({ person: shown.person?.id ?? null, recipientName: shown.person ? null : shown.recipientName, name: shown.name,
+      description: shown.description, link: shown.link, price: shown.price, imagePath: shown.imagePath, occasion: shown.occasion?.key ?? null,
+      notes: "Wrap it" }, id), ctx(id));
+    expect([res.status, (await res.json()).gift?.notes]).toEqual([200, "Wrap it"]);
+  });
   it("ignores a different person in the body for a gift from a list", async () => {
     expect((await PUT(put(scarfBody({ person: "user_2dadABC" })), ctx(IDS.giftScarf))).status).toBe(200);
     expect(holder.current.store.allGifts().find((g) => g.id === IDS.giftScarf)!.recipient_id).toBe(IDS.recipientMom);
@@ -208,6 +219,30 @@ describe("PUT /api/mobile/v1/gifts/[id]", () => {
       const own = await PUT(put(photoBookBody({ person: SAM }), IDS.giftPhotoBook), ctx(IDS.giftPhotoBook));
       expect(own.status).toBe(422);
       expect(holder.current.store.writes).toEqual([]);
+    });
+    it("refuses to keep an occasion that is not one of the new person's, writing nothing", async () => {   // Minor 16
+      // Priya shares only the book club with Sam, so the family's Christmas is not one of hers.
+      const res = await PUT(put(photoBookBody({ person: "user_2prySHA", occasion: IDS.xmasKey }), IDS.giftPhotoBook), ctx(IDS.giftPhotoBook));
+      expect([res.status, (await res.json()).error.message]).toEqual([422, SHOPPING_RULES.chooseOccasion]);
+      expect(holder.current.store.writes).toEqual([]);
+      expect(giftRow(IDS.giftPhotoBook)).toMatchObject({ recipient_id: IDS.recipientMom, occasion_id: IDS.xmas });
+    });
+    it("keeps the occasion when it is one of the new person's", async () => {
+      const res = await PUT(put(photoBookBody({ person: "user_2dadABC", occasion: IDS.xmasKey }), IDS.giftPhotoBook), ctx(IDS.giftPhotoBook));
+      expect([res.status, (await res.json()).gift.occasion?.key]).toEqual([200, IDS.xmasKey]);
+    });
+    it("saves the notes of a gift under a typed name stored with a trailing space, keeping its recipient", async () => {   // Minor 18
+      const w = world();
+      const nana = { id: "bbbbbbbb-0000-4000-8000-0000000000c1", name: "Nana ", person_id: null };
+      holder.current.store = memoryGiftStore(SAM, {
+        claims: w.claims,
+        gifts: w.gifts.map((g) => ({ ...g, user_id: SAM, recipient_id: g.id === IDS.giftPhotoBook ? nana.id : g.recipient_id })),
+        recipients: [...w.recipients, nana].map((r) => ({ ...r, user_id: SAM })),
+      });
+      const res = await PUT(put(photoBookBody({ person: null, recipientName: "Nana ", notes: "Ask first" }), IDS.giftPhotoBook), ctx(IDS.giftPhotoBook));
+      expect([res.status, (await res.json()).gift?.recipientName]).toEqual([200, "Nana "]);
+      expect(giftRow(IDS.giftPhotoBook).recipient_id).toBe(nana.id);
+      expect(holder.current.store.allRecipients()).toHaveLength(w.recipients.length + 1);
     });
     it("refuses an occasion that does not involve the new person, and creates no recipient", async () => {
       const res = await PUT(put(photoBookBody({ person: "user_2dadABC", occasion: "birthday:user_2momABC:2027" }), IDS.giftPhotoBook), ctx(IDS.giftPhotoBook));

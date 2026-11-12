@@ -93,9 +93,10 @@ export function memoryGiftStore(
       writes.push(`updateGift:${id}`);
       return { ok: true, row: strip(g) };
     },
-    async deleteGift(id) {
+    async deleteGift(id, expect) {
       await tick();
       const i = gifts.findIndex((x) => x.id === id && x.user_id === userId);
+      if (i >= 0 && expect && gifts[i].status !== expect.status) return;
       if (i >= 0) gifts.splice(i, 1);
       writes.push(`deleteGift:${id}`);
     },

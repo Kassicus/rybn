@@ -180,6 +180,13 @@ describe("createGiftStore", () => {
     expect(await (await createGiftStore(ME)).updateGift("g1", { status: "ordered" }, { status: "planned" })).toBeNull();
   });
 
+  it("makes the delete conditional on the stored status when told what it should be", async () => {   // Minor 10
+    scripted = [{ data: null, error: null }];
+    await (await createGiftStore(ME)).deleteGift("g1", { status: "planned" });
+    expect(callsOf("delete")).toEqual([[]]);
+    expect(callsOf("eq")).toEqual([["id", "g1"], ["user_id", ME], ["status", "planned"]]);
+  });
+
   it("names the clash from the index", async () => {
     const store = await createGiftStore(ME);
     const clash = (message: string) => ({ data: null, error: { code: "23505", message } });

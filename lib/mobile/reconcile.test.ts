@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { buildGiftViews, type ClaimRow, type ClaimedItem, type RecipientRow, type StoredGift } from "./gifts";
+import { buildGiftViews, parseGiftBody, type ClaimRow, type ClaimedItem, type RecipientRow, type StoredGift } from "./gifts";
 import type { NewGift } from "./gift-store";
 import { memoryGiftStore, type MemoryGiftStore } from "./test-gift-store";
 import { oven } from "./test-shopping-mocks";
 import { IDS, SAM, TODAY, world } from "./test-shopping";
-import { fileClaim, reconcileGifts, recipientFor } from "./reconcile";
+import { NAMES_TAKEN, fileClaim, reconcileGifts, recipientFor } from "./reconcile";
 
 const w = world();
 type StoreOptions = { failInsertGift?: Error | ((row: NewGift) => Error | undefined); personClashFirst?: boolean };
@@ -206,10 +206,10 @@ describe("one bad claim", () => {
     expect(line).toContain(IDS.dutchOven); expect(line).toContain("23514");
     expect(line).not.toContain("Le Creuset"); expect(line).not.toContain("Mom");
   });
-  it("is skipped when both of the person's recipient names are taken", async () => {
+  it("is skipped when every one of the person's recipient names is taken", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    const typed = [{ id: "bbbbbbbb-0000-4000-8000-000000000001", name: "Dad", person_id: null },
-      { id: "bbbbbbbb-0000-4000-8000-000000000002", name: "Dad (from their list)", person_id: null }];
+    const typed = ["Dad", "Dad (from their list)", ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => `Dad (from their list) ${n}`)]
+      .map((name, i) => ({ id: `bbbbbbbb-0000-4000-8000-0000000001${String(i).padStart(2, "0")}`, name, person_id: null }));
     const s = seeded({ claims: [oven({ owner: w.people.dad }, { ownerId: "user_2dadABC" }), kindle()], recipients: typed });
     await expect(reconcileGifts(s, TODAY)).resolves.toBeUndefined();
     expect(forItem(s, IDS.dutchOven)).toEqual([]);
@@ -234,6 +234,40 @@ describe("one bad claim", () => {
     const s = seeded({ claims: [oven({}, { description: "\u{1F600}".repeat(1500) })] });
     await reconcileGifts(s, TODAY);
     expect(forItem(s, IDS.dutchOven)[0].description).toBe("\u{1F600}".repeat(1000));
+  });
+});
+describe("a filed gift passes its own door", () => {                                                  // Minor 3
+  const filed = async (item: Partial<ClaimedItem>) => {
+    const s = seeded({ claims: [oven({}, item)] }); await reconcileGifts(s, TODAY);
+    return forItem(s, IDS.dutchOven)[0];
+  };
+  const doorBody = (g: StoredGift) => ({ person: "user_2momABC", recipientName: null, name: g.name, description: g.description,
+    link: g.product_link, price: g.price, imagePath: null, occasion: null, notes: "Wrap it" });
+  it.each([
+    ["not a web address", "ftp://files.example.com/oven"], ["a script", "javascript:alert(1)"],
+    ["with a space", "https://www.example.com/dutch oven"], ["with a control character", "https://www.example.com/\u0007oven"],
+    ["over 2048 characters", `https://www.example.com/${"a".repeat(2030)}`],
+  ])("files a link the door would refuse (%s) as no link", async (_, url) => {
+    const g = await filed({ url });
+    expect(g.product_link).toBeNull();
+    expect(parseGiftBody(doorBody(g))).toMatchObject({ ok: true });
+  });
+  it("keeps a link the door accepts", async () => expect((await filed({ url: "https://www.example.com/dutch-oven?size=5.5" })).product_link)
+    .toBe("https://www.example.com/dutch-oven?size=5.5"));
+  it("takes control characters out of the title, and out of the description but for its tabs and line breaks", async () => {
+    const g = await filed({ title: "Le Creuset\u0007 Dutch oven\u0000", description: "5.5 qt\u001B,\tFlame\nor Cerise\r\n\u007F" });
+    expect([g.name, g.description]).toEqual(["Le Creuset Dutch oven", "5.5 qt,\tFlame\nor Cerise\r\n"]);
+    expect(parseGiftBody(doorBody(g))).toMatchObject({ ok: true });
+  });
+  it("cuts an emoji-heavy title by code points and the door takes it", async () => {
+    const g = await filed({ title: "\u{1F372}".repeat(250) });
+    expect(g.name).toBe("\u{1F372}".repeat(200));
+    expect(parseGiftBody(doorBody(g))).toMatchObject({ ok: true });
+  });
+  it("files a price the door would refuse as none", async () => {
+    const g = await filed({ price: 2_000_000 });
+    expect(g.price).toBeNull();
+    expect(parseGiftBody(doorBody(g))).toMatchObject({ ok: true });
   });
 });
 describe("a gift or copy deleted at the same instant", () => {
@@ -335,6 +369,32 @@ describe("recipientFor", () => {
     const s = seeded({ recipients: [typed] });
     expect(await recipientFor(s, w.people.dad)).toMatchObject({ name: "Dad (from their list)", person_id: "user_2dadABC" });
     expect(s.allRecipients().find((r) => r.id === typed.id)).toMatchObject({ name: "Dad", person_id: null });
+  });
+  it("gives a typed recipient and two group-mates who share a name a recipient each, and files the third one's claim", async () => {   // Minor 2
+    const typed = { id: "bbbbbbbb-0000-4000-8000-0000000000a1", name: "Alex", person_id: null };
+    const first = { id: "user_2alxBBB", username: "alexb", display_name: "Alex", avatar_url: null };
+    const third = { id: "user_2alxCCC", username: "alexc", display_name: "Alex", avatar_url: null };
+    const s = seeded({ replaceClaims: true, recipients: [typed], claims: [
+      oven({ owner: first }, { ownerId: first.id }), oven({ itemId: IDS.kindle, owner: third }, { id: IDS.kindle, ownerId: third.id, title: "Kindle" }),
+    ] });
+    await reconcileGifts(s, TODAY);
+    const named = (personId: string | null) => s.allRecipients().filter((r) => r.person_id === personId && r.name.startsWith("Alex"));
+    expect([named(null), named(first.id), named(third.id)].map((rs) => rs.map((r) => r.name)))
+      .toEqual([["Alex"], ["Alex (from their list)"], ["Alex (from their list) 2"]]);
+    expect(forItem(s, IDS.kindle)).toEqual([expect.objectContaining({ recipient_id: named(third.id)[0].id })]);
+  });
+  it("keeps each numbered name within the tracker's 100 characters, with its number whole", async () => {
+    const s = seeded({ recipients: [{ id: "bbbbbbbb-0000-4000-8000-0000000000b1", name: "a".repeat(100), person_id: null },
+      { id: "bbbbbbbb-0000-4000-8000-0000000000b2", name: `${"a".repeat(82)} (from their list)`, person_id: null }] });
+    const r = await recipientFor(s, { ...w.people.dad, display_name: "a".repeat(150) });
+    expect([[...r.name].length, r.name.endsWith(" (from their list) 2")]).toEqual([100, true]);
+  });
+  it("throws, with the code that lets a read skip the claim, only once every name is taken", async () => {
+    const names = ["Dad", "Dad (from their list)", ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => `Dad (from their list) ${n}`)];
+    const typed = (count: number) => names.slice(0, count)
+      .map((name, i) => ({ id: `bbbbbbbb-0000-4000-8000-0000000002${String(i).padStart(2, "0")}`, name, person_id: null }));
+    expect((await recipientFor(seeded({ recipients: typed(9) }), w.people.dad)).name).toBe("Dad (from their list) 9");
+    await expect(recipientFor(seeded({ recipients: typed(10) }), w.people.dad)).rejects.toMatchObject({ code: NAMES_TAKEN });
   });
   it("keeps the name within the tracker's 100 characters", async () =>
     expect([...(await recipientFor(seeded(), { ...w.people.dad, display_name: "a".repeat(150) })).name]).toHaveLength(100));

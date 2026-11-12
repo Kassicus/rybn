@@ -213,8 +213,10 @@ export async function createGiftStore(userId: string): Promise<GiftStore> {
       return data ? { ok: true, row: toGift(data) } : null;
     },
 
-    async deleteGift(id: string) {
-      const { error } = await supabase.from("tracked_gifts").delete().eq("id", id).eq("user_id", userId);
+    async deleteGift(id: string, expect?: { status: GiftStatus }) {
+      let remove = supabase.from("tracked_gifts").delete().eq("id", id).eq("user_id", userId);
+      if (expect) remove = remove.eq("status", expect.status);
+      const { error } = await remove;
       if (error) throw failure("deleteGift", error);
     },
   };

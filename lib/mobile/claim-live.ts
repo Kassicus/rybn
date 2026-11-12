@@ -162,6 +162,9 @@ export async function releaseAnswer(userId: string, itemId: string): Promise<Res
 
   const found = await findItem(itemId);
   if ("response" in found) return found.response;
+  // §5.5: the caller's own item is nobody's to release, and nothing about it is read (its purchased is only blank for
+  // its owner because getWishlistItem blanks it).
+  if ("item" in found && found.item.user_id === userId) return null;
   // D7: once the item is marked bought the claim stays. An item that is gone or hidden has nothing to say about it.
   if ("item" in found && found.item.purchased === true) return mobileError("invalid", SHOPPING_RULES.releaseBought);
 
@@ -174,8 +177,9 @@ export async function releaseAnswer(userId: string, itemId: string): Promise<Res
     if (released.error === NOT_SIGNED_IN) return mobileError("unauthorized");
     throw new Error(`releaseClaim failed: ${released.error}`);
   }
-  // A step may have landed since the first read: remove the gift only while it is still at Claimed.
+  // A step may have landed since the first read: remove the gift only while it is still at Claimed, at the moment of
+  // the delete itself.
   const now = (await store.gifts()).find((g) => g.wishlist_item_id === itemId);
-  if (now && now.status === "planned") await store.deleteGift(now.id);
+  if (now && now.status === "planned") await store.deleteGift(now.id, { status: "planned" });
   return null;
 }

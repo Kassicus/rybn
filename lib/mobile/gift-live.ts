@@ -23,7 +23,7 @@ import {
   type MobileGift,
   type RecipientRow,
 } from "./gifts";
-import { mobileOccasion, type MobileOccasion, type PersonRow } from "./occasions";
+import { mobileOccasion, occasionKey, type MobileOccasion, type PersonRow } from "./occasions";
 import { groupMembers, occasionsForPerson, profiles, upcomingForCaller } from "./people-live";
 import { reconcileGifts, recipientFor } from "./reconcile";
 import { mobileError } from "./route";
@@ -133,10 +133,14 @@ async function resolveWho(userId: string, body: GiftBody): Promise<Answer<Who>> 
   return { kind: "person", profile };
 }
 
-/** The caller's recipient for this person, or the one with exactly this typed name; made when there is none. */
+/**
+ * The caller's recipient for this person, or the one with this typed name (the door trims it, the site does not, so a
+ * stored name is compared trimmed, an exact one first); made when there is none.
+ */
 async function recipientOf(store: GiftStore, who: Who): Promise<RecipientRow> {
   if (who.kind === "person") return recipientFor(store, who.profile);
-  const named = (rows: RecipientRow[]) => rows.find((r) => r.name === who.name);
+  const named = (rows: RecipientRow[]) =>
+    rows.find((r) => r.name === who.name) ?? rows.find((r) => r.name.trim() === who.name);
   const found = named(await store.recipients());
   if (found) return found;
   const made = await store.insertRecipient({ name: who.name, person_id: null });
@@ -220,12 +224,15 @@ export async function saveGiftAnswer(userId: string, giftId: string, raw: unknow
 
   // Who: a gift from a list keeps its recipient whatever the body says (its person can be unseen by now).
   // A hand-added gift for the same person (or typed name) it already has is not checked again: they may have left the
-  // caller's groups since, and a notes-only edit must still go through.
+  // caller's groups since, and a notes-only edit must still go through. A typed name is compared trimmed, as the door
+  // trims what the app sends back.
   let who: Who | null = null;
   if (!gift.fromList) {
     const current = (await store.recipients()).find((r) => r.id === view.recipientId);
     const unchanged = current !== undefined &&
-      (body.person !== null ? current.person_id === body.person : current.person_id === null && current.name === body.recipientName);
+      (body.person !== null
+        ? current.person_id === body.person
+        : current.person_id === null && current.name.trim() === body.recipientName);
     if (!unchanged) {
       const resolved = await resolveWho(userId, body);
       if (resolved instanceof Response) return resolved;
@@ -262,6 +269,12 @@ export async function saveGiftAnswer(userId: string, giftId: string, raw: unknow
       patch.occasion_id = resolved.occasionId;
       patch.season_year = giftSeason(resolved.occasionDate, view.createdAt);
     }
+  } else if (who !== null && body.occasion !== null) {
+    // A hand-added gift given to someone else keeps its occasion only if it is one of theirs: a gift for Dad is never
+    // left filed under Mom's birthday.
+    const allowed = await choicesFor(who.kind === "person" ? who.profile.id : null);
+    if (allowed instanceof Response) return allowed;
+    if (!allowed.some((o) => occasionKey(o) === body.occasion)) return mobileError("invalid", SHOPPING_RULES.chooseOccasion);
   }
 
   patch.recipient_id = who !== null ? (await recipientOf(store, who)).id : view.recipientId;

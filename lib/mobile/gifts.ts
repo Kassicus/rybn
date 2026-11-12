@@ -329,13 +329,24 @@ export function buildGiftList(input: {
 const RECIPIENT_MAX = 100;
 const FROM_LIST_SUFFIX = " (from their list)";
 
+/** The name cut so that it and the suffix, kept whole, fit the tracker's 100 characters (code points). */
+const withSuffix = (chars: string[], suffix: string) =>
+  chars.slice(0, RECIPIENT_MAX - Array.from(suffix).length).join("") + suffix;
+
 /** By code points, as the database's char_length counts. */
 export function recipientNames(personName: string): { plain: string; fromList: string } {
   const chars = Array.from(personName);
-  return {
-    plain: chars.slice(0, RECIPIENT_MAX).join(""),
-    fromList: chars.slice(0, RECIPIENT_MAX - Array.from(FROM_LIST_SUFFIX).length).join("") + FROM_LIST_SUFFIX,
-  };
+  return { plain: chars.slice(0, RECIPIENT_MAX).join(""), fromList: withSuffix(chars, FROM_LIST_SUFFIX) };
+}
+
+/**
+ * Every name a person's recipient may be given, in the order they are tried: the plain name, `<name> (from their list)`,
+ * then `<name> (from their list) 2` to `9`, so a typed recipient and several people showing the same name each get one.
+ */
+export function recipientNameChoices(personName: string): string[] {
+  const chars = Array.from(personName);
+  const { plain, fromList } = recipientNames(personName);
+  return [plain, fromList, ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => withSuffix(chars, `${FROM_LIST_SUFFIX} ${n}`))];
 }
 
 export interface GiftBody {
@@ -350,6 +361,22 @@ export interface GiftBody {
   notes: string | null;
 }
 
+/** The door's limits. Text is counted in code points, as the database's char_length counts (and recipientNames). */
+const NAME_MAX = 200;
+const DESCRIPTION_MAX = 1000;
+const NOTES_MAX = 1000;
+const LINK_MAX = 2048;
+const PRICE_MAX = 1000000;
+const codePoints = (v: string) => Array.from(v).length;
+const cutTo = (v: string, max: number) => Array.from(v).slice(0, max).join("");
+
+const linkSchema = z
+  .string({ error: RULES.linkNotWeb })
+  .trim()
+  .max(LINK_MAX, RULES.linkTooLong)
+  .refine((v) => !SPACE_OR_CONTROL.test(v), RULES.characters)
+  .refine((v) => v === "" || isWebLink(v), RULES.linkNotWeb);
+
 const giftBodySchema = z
   .object(
     {
@@ -357,34 +384,27 @@ const giftBodySchema = z
       recipientName: z
         .string({ error: RULES.request })
         .trim()
-        // Code points, as the database's char_length counts (and recipientNames).
-        .refine((v) => Array.from(v).length <= RECIPIENT_MAX, SHOPPING_RULES.recipientTooLong)
+        .refine((v) => codePoints(v) <= RECIPIENT_MAX, SHOPPING_RULES.recipientTooLong)
         .refine((v) => !CONTROL.test(v), RULES.characters)
         .nullish(),
       name: z
         .string({ error: RULES.nameMissing })
         .trim()
         .min(1, RULES.nameMissing)
-        .max(200, RULES.nameTooLong)
+        .refine((v) => codePoints(v) <= NAME_MAX, RULES.nameTooLong)
         .refine((v) => !CONTROL.test(v), RULES.characters),
       description: z
         .string({ error: RULES.request })
-        .max(1000, SHOPPING_RULES.descriptionTooLong)
+        .refine((v) => codePoints(v) <= DESCRIPTION_MAX, SHOPPING_RULES.descriptionTooLong)
         .refine((v) => !CONTROL_EXCEPT_NOTES_WHITESPACE.test(v), RULES.characters)
         .nullish(),
-      link: z
-        .string({ error: RULES.linkNotWeb })
-        .trim()
-        .max(2048, RULES.linkTooLong)
-        .refine((v) => !SPACE_OR_CONTROL.test(v), RULES.characters)
-        .refine((v) => v === "" || isWebLink(v), RULES.linkNotWeb)
-        .nullish(),
-      price: z.number({ error: RULES.price }).min(0, RULES.price).max(1000000, RULES.price).nullish(),
+      link: linkSchema.nullish(),
+      price: z.number({ error: RULES.price }).min(0, RULES.price).max(PRICE_MAX, RULES.price).nullish(),
       imagePath: z.string({ error: INVALID_IMAGE_ERROR }).nullish(),
       occasion: z.string({ error: SHOPPING_RULES.chooseOccasion }).nullish(),
       notes: z
         .string({ error: RULES.request })
-        .max(1000, RULES.notesTooLong)
+        .refine((v) => codePoints(v) <= NOTES_MAX, RULES.notesTooLong)
         .refine((v) => !CONTROL_EXCEPT_NOTES_WHITESPACE.test(v), RULES.characters)
         .nullish(),
     },
@@ -410,6 +430,27 @@ export function parseGiftBody(raw: unknown): { ok: true; body: GiftBody } | { ok
       occasion: v.occasion ?? null,
       notes: v.notes ?? null,
     },
+  };
+}
+
+const EVERY_CONTROL = new RegExp(CONTROL.source, "g");
+const EVERY_CONTROL_EXCEPT_NOTES_WHITESPACE = new RegExp(CONTROL_EXCEPT_NOTES_WHITESPACE.source, "g");
+
+/**
+ * What a gift filed from an item copies of it, fitted to the door's rules (parseGiftBody), which are within the
+ * tracker's own checks: so a later save of the gift, of its notes alone, is never refused over a field the person did
+ * not type. A link the door would refuse is dropped; control characters the door refuses are taken out; text is cut by
+ * code points; a price out of the door's range is dropped.
+ */
+export function filedGiftValues(item: ClaimedItem): { name: string; description: string | null; link: string | null; price: number | null } {
+  const link = item.url === null ? null : linkSchema.safeParse(item.url);
+  return {
+    name: cutTo(item.title.replace(EVERY_CONTROL, ""), NAME_MAX),
+    description: item.description === null
+      ? null
+      : cutTo(item.description.replace(EVERY_CONTROL_EXCEPT_NOTES_WHITESPACE, ""), DESCRIPTION_MAX),
+    link: link !== null && link.success && link.data !== "" ? link.data : null,
+    price: item.price !== null && Number.isFinite(item.price) && item.price >= 0 && item.price <= PRICE_MAX ? item.price : null,
   };
 }
 

@@ -1,6 +1,16 @@
 import { isExternalImageUrl, imageValueProblem } from "@/lib/storage/image-value";
 import type { GiftPatch, GiftStore } from "./gift-store";
-import { giftSeason, heldItemIds, recipientNames, type ClaimRow, type ClaimedItem, type RecipientRow, type StoredGift } from "./gifts";
+import {
+  filedGiftValues,
+  giftSeason,
+  heldItemIds,
+  recipientNameChoices,
+  recipientNames,
+  type ClaimRow,
+  type ClaimedItem,
+  type RecipientRow,
+  type StoredGift,
+} from "./gifts";
 import { mobilePerson, type PersonRow } from "./occasions";
 
 type HeldClaim = ClaimRow & { item: ClaimedItem };
@@ -47,17 +57,11 @@ export async function reconcileGifts(store: GiftStore, today: string): Promise<v
 /** Newest first; the same created_at is told apart by id so every request picks the same gift. */
 const newestFirst = (a: StoredGift, b: StoredGift) =>
   a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-const cut = (value: string | null, max: number) => (value === null ? null : Array.from(value).slice(0, max).join(""));
 
-/** tracked_gifts' own checks: name 1–200 and description ≤ 1000 characters (code points), price null or ≥ 0. */
-const GIFT_NAME_MAX = 200;
-const GIFT_DESCRIPTION_MAX = 1000;
-const fitPrice = (price: number | null) => (price !== null && Number.isFinite(price) && price >= 0 ? price : null);
-
-/** Carried by the error recipientFor throws when both names are taken, so reconcileGifts can tell it from a fault. */
+/** Carried by the error recipientFor throws when every name is taken, so reconcileGifts can tell it from a fault. */
 export const NAMES_TAKEN = "rybn:names-taken";
 
-/** Whether a failure is down to one claim's own data: SQLSTATE class 22 or 23, or both recipient names taken. */
+/** Whether a failure is down to one claim's own data: SQLSTATE class 22 or 23, or every recipient name taken. */
 export function isClaimDataError(e: unknown): e is Error & { code: string } {
   const code = (e as { code?: unknown } | null)?.code;
   return typeof code === "string" && (code === NAMES_TAKEN || /^2[23]/.test(code));
@@ -124,6 +128,9 @@ export async function fileClaim(store: GiftStore, claim: HeldClaim): Promise<Sto
   }
 
   const image = claim.item.imageValue;
+  // Fitted to the door's rules as well as the table's: tracked_gifts checks a name of 1–200 and a description of at
+  // most 1000 characters (code points), and a price that is null or at least 0.
+  const fitted = filedGiftValues(claim.item);
   for (let attempt = 0; attempt < 3; attempt++) {
     const recipient = await recipientFor(
       store,
@@ -131,11 +138,11 @@ export async function fileClaim(store: GiftStore, claim: HeldClaim): Promise<Sto
     );
     const r = await store.insertGift({
       recipient_id: recipient.id,
-      name: cut(claim.item.title, GIFT_NAME_MAX) ?? "",
-      description: cut(claim.item.description, GIFT_DESCRIPTION_MAX),
+      name: fitted.name,
+      description: fitted.description,
       photo_url: isExternalImageUrl(image) && imageValueProblem(image) === null ? image : null,
-      product_link: claim.item.url,
-      price: fitPrice(claim.item.price),
+      product_link: fitted.link,
+      price: fitted.price,
       status,
       wishlist_item_id: claim.itemId,
       from_list: true,
@@ -156,8 +163,7 @@ export async function recipientFor(store: GiftStore, person: PersonRow): Promise
   const already = linked(await store.recipients());
   if (already) return already;
 
-  const { plain, fromList } = recipientNames(mobilePerson(person).name);
-  for (const name of [plain, fromList]) {
+  for (const name of recipientNameChoices(mobilePerson(person).name)) {
     const r = await store.insertRecipient({ name, person_id: person.id });
     if (r.ok) return r.row;
     const found = linked(await store.recipients());
@@ -165,8 +171,9 @@ export async function recipientFor(store: GiftStore, person: PersonRow): Promise
       if (found) return found;
       throw new Error(`recipientFor: the person index reported a clash but no recipient is linked to ${person.id}`);
     }
-    // clash "name": a request alongside made it (and the name index reported first), or a typed recipient has the name.
+    // clash "name": a request alongside made it (and the name index reported first), or another recipient (typed, or
+    // for someone showing the same name) has the name. Try the next.
     if (found) return found;
   }
-  throw Object.assign(new Error(`recipientFor: both names are taken for ${person.id}`), { code: NAMES_TAKEN });
+  throw Object.assign(new Error(`recipientFor: every name is taken for ${person.id}`), { code: NAMES_TAKEN });
 }

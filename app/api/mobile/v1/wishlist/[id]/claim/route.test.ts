@@ -276,6 +276,31 @@ describe("POST /api/mobile/v1/wishlist/[id]/claim", () => {
     expect(holder.current.store.allGifts().find((g) => g.id === IDS.giftScarf)?.occasion_id).toBe(IDS.xmas);
   });
 
+  it("refuses a group date whose day has passed, making no call", async () => {                    // Important 2a
+    holder.current.todayISO.mockReturnValue("2026-12-26");
+    holder.current.getUpcomingOccasions.mockResolvedValue({ data: world().upcoming.filter((o) => o.occasionId !== IDS.xmas) });
+    const res = await POST(post({ occasion: IDS.xmasKey }), ctx(IDS.dutchOven));
+    expect([res.status, (await res.json()).error.message]).toEqual([422, "Choose one of the occasions shown."]);
+    expect(holder.current.rpc).not.toHaveBeenCalled();
+    expect(holder.current.store.writes).toEqual([]);
+  });
+
+  it("claims from a third person of the same name, under a numbered recipient of their own", async () => {   // Minor 2
+    const third = { id: "user_2alxCCC", username: "alexc", display_name: "Alex", avatar_url: null };
+    holder.current.store = memoryGiftStore(SAM, { recipients: [
+      { id: "bbbbbbbb-0000-4000-8000-0000000000a1", name: "Alex", person_id: null },
+      { id: "bbbbbbbb-0000-4000-8000-0000000000a2", name: "Alex (from their list)", person_id: "user_2alxBBB" },
+    ].map((r) => ({ ...r, user_id: SAM })) });
+    holder.current.profiles.mockImplementation(async (ids: string[]) => new Map(ids.includes(third.id) ? [[third.id, third]] : []));
+    holder.current.getWishlistItem.mockResolvedValue({
+      data: { ...world().momItems[0], id: PRIYA_ITEM, user_id: third.id, title: "Climbing shoes", image_path: null }, currentUserId: SAM });
+    claimed(PRIYA_ITEM, null, null);
+    const res = await POST(post({ occasion: null }, PRIYA_ITEM), ctx(PRIYA_ITEM));
+    expect([res.status, (await res.json()).gift?.recipientName]).toEqual([200, "Alex (from their list) 2"]);
+    expect(holder.current.store.allRecipients().filter((r) => r.person_id === third.id)).toHaveLength(1);
+    expect(holder.current.releaseClaim).not.toHaveBeenCalled();
+  });
+
   it("refuses a group date of a group the item's owner is not in, making no call", async () => {
     priyasItem();
     const res = await POST(post({ occasion: IDS.xmasKey }, PRIYA_ITEM), ctx(PRIYA_ITEM));
@@ -325,6 +350,27 @@ describe("DELETE /api/mobile/v1/wishlist/[id]/claim", () => {
     });
     expect((await DELETE(del(), ctx(IDS.scarf))).status).toBe(204);
     expect(holder.current.store.allGifts().find((g) => g.id === IDS.giftScarf)?.status).toBe("ordered");
+  });
+
+  it("leaves a gift that was stepped on at the moment it was being removed", async () => {          // Minor 10
+    holder.current.releaseClaim.mockResolvedValue({ ok: true });
+    const store = holder.current.store;
+    const remove = store.deleteGift.bind(store);
+    store.deleteGift = async (...args) => {
+      await store.updateGift(IDS.giftScarf, { status: "ordered" });   // a step lands between the last read and the delete
+      return remove(...args);
+    };
+    expect((await DELETE(del(), ctx(IDS.scarf))).status).toBe(204);
+    expect(holder.current.store.allGifts().find((g) => g.id === IDS.giftScarf)?.status).toBe("ordered");
+  });
+
+  it("answers 204 for the caller's own item before reading anything from it, whatever it says", async () => {   // Minor 1, §5.5
+    holder.current.getWishlistItem.mockResolvedValue({ data: { ...world().momItems[3], user_id: SAM, purchased: true }, currentUserId: SAM });
+    const res = await DELETE(del(), ctx(IDS.scarf));
+    expect(res.status).toBe(204);
+    expect(holder.current.releaseClaim).not.toHaveBeenCalled();
+    expect(holder.current.rpc).not.toHaveBeenCalled();
+    expect(holder.current.store.writes).toEqual([]);
   });
 
   it("refuses once the item is marked bought, releasing nothing", async () => {                    // D7
