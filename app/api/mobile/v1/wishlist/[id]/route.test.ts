@@ -123,6 +123,21 @@ describe("PUT /api/mobile/v1/wishlist/[id]", () => {
     expect(await keysOf(res)).toEqual([KEYS.xmas2025, KEYS.xmas]);
     expect(tagWrites()).toEqual([]);
   });
+  it("saves an item that already carries 25 tags with one more: only new dates count toward 20", async () => {
+    getWishlistItem.mockResolvedValue(mine());
+    updateWishlistItem.mockResolvedValue({ data: rowFor(fixture("wishlist-item").item) });
+    const t = tagging();
+    const passed = Array.from({ length: 25 }, (_, i) => ({ id: `55555555-0000-4000-8000-${String(i).padStart(12, "0")}`,
+      kind: "group_date" as const, name: `Christmas ${2000 + i}`, occasion_date: `${2000 + i}-12-25`, celebrant_id: null,
+      partner_id: null, group_id: IDS.rivera, groups: { name: "Rivera Family" } }));
+    occasionRows.mockImplementation(async (ids: string[]) => [...t.occasionRows, ...passed].filter((r) => ids.includes(r.id)));
+    taggedFor(passed.map((r) => r.id));
+    const res = await PUT(saving([...passed.map((r) => `group_date:${r.id}`), KEYS.xmas]), ctx(ID));
+    expect(res.status).toBe(200);
+    expect(await keysOf(res)).toHaveLength(26);
+    expect(tagItemForGroupDate.mock.calls).toEqual([[ID, IDS.xmas]]);
+    expect(untagItem).not.toHaveBeenCalled();
+  });
   it("answers 422 for a date that is not one of the caller's and writes nothing, not even the item", async () => {
     getWishlistItem.mockResolvedValue(mine());
     for (const key of ["birthday:user_2momABC:2027", KEYS.xmas2025, "group_date:99999999-9999-4999-8999-999999999999"]) {
@@ -163,6 +178,26 @@ describe("PUT /api/mobile/v1/wishlist/[id]", () => {
     const res = await PUT(saving([KEYS.xmas]), ctx(ID));
     expect(await keysOf(res)).toEqual([KEYS.xmas]);
     expect(console.error).not.toHaveBeenCalled();
+  });
+  it("never removes a tag it cannot name: an empty list leaves a date the caller can no longer see", async () => {
+    getWishlistItem.mockResolvedValue(mine());
+    updateWishlistItem.mockResolvedValue({ data: rowFor(fixture("wishlist-item").item) });
+    taggedFor([TAG_IDS.xmas2025]);
+    occasionRows.mockResolvedValue([]);
+    const res = await PUT(saving([]), ctx(ID));
+    expect(res.status).toBe(200);
+    expect(await keysOf(res)).toEqual([]);
+    expect(untagItem).not.toHaveBeenCalled();
+  });
+  it("answers 500 and writes nothing when the dates cannot be read, also for a body without occasions", async () => {
+    getWishlistItem.mockResolvedValue(mine());
+    getUpcomingOccasions.mockResolvedValue({ error: "Failed to load upcoming occasions." });
+    const { occasions: _, ...request } = fixture("wishlist-item-request");
+    const res = await PUT(put(request), ctx(ID));
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toMatch(/Failed to load/);
+    expect(updateWishlistItem).not.toHaveBeenCalled();
+    expect(tagWrites()).toEqual([]);
   });
   it("answers 500 without the database's words when the item's tags cannot be read, and writes nothing", async () => {
     getWishlistItem.mockResolvedValue(mine());

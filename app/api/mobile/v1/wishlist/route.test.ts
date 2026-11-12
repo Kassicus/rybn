@@ -190,6 +190,15 @@ describe("POST /api/mobile/v1/wishlist", () => {
     expect(getUpcomingOccasions).not.toHaveBeenCalled();
     expect(getTagsForItems).not.toHaveBeenCalled();
   });
+  it("with an empty list of occasions, reads no dates and no tags, and tags nothing", async () => {
+    createWishlistItem.mockResolvedValue({ data: rowFor(fixture("wishlist-item").item) });
+    const res = await POST(post({ ...fixture("wishlist-item-request"), occasions: [] }), ctx);
+    expect(res.status).toBe(200);
+    expect((await res.json()).item.occasions).toEqual([]);
+    expect(getUpcomingOccasions).not.toHaveBeenCalled();
+    expect(getTagsForItems).not.toHaveBeenCalled();
+    expect(tagWrites()).toEqual([]);
+  });
   it("answers 422 'Choose one of your dates.' for a date that is not one of the caller's, and writes nothing", async () => {
     const res = await POST(post({ ...fixture("wishlist-item-request"), occasions: [KEYS.xmas, "birthday:user_2momABC:2027"] }), ctx);
     expect(res.status).toBe(422);

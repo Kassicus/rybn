@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { UpcomingOccasion } from "@/lib/occasions/display";
 import { INVALID_IMAGE_ERROR } from "@/lib/storage/image-value";
-import { occasionKey } from "./occasions";
+import { occasionFromRow, occasionKey } from "./occasions";
 import { fixture, groupRows, rowFor } from "./test-fixtures";
 import { IDS, SAM, world } from "./test-shopping";
 import { KEYS, TAG_IDS, tagging } from "./test-wishlist";
@@ -105,6 +105,22 @@ describe("an item's occasions", () => {
     const tags = itemTags({ [TAG_IDS.socks]: [row.id, own.id] }, [], [row, own], w.profiles, SAM);
     expect(tags.get(TAG_IDS.socks)!.map((tag) => tag.occasion.title)).toEqual(["Alex Rivera's Anniversary", "Your anniversary"]);
   });
+  it("in the fixture world, read from a tagged row are told exactly as the choice with the same id is", () => {
+    // The caller's birthday and a group date from the fixtures, and the caller's anniversary as a couple's row.
+    const w = world(), t = tagging();
+    const anniversaryId = "88888888-8888-4888-8888-888888888888";
+    const anniversary: UpcomingOccasion = { occasionId: anniversaryId, kind: "anniversary", name: null, occasionDate: "2027-03-08",
+      celebrantId: SAM, celebrantUsername: "sam", celebrantDisplayName: "Sam Rivera", groupId: null, groupName: null,
+      partnerId: w.people.alex.id, partnerUsername: "alex", partnerDisplayName: "Alex Rivera" };
+    const rows = [...t.occasionRows, { id: anniversaryId, kind: "anniversary" as const, name: null, occasion_date: "2027-03-08",
+      celebrant_id: SAM, partner_id: w.people.alex.id, group_id: null, groups: null }];
+    const choices = tagChoices([...t.upcoming, anniversary], SAM);
+    expect(choices.map(occasionKey)).toEqual([KEYS.samBirthday, KEYS.xmas, "anniversary:user_2abcDEF:2027"]);
+    for (const choice of choices) {
+      const row = rows.find((r) => r.id === choice.occasionId)!;
+      expect(wishlistOccasion(occasionFromRow(row, w.profiles), SAM)).toEqual(wishlistOccasion(choice, SAM));
+    }
+  });
   it("leave out a tag whose occasion the caller can no longer see", () => {
     const { t, choices } = fixtureTags();
     expect(itemTags(t.tags, choices, [], new Map(), SAM).get(TAG_IDS.tree)).toEqual([]);
@@ -112,34 +128,58 @@ describe("an item's occasions", () => {
 });
 
 describe("planTags", () => {
-  const { t, choices, tags } = fixtureTags();
+  const { choices, tags } = fixtureTags();
   const tumbler = tags.get(TAG_IDS.tumbler)!;   // Your birthday, Christmas 2026
   const tree = tags.get(TAG_IDS.tree)!;         // Christmas 2025, passed
   const xmas = choices.find((o) => occasionKey(o) === KEYS.xmas)!;
   const birthday = choices.find((o) => occasionKey(o) === KEYS.samBirthday)!;
+  const planned = (plan: object) => ({ ok: true, plan });
   it("changes nothing when the keys are the item's own tags, in any order", () =>
-    expect(planTags([KEYS.xmas, KEYS.samBirthday], tumbler, choices)).toEqual({ add: [], remove: [] }));
-  it("removes every tag for no keys", () => expect(planTags([], tumbler, choices)).toEqual({ add: [], remove: tumbler }));
+    expect(planTags([KEYS.xmas, KEYS.samBirthday], tumbler, choices)).toEqual(planned({ add: [], remove: [] })));
+  it("removes every tag for no keys", () => expect(planTags([], tumbler, choices)).toEqual(planned({ add: [], remove: tumbler })));
   it("adds one and removes another in one save", () =>
     expect(planTags([KEYS.xmas], tree, choices)).toEqual(
-      { add: [{ occasion: xmas, target: { via: "group", occasionId: IDS.xmas } }], remove: tree }));
+      planned({ add: [{ occasion: xmas, target: { via: "group", occasionId: IDS.xmas } }], remove: tree })));
   it("keeps a passed tag sent back", () =>
     expect(planTags([KEYS.xmas2025, KEYS.samBirthday], tree, choices)).toEqual(
-      { add: [{ occasion: birthday, target: { via: "my", kind: "birthday" } }], remove: [] }));
+      planned({ add: [{ occasion: birthday, target: { via: "my", kind: "birthday" } }], remove: [] })));
   it("adds the caller's birthday by its kind, before it has a row", () => {
     const fresh = tagChoices(world().upcoming, SAM);
     expect(planTags([KEYS.samBirthday], [], fresh)).toEqual(
-      { add: [{ occasion: fresh[0], target: { via: "my", kind: "birthday" } }], remove: [] });
+      planned({ add: [{ occasion: fresh[0], target: { via: "my", kind: "birthday" } }], remove: [] }));
   });
   it.each([
     ["someone else's birthday", "birthday:user_2momABC:2027"],
     ["a passed date the item is not tagged for", KEYS.xmas2025],
     ["a group date the caller cannot see", "group_date:99999999-9999-4999-8999-999999999999"],
     ["a key that names nothing", "christmas"],
-  ])("refuses %s", (_, key) => expect(planTags([KEYS.xmas, key], tumbler, choices)).toBeNull());
-  it("never removes a tag it was not shown", () => {
-    const shown = itemTags(t.tags, choices, [], new Map(), SAM).get(TAG_IDS.tree)!;
-    expect(planTags([], shown, choices)).toEqual({ add: [], remove: [] });
+  ])("refuses %s", (_, key) =>
+    expect(planTags([KEYS.xmas, key], tumbler, choices)).toEqual({ ok: false, message: RULES.chooseDate }));
+  it("removes, for no keys, every tag it lists and none it cannot name", () => {
+    const hidden = "77777777-7777-4777-8777-777777777777";
+    const shown = itemTags({ [TAG_IDS.socks]: [IDS.xmas, hidden] }, choices, [], new Map(), SAM).get(TAG_IDS.socks)!;
+    const r = planTags([], shown, choices);
+    expect(r.ok && r.plan.remove.map((tag) => tag.occasionId)).toEqual([IDS.xmas]);
+  });
+
+  describe("the limit of 20", () => {
+    const groupDate = (i: number): UpcomingOccasion => ({ occasionId: `66666666-0000-4000-8000-${String(i).padStart(12, "0")}`,
+      kind: "group_date", name: `Date ${i}`, occasionDate: "2026-12-01", celebrantId: null, celebrantUsername: null,
+      celebrantDisplayName: null, groupId: IDS.rivera, groupName: "Rivera Family", partnerId: null, partnerUsername: null,
+      partnerDisplayName: null });
+    const many = Array.from({ length: 26 }, (_, i) => groupDate(i));
+    const has = (n: number) => many.slice(0, n).map((o) => ({ occasionId: o.occasionId!, occasion: wishlistOccasion(o, SAM) }));
+    it("allows 20 dates new to the item", () => {
+      const r = planTags(many.slice(0, 20).map(occasionKey), [], many);
+      expect(r.ok && r.plan.add).toHaveLength(20);
+    });
+    it("refuses 21 dates new to the item", () =>
+      expect(planTags(many.slice(0, 21).map(occasionKey), [], many)).toEqual({ ok: false, message: RULES.tooManyDates }));
+    it("counts only the dates new to the item: 25 it has, and one more", () => {
+      const r = planTags(many.map(occasionKey), has(25), many);
+      expect(r.ok && r.plan).toEqual({ add: [{ occasion: many[25], target: { via: "group", occasionId: many[25].occasionId } }],
+        remove: [] });
+    });
   });
 });
 
@@ -186,13 +226,13 @@ describe("parseWishlistBody", () => {
     const r = parseWishlistBody({ ...request, occasions: [KEYS.xmas, KEYS.samBirthday, KEYS.xmas] });
     expect(r.ok && r.body.occasions).toEqual([KEYS.xmas, KEYS.samBirthday]);
   });
-  it("accepts 20 keys, each up to 200 characters", () => {
-    const keys = Array.from({ length: 20 }, (_, i) => `group_date:${i}`.padEnd(200, "x"));
+  it("accepts 200 keys, each up to 200 characters: how many may be new is decided against the item", () => {
+    const keys = Array.from({ length: 200 }, (_, i) => `group_date:${i}`.padEnd(200, "x"));
     const r = parseWishlistBody({ ...request, occasions: keys });
     expect(r.ok && r.body.occasions).toEqual(keys);
   });
   it.each([
-    ["21 keys", Array.from({ length: 21 }, (_, i) => `group_date:${i}`), RULES.tooManyDates],
+    ["201 keys", Array.from({ length: 201 }, (_, i) => `group_date:${i}`), RULES.request],
     ["an empty key", [""], RULES.chooseDate],
     ["a key of 201 characters", ["a".repeat(201)], RULES.chooseDate],
     ["a key with a control character", ["group_date:\u0000"], RULES.chooseDate],

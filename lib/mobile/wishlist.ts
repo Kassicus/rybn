@@ -209,6 +209,7 @@ const bodySchema = z.object(
     imagePath: z.string({ error: INVALID_IMAGE_ERROR }).nullish(),
     priority: z.enum(priorityLevels, { error: RULES.priority }),
     privacy: privacySchema,
+    // A bound on the body's size only. How many of these may be new to the item is decided against it (planTags).
     occasions: z
       .array(
         z
@@ -218,7 +219,7 @@ const bodySchema = z.object(
           .refine((v) => !CONTROL.test(v), RULES.chooseDate),
         { error: RULES.request },
       )
-      .max(20, RULES.tooManyDates)
+      .max(200, RULES.request)
       .nullish(),
   },
   { error: RULES.request },
@@ -337,12 +338,19 @@ export interface TagPlan {
   remove: Tag[];
 }
 
+/** How many dates one save may add to an item. The tags it already has, however many, are not counted. */
+export const MAX_NEW_DATES = 20;
+
 /**
  * What saving `keys` asks of an item tagged `current`. A key it is tagged for already is kept, even one that has passed;
- * any other must be one of the choices. Null when a key is neither, and then nothing may be written. Only tags in
- * `current`, the ones the app is shown, are ever removed.
+ * any other must be one of the choices, and at most MAX_NEW_DATES of them. Otherwise the sentence to refuse with, and
+ * then nothing may be written. Only tags in `current`, the ones the app is shown, are ever removed.
  */
-export function planTags(keys: string[], current: Tag[], choices: UpcomingOccasion[]): TagPlan | null {
+export function planTags(
+  keys: string[],
+  current: Tag[],
+  choices: UpcomingOccasion[],
+): { ok: true; plan: TagPlan } | { ok: false; message: string } {
   const wanted = new Set(keys);
   const tagged = new Set(current.map((t) => t.occasion.key));
   const add: TagPlan["add"] = [];
@@ -350,10 +358,11 @@ export function planTags(keys: string[], current: Tag[], choices: UpcomingOccasi
     if (tagged.has(key)) continue;
     const occasion = choices.find((o) => occasionKey(o) === key);
     const target = occasion ? resolveTagTarget(occasion) : null;
-    if (!occasion || !target) return null;
+    if (!occasion || !target) return { ok: false, message: RULES.chooseDate };
     add.push({ occasion, target });
   }
-  return { add, remove: current.filter((t) => !wanted.has(t.occasion.key)) };
+  if (add.length > MAX_NEW_DATES) return { ok: false, message: RULES.tooManyDates };
+  return { ok: true, plan: { add, remove: current.filter((t) => !wanted.has(t.occasion.key)) } };
 }
 
 /** True unless the choice names one group and that group is not among the caller's. */

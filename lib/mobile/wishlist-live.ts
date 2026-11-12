@@ -283,8 +283,8 @@ export async function addWishlistItem(userId: string, raw: unknown): Promise<Res
     if (loaded instanceof Response) return loaded;
     choices = loaded;
     const planned = planTags(keys, [], choices);
-    if (planned === null) return mobileError("invalid", RULES.chooseDate);
-    plan = planned;
+    if (!planned.ok) return mobileError("invalid", planned.message);
+    plan = planned.plan;
   }
   const result = await createWishlistItem(formDataFromBody(checked.body));
   const failure = databaseFailure(result, "createWishlistItem");
@@ -308,8 +308,9 @@ export async function replaceWishlistItem(
   const current = loaded.tags.get(lookup.itemId) ?? [];
   // A body with no occasions (an app from before they were sent) leaves the tags as they are.
   const keys = checked.body.occasions;
-  const plan = keys === null ? NO_TAG_CHANGES : planTags(keys, current, loaded.choices);
-  if (plan === null) return mobileError("invalid", RULES.chooseDate);
+  const planned = keys === null ? { ok: true as const, plan: NO_TAG_CHANGES } : planTags(keys, current, loaded.choices);
+  if (!planned.ok) return mobileError("invalid", planned.message);
+  const { plan } = planned;
   const result = await updateWishlistItem(lookup.itemId, formDataFromBody(checked.body));
   if ("error" in result && result.error && result.error !== NOT_SIGNED_IN) {
     // The update may have failed because the item was deleted since the lookup.
