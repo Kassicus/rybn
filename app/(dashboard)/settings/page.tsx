@@ -19,6 +19,13 @@ import {
   type UserSettings,
 } from "@/lib/actions/settings";
 
+/** True when two lists name the same kinds of group, in any order. */
+function sameKinds(a: readonly string[], b: readonly string[]): boolean {
+  const left = new Set(a);
+  const right = new Set(b);
+  return left.size === right.size && [...left].every((kind) => right.has(kind));
+}
+
 export default function SettingsPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
@@ -26,6 +33,9 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [settings, setSettings] = useState<UserSettings | null>(null);
+  // The choice as last loaded or saved. Saving writes it onto every profile
+  // field, so it is saved only when the person changed it.
+  const [savedChoice, setSavedChoice] = useState<string[]>([]);
 
   // Load settings
   useEffect(() => {
@@ -34,6 +44,7 @@ export default function SettingsPage() {
       const { data, error } = await getMySettings();
       if (data) {
         setSettings(data);
+        setSavedChoice(data.privacy_settings.visible_to_group_types);
       }
       if (error) {
         setError(error);
@@ -79,12 +90,17 @@ export default function SettingsPage() {
       return;
     }
 
-    // Update privacy settings
-    const privacyResult = await updatePrivacySettings(settings.privacy_settings);
-    if (privacyResult.error) {
-      setError(privacyResult.error);
-      setIsSaving(false);
-      return;
+    // Update privacy settings, only when the selection changed: saving them
+    // writes the choice onto every profile field.
+    const chosen = settings.privacy_settings.visible_to_group_types;
+    if (!sameKinds(chosen, savedChoice)) {
+      const privacyResult = await updatePrivacySettings(settings.privacy_settings);
+      if (privacyResult.error) {
+        setError(privacyResult.error);
+        setIsSaving(false);
+        return;
+      }
+      setSavedChoice(chosen);
     }
 
     setSuccess(true);

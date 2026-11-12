@@ -2,12 +2,14 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
-import { readStoredChoice, visibleToSchema, VISIBILITY_INVALID } from "@/lib/profile/visibility";
-import type { Database } from "@/types/database";
+import {
+  newFieldPrivacy,
+  readStoredChoice,
+  visibleToSchema,
+  VISIBILITY_INVALID,
+} from "@/lib/profile/visibility";
 
 import { getUserId } from "@/lib/auth/require-auth";
-
-type ProfileInfo = Database["public"]["Tables"]["profile_info"];
 
 export interface EmailPreferences {
   email_group_invites: boolean;
@@ -121,7 +123,8 @@ export async function updateEmailPreferences(preferences: EmailPreferences) {
 
 /**
  * Update user's privacy settings: store the choice (profile_visibility), then
- * write it onto every profile_info field the person has.
+ * write it onto every profile_info field the person has, with one update that
+ * names only privacy_settings (a field's value is never written here).
  */
 export async function updatePrivacySettings(settings: PrivacySettings) {
   const supabase = await createClient();
@@ -133,7 +136,7 @@ export async function updatePrivacySettings(settings: PrivacySettings) {
   }
 
   // Any of the four kinds, once each, in the order family, friends, work, custom.
-  const parsed = visibleToSchema.safeParse(settings.visible_to_group_types);
+  const parsed = visibleToSchema.safeParse(settings?.visible_to_group_types);
   if (!parsed.success) {
     return { data: null, error: VISIBILITY_INVALID };
   }
@@ -148,40 +151,16 @@ export async function updatePrivacySettings(settings: PrivacySettings) {
     return { data: null, error: "Failed to update privacy settings" };
   }
 
-  // Get current profile_info records
-  const { data: profileInfo, error: fetchError } = await supabase
+  // Every field of the caller's, a field tied to one group included, takes
+  // the choice, so none differs from it afterwards.
+  const { error: updateError } = await supabase
     .from("profile_info")
-    .select("*")
+    .update({ privacy_settings: newFieldPrivacy(kinds) })
     .eq("user_id", userId);
 
-  if (fetchError) {
-    console.error("Error fetching profile info:", fetchError);
-    return { data: null, error: "Failed to load profile" };
-  }
-
-  // Update privacy settings in all profile_info fields
-  if (profileInfo && profileInfo.length > 0) {
-    const updatedProfileInfo: ProfileInfo["Insert"][] = profileInfo.map(
-      (field: ProfileInfo["Row"]) => ({
-        ...field,
-        privacy_settings: {
-          visibleToGroupTypes: kinds,
-        },
-      })
-    );
-
-    // Update each profile_info record
-    const { error: updateError } = await supabase
-      .from("profile_info")
-      .upsert(updatedProfileInfo, {
-        onConflict: "user_id,category,field_name",
-        ignoreDuplicates: false,
-      });
-
-    if (updateError) {
-      console.error("Error updating privacy settings:", updateError);
-      return { data: null, error: "Failed to update privacy settings" };
-    }
+  if (updateError) {
+    console.error("Error updating privacy settings:", updateError);
+    return { data: null, error: "Failed to update privacy settings" };
   }
 
   revalidatePath("/settings");

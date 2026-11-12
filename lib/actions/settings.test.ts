@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { isMixed } from "@/lib/profile/visibility";
 
 /**
  * The Settings page's "Who can see your profile fields?" is one choice per
  * person, kept in profile_visibility. getMySettings answers that row (all four
  * kinds when there is none); updatePrivacySettings stores it and writes it
- * onto every profile_info field the person has.
+ * onto every profile_info field the person has, with one update that names
+ * only privacy_settings.
  */
 
 /**
@@ -13,7 +15,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  */
 const VISIBILITY_INVALID = "Choose which kinds of group can see your details.";
 
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+const revalidatePath = vi.fn();
+vi.mock("next/cache", () => ({
+  revalidatePath: (...args: unknown[]) => revalidatePath(...args),
+}));
 
 const getUserId = vi.fn();
 vi.mock("@/lib/auth/require-auth", () => ({
@@ -96,6 +101,19 @@ function argsOf(query: Query, method: string): unknown[] {
   return query.calls.find((c) => c.method === method)?.args ?? [];
 }
 
+/** Every query on profile_info, whatever it did. */
+function fieldQueries(): Query[] {
+  return supabase.queries.filter((q) => q.table === "profile_info");
+}
+
+/** The one write to profile_info a Settings save makes, and its payload. */
+function theFieldWrite(): { query: Query; payload: Row } {
+  const queries = fieldQueries();
+  expect(queries).toHaveLength(1);
+  expect(queries[0].calls.map((c) => c.method)).toEqual(["update", "eq"]);
+  return { query: queries[0], payload: argsOf(queries[0], "update")[0] as Row };
+}
+
 const OK = { data: null, error: null };
 const ALL_FOUR = ["family", "friends", "work", "custom"];
 const DEFAULT_EMAILS = {
@@ -169,6 +187,17 @@ describe("getMySettings", () => {
     expect(result.data?.privacy_settings.visible_to_group_types).toEqual(ALL_FOUR);
   });
 
+  it("answers no kinds for a person who chose only themselves", async () => {
+    supabase = createSupabaseMock({
+      user_profiles: [{ data: { email_preferences: null }, error: null }],
+      profile_visibility: [{ data: { visible_to_group_types: [] }, error: null }],
+    });
+
+    const result = await getMySettings();
+
+    expect(result.data?.privacy_settings.visible_to_group_types).toEqual([]);
+  });
+
   it("answers Failed to load settings when the choice cannot be read", async () => {
     supabase = createSupabaseMock({
       user_profiles: [{ data: { email_preferences: null }, error: null }],
@@ -198,7 +227,7 @@ describe("updatePrivacySettings", () => {
   it("stores the choice for a person with no fields", async () => {
     supabase = createSupabaseMock({
       profile_visibility: [OK],
-      profile_info: [{ data: [], error: null }],
+      profile_info: [OK], // the update matches no row
     });
 
     const result = await updatePrivacySettings({ visible_to_group_types: ["family"] });
@@ -216,7 +245,7 @@ describe("updatePrivacySettings", () => {
   it("stores the choice and writes it onto every field", async () => {
     supabase = createSupabaseMock({
       profile_visibility: [OK],
-      profile_info: [{ data: FIELDS, error: null }, OK],
+      profile_info: [OK],
     });
 
     const result = await updatePrivacySettings({ visible_to_group_types: ["friends"] });
@@ -228,18 +257,25 @@ describe("updatePrivacySettings", () => {
       visible_to_group_types: ["friends"],
     });
 
-    const [written] = queriesWith("profile_info", "upsert");
-    const rows = argsOf(written, "upsert")[0] as Row[];
-    expect(rows.map((row) => row.field_name)).toEqual(["shoe_size", "birthday"]);
-    for (const row of rows) {
-      expect((row.privacy_settings as Row).visibleToGroupTypes).toEqual(["friends"]);
-    }
+    // Exactly one write to profile_info: every row of the caller's, and it
+    // names the setting only, never a field's value.
+    const { query, payload } = theFieldWrite();
+    expect(argsOf(query, "eq")).toEqual(["user_id", "user_123"]);
+    expect(payload).toEqual({
+      privacy_settings: { visibleToGroupTypes: ["friends"], restrictToGroup: null },
+    });
+    expect(payload).not.toHaveProperty("field_value");
+
+    // Afterwards no field differs from the choice, the tied one included.
+    expect(isMixed(["friends"], FIELDS.map((field) => field.privacy_settings))).toBe(true);
+    const after = FIELDS.map((field) => ({ ...field, ...payload }));
+    expect(isMixed(["friends"], after.map((field) => field.privacy_settings))).toBe(false);
   });
 
   it("stores the kinds once each, in the order family, friends, work, custom", async () => {
     supabase = createSupabaseMock({
       profile_visibility: [OK],
-      profile_info: [{ data: FIELDS, error: null }, OK],
+      profile_info: [OK],
     });
 
     await updatePrivacySettings({ visible_to_group_types: ["work", "family", "work"] });
@@ -249,10 +285,28 @@ describe("updatePrivacySettings", () => {
       user_id: "user_123",
       visible_to_group_types: ["family", "work"],
     });
-    const [written] = queriesWith("profile_info", "upsert");
-    for (const row of argsOf(written, "upsert")[0] as Row[]) {
-      expect((row.privacy_settings as Row).visibleToGroupTypes).toEqual(["family", "work"]);
-    }
+    expect(theFieldWrite().payload).toEqual({
+      privacy_settings: { visibleToGroupTypes: ["family", "work"], restrictToGroup: null },
+    });
+  });
+
+  it("stores an empty choice as only you, on the choice and on every field", async () => {
+    supabase = createSupabaseMock({
+      profile_visibility: [OK],
+      profile_info: [OK],
+    });
+
+    const result = await updatePrivacySettings({ visible_to_group_types: [] });
+
+    expect(result).toEqual({ data: true, error: null });
+    const [stored] = queriesWith("profile_visibility", "upsert");
+    expect(argsOf(stored, "upsert")[0]).toEqual({
+      user_id: "user_123",
+      visible_to_group_types: [],
+    });
+    expect(theFieldWrite().payload).toEqual({
+      privacy_settings: { visibleToGroupTypes: [], restrictToGroup: null },
+    });
   });
 
   it("refuses a kind that is not one of the four, touching nothing", async () => {
@@ -263,6 +317,13 @@ describe("updatePrivacySettings", () => {
     });
 
     const result = await updatePrivacySettings({ visible_to_group_types: ["club"] });
+
+    expect(result).toEqual({ data: null, error: VISIBILITY_INVALID });
+    expect(supabase.queries).toEqual([]);
+  });
+
+  it("refuses a missing choice, touching nothing", async () => {
+    const result = await updatePrivacySettings(null as never);
 
     expect(result).toEqual({ data: null, error: VISIBILITY_INVALID });
     expect(supabase.queries).toEqual([]);
@@ -280,5 +341,31 @@ describe("updatePrivacySettings", () => {
 
     expect(result).toEqual({ data: null, error: "Failed to update privacy settings" });
     expect(supabase.queries.map((q) => q.table)).not.toContain("profile_info");
+  });
+
+  it("answers Failed to update privacy settings when the fields cannot be written", async () => {
+    supabase = createSupabaseMock({
+      profile_visibility: [OK],
+      profile_info: [
+        { data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } },
+        OK,
+      ],
+    });
+
+    const result = await updatePrivacySettings({ visible_to_group_types: ["family"] });
+
+    expect(result).toEqual({ data: null, error: "Failed to update privacy settings" });
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the settings and profile pages after a save", async () => {
+    supabase = createSupabaseMock({
+      profile_visibility: [OK],
+      profile_info: [OK],
+    });
+
+    await updatePrivacySettings({ visible_to_group_types: ["family"] });
+
+    expect(revalidatePath.mock.calls).toEqual([["/settings"], ["/profile"]]);
   });
 });
