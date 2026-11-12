@@ -9,7 +9,7 @@ import { revalidatePath } from "next/cache";
 import type { BasicProfileFormData, ProfileEditFormData } from "@/lib/schemas/profile";
 import { planProfileFields, profileEditSchema } from "@/lib/schemas/profile";
 import { newFieldPrivacy, readStoredChoice } from "@/lib/profile/visibility";
-import type { Database, Json } from "@/types/database";
+import type { Database } from "@/types/database";
 import type { ViewerContext, GroupType } from "@/types/privacy";
 
 import { getUserId } from "@/lib/auth/require-auth";
@@ -88,10 +88,11 @@ export async function getUserProfile(profileUserId: string) {
     return { error: profileError.message };
   }
 
-  // Get profile info fields (RLS handles privacy filtering)
+  // Get profile info fields (RLS handles privacy filtering): the columns the
+  // profile page shows of each.
   const { data: profileInfo, error: profileInfoError } = await supabase
     .from("profile_info")
-    .select("*")
+    .select("id, category, field_name, field_value")
     .eq("user_id", profileUserId);
 
   if (profileInfoError) {
@@ -155,7 +156,8 @@ export async function updateBasicProfile(formData: BasicProfileFormData) {
  * input names is set (a non-empty string) or removed (null or empty); a field
  * it does not name is left as it is. A field that already has a row keeps the
  * setting on that row; a field saved for the first time takes the person's
- * stored choice (all four kinds of group until they choose).
+ * stored choice (all four kinds of group until they choose). Everything is
+ * read before anything is written.
  */
 export async function updateProfile(formData: ProfileEditFormData) {
   const supabase = await createClient();
@@ -173,6 +175,38 @@ export async function updateProfile(formData: ProfileEditFormData) {
     return { error: parsed.error.issues[0].message };
   }
   const input = parsed.data;
+
+  const { set, clear } = planProfileFields(input);
+
+  // Both reads come before any write, so a failed read changes nothing.
+  // Which of the fields being set already have a row of the caller's, in
+  // that field's own section; the others are new.
+  const saved = new Set<string>();
+  let newFieldSetting: ReturnType<typeof newFieldPrivacy> | null = null;
+
+  if (set.length > 0) {
+    const { data: rows, error: readError } = await supabase
+      .from("profile_info")
+      .select("category, field_name")
+      .eq("user_id", userId)
+      .in("field_name", set.map((field) => field.field_name));
+
+    if (readError) {
+      return { error: readError.message };
+    }
+
+    for (const row of rows ?? []) {
+      saved.add(`${row.category}/${row.field_name}`);
+    }
+
+    if (set.some((field) => !saved.has(`${field.category}/${field.field_name}`))) {
+      const stored = await readStoredChoice(supabase, userId);
+      if ("error" in stored) {
+        return { error: "Failed to update profile" };
+      }
+      newFieldSetting = newFieldPrivacy(stored.choice);
+    }
+  }
 
   // Provision before writing: this updates the caller's own row, and layout
   // provisioning races with page render (see getMyProfile above).
@@ -204,42 +238,26 @@ export async function updateProfile(formData: ProfileEditFormData) {
     return { error: profileError.message };
   }
 
-  const { set, clear } = planProfileFields(input);
+  type FieldRow = Database["public"]["Tables"]["profile_info"]["Insert"];
+  const row = (field: (typeof set)[number]): FieldRow => ({
+    user_id: userId,
+    category: field.category,
+    field_name: field.field_name,
+    field_value: field.field_value,
+  });
 
-  if (set.length > 0) {
-    // The setting each of these fields already has, from the caller's own rows.
-    const { data: rows, error: readError } = await supabase
-      .from("profile_info")
-      .select("field_name, privacy_settings")
-      .eq("user_id", userId)
-      .in("field_name", set.map((field) => field.field_name));
+  // A field that has a row is written without privacy_settings, so a save
+  // never changes its setting. A new field carries the stored choice. They
+  // are separate calls, so the conflict update on the first names no setting.
+  const savedRows = set
+    .filter((field) => saved.has(`${field.category}/${field.field_name}`))
+    .map(row);
+  const newRows = set
+    .filter((field) => !saved.has(`${field.category}/${field.field_name}`))
+    .map((field): FieldRow => ({ ...row(field), privacy_settings: newFieldSetting ?? undefined }));
 
-    if (readError) {
-      return { error: readError.message };
-    }
-
-    const kept = new Map<string, Json>(
-      (rows ?? []).map((row) => [row.field_name, row.privacy_settings])
-    );
-
-    let firstSave: Json | undefined;
-    if (set.some((field) => !kept.has(field.field_name))) {
-      const stored = await readStoredChoice(supabase, userId);
-      if ("error" in stored) {
-        return { error: stored.error };
-      }
-      firstSave = newFieldPrivacy(stored.choice);
-    }
-
-    const records: Database["public"]["Tables"]["profile_info"]["Insert"][] = set.map(
-      (field) => ({
-        user_id: userId,
-        category: field.category,
-        field_name: field.field_name,
-        field_value: field.field_value,
-        privacy_settings: kept.has(field.field_name) ? kept.get(field.field_name) : firstSave,
-      })
-    );
+  for (const records of [savedRows, newRows]) {
+    if (records.length === 0) continue;
 
     const { error: saveError } = await supabase
       .from("profile_info")
@@ -382,24 +400,5 @@ export async function deleteProfileField(fieldId: string) {
 
   revalidatePath("/profile");
   return { data: { success: true } };
-}
-
-/**
- * Get user profile by username
- */
-export async function getProfileByUsername(username: string) {
-  const supabase = await createClient();
-
-  const { data: profile, error } = await supabase
-    .from("user_profiles")
-    .select("*")
-    .eq("username", username)
-    .single();
-
-  if (error) {
-    return { error: error.message };
-  }
-
-  return { data: profile };
 }
 

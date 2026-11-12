@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { profileEditSchema, type ProfileEditFormData } from "@/lib/schemas/profile";
+import { PROFILE_FIELD_NAMES, fieldSpec } from "@/lib/profile/fields";
 import { getMyProfile, updateProfile } from "@/lib/actions/profile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,11 +22,40 @@ import { PersonalInfoSection } from "@/components/profile/sections/PersonalInfoS
 import { DatesSection } from "@/components/profile/sections/DatesSection";
 import { AnniversaryPartner } from "@/components/profile/AnniversaryPartner";
 
+/** null, undefined and "" all mean an empty field. */
+function isBlank(value: unknown): boolean {
+  return value === undefined || value === null || value === "";
+}
+
+/**
+ * The profile fields whose value differs from what the page loaded. One the
+ * person emptied is "", which updateProfile removes. One they did not change
+ * is left out, so updateProfile leaves it as it is, including when it was
+ * written elsewhere after the page loaded.
+ */
+function changedFields(
+  loaded: Partial<ProfileEditFormData>,
+  current: ProfileEditFormData
+): Partial<ProfileEditFormData> {
+  const changes: Partial<ProfileEditFormData> = {};
+  for (const name of PROFILE_FIELD_NAMES) {
+    const before = loaded[name];
+    const after = current[name];
+    if (isBlank(before) && isBlank(after)) continue;
+    if (before === after) continue;
+    changes[name] = isBlank(after) ? "" : after;
+  }
+  return changes;
+}
+
 export default function ProfileEditPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  // The values the form was loaded with, so a save sends only the fields the
+  // person changed.
+  const [loaded, setLoaded] = useState<Partial<ProfileEditFormData>>({});
 
   const {
     register,
@@ -51,14 +81,15 @@ export default function ProfileEditPage() {
           avatar_url: data.avatar_url,
         };
 
-        // Map profile_info records to form fields
+        // Map profile_info records to the form's fields
         if (data.profile_info && Array.isArray(data.profile_info)) {
-          data.profile_info.forEach((field: any) => {
-            const fieldName = field.field_name as keyof ProfileEditFormData;
-            (formData as any)[fieldName] = field.field_value;
-          });
+          for (const field of data.profile_info) {
+            const spec = fieldSpec(field.field_name);
+            if (spec) formData[spec.name] = field.field_value;
+          }
         }
 
+        setLoaded(formData);
         reset(formData);
       }
       if (error) {
@@ -70,9 +101,9 @@ export default function ProfileEditPage() {
 
   // The form above loads once, but confirming an anniversary request in the
   // card below writes the agreed date into this user's own profile_info row.
-  // Save sends every field, so without this the form would write the date it
-  // first loaded back over the agreed one. Only the anniversary field is
-  // reset -- any other unsaved edits stay as they are -- and resetting it
+  // This shows that date and counts it as loaded, so a save does not send the
+  // anniversary unless the person then changes it. Only the anniversary field
+  // is reset -- any other unsaved edits stay as they are -- and resetting it
   // also clears its dirty state, since it now matches what is saved.
   const resyncAnniversary = async () => {
     const { data } = await getMyProfile();
@@ -88,6 +119,7 @@ export default function ProfileEditPage() {
             field.field_name === "anniversary"
         )
       : undefined;
+    setLoaded((before) => ({ ...before, anniversary: saved?.field_value ?? "" }));
     resetField("anniversary", { defaultValue: saved?.field_value ?? "" });
   };
 
@@ -96,7 +128,16 @@ export default function ProfileEditPage() {
     setError(null);
     setSuccess(false);
 
-    const result = await updateProfile(data);
+    // The basic fields as they are, and only the profile fields the person
+    // changed since the page loaded them.
+    const result = await updateProfile({
+      username: data.username,
+      display_name: data.display_name,
+      bio: data.bio,
+      avatar_url: data.avatar_url,
+      visible_to_group_types: data.visible_to_group_types,
+      ...changedFields(loaded, data),
+    });
 
     if (result.error) {
       setError(result.error);

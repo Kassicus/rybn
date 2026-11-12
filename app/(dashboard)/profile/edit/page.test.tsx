@@ -7,16 +7,21 @@ import {
   waitFor,
   cleanup,
 } from "@testing-library/react";
+import { PROFILE_FIELD_NAMES } from "@/lib/profile/fields";
 
 /**
  * The profile edit page loads its form ONCE, from getMyProfile(). The
  * shared-anniversary card beneath it can change the caller's anniversary
  * underneath that form: confirming a request writes the agreed date into
- * BOTH partners' profile_info rows (confirm_anniversary_link). Save then
- * sends every field, so a form still holding the date it loaded would write
- * the old date back over the agreed one -- silently undoing the confirm and,
- * for a canonical partner, moving the couple's occasion and every claim
- * scoped to it.
+ * BOTH partners' profile_info rows (confirm_anniversary_link). A form still
+ * holding the date it loaded must not write the old date back over the
+ * agreed one -- that would silently undo the confirm and, for a canonical
+ * partner, move the couple's occasion and every claim scoped to it.
+ *
+ * Save sends the basic fields and only the profile fields the person changed
+ * since the page loaded them: a field they did not touch is left out, so
+ * updateProfile leaves it as it is, and one they emptied is sent as "", so it
+ * is removed.
  *
  * These tests render the real page and the real AnniversaryPartner card and
  * mock only what crosses the network (server actions), the router, and the
@@ -116,12 +121,11 @@ afterEach(() => {
 });
 
 describe("ProfileEditPage after confirming an anniversary request", () => {
-  // Falsifiability: remove the page's onLinkChanged handler (or the
-  // card's call to it) and Save sends OLD_DATE -- the original bug. Re-sync
-  // with reset() instead of resetField() and this still passes; the next
-  // test is what catches that. NOT caught: a form left open in ANOTHER tab,
-  // which this page has no way to hear about.
-  it("saves the agreed date, not the date the form first loaded", async () => {
+  // Falsifiability: send every field, or re-sync the form's anniversary
+  // without also re-syncing what the page counts as loaded, and Save sends an
+  // anniversary the person never touched. Removing the page's onLinkChanged
+  // handler is caught by the next test, which reads the field.
+  it("leaves the agreed date alone, not sending the date the form first loaded", async () => {
     const { container } = render(<ProfileEditPage />);
 
     await waitFor(() => expect(anniversaryInput().value).toBe(OLD_DATE));
@@ -135,17 +139,18 @@ describe("ProfileEditPage after confirming an anniversary request", () => {
     fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
 
     await waitFor(() => expect(updateProfile).toHaveBeenCalledTimes(1));
-    expect(updateProfile.mock.calls[0][0]).toMatchObject({
-      anniversary: AGREED_DATE,
-      display_name: "Kasey S",
-    });
+    const sent = updateProfile.mock.calls[0][0];
+    expect(sent).toMatchObject({ display_name: "Kasey S" });
+    expect(sent).not.toHaveProperty("anniversary");
   });
 
   // Falsifiability: re-sync the whole form with reset(freshProfile) and the
   // unsaved Display Name edit made BEFORE the confirm is thrown away, so the
-  // save sends "Kasey" and this fails. NOT caught: unsaved edits to the
-  // anniversary field itself, which confirming deliberately replaces -- the
-  // card says "Confirming will set your anniversary to that date".
+  // save sends "Kasey" and this fails. Remove the page's onLinkChanged
+  // handler and the field never shows the agreed date. NOT caught: unsaved
+  // edits to the anniversary field itself, which confirming deliberately
+  // replaces -- the card says "Confirming will set your anniversary to that
+  // date".
   it("keeps the caller's other unsaved edits", async () => {
     const { container } = render(<ProfileEditPage />);
 
@@ -164,9 +169,58 @@ describe("ProfileEditPage after confirming an anniversary request", () => {
     fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
 
     await waitFor(() => expect(updateProfile).toHaveBeenCalledTimes(1));
-    expect(updateProfile.mock.calls[0][0]).toMatchObject({
-      anniversary: AGREED_DATE,
-      display_name: "Kasey S",
+    const sent = updateProfile.mock.calls[0][0];
+    expect(sent).toMatchObject({ display_name: "Kasey S" });
+    expect(sent).not.toHaveProperty("anniversary");
+  });
+});
+
+describe("ProfileEditPage saving", () => {
+  // A field written elsewhere while the page is open (by a partner's confirm,
+  // or from the app) must survive a save that did not touch it.
+  it("sends the basics and only the fields the person changed", async () => {
+    getMyProfile.mockResolvedValue({
+      data: {
+        username: "kasey",
+        display_name: "Kasey",
+        bio: "",
+        avatar_url: null,
+        profile_info: [
+          { category: "sizes", field_name: "shoe_size", field_value: "10" },
+          { category: "preferences", field_name: "hobbies", field_value: "Chess" },
+          { category: "sizes", field_name: "hat_size", field_value: "7" },
+        ],
+      },
+      error: null,
     });
+    getMyAnniversaryLinks.mockResolvedValue({
+      data: { confirmed: null, outgoing: null, incoming: [] },
+    });
+    const { container } = render(<ProfileEditPage />);
+    const field = (name: string) =>
+      container.querySelector(`[name="${name}"]`) as HTMLInputElement;
+
+    await waitFor(() => expect(field("shoe_size").value).toBe("10"));
+
+    fireEvent.change(field("shoe_size"), { target: { value: "11" } });
+    fireEvent.change(field("hobbies"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => expect(updateProfile).toHaveBeenCalledTimes(1));
+    const sent = updateProfile.mock.calls[0][0] as Record<string, unknown>;
+    expect(sent).toMatchObject({
+      username: "kasey",
+      display_name: "Kasey",
+      bio: "",
+      shoe_size: "11", // changed: its new value
+      hobbies: "", // emptied: "" so it is removed
+    });
+    expect(sent).toHaveProperty("avatar_url");
+    // Empty at load and never touched (anniversary, birthday, ...), or
+    // unchanged (hat_size): not sent at all.
+    const catalog = Object.keys(sent).filter((key) =>
+      (PROFILE_FIELD_NAMES as readonly string[]).includes(key)
+    );
+    expect(catalog.sort()).toEqual(["hobbies", "shoe_size"]);
   });
 });

@@ -111,4 +111,10 @@ describe("readStoredChoice", () => {
       error: "Failed to load settings",
     });
   });
+
+  // A row holding no kinds is "only you"; only a missing row means all four.
+  it("keeps a stored empty choice as only you", async () => {
+    const onlyYou = clientAnswering({ data: { visible_to_group_types: [] }, error: null });
+    expect(await readStoredChoice(onlyYou.client, "user_123")).toEqual({ choice: [] });
+  });
 });
