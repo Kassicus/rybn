@@ -36,6 +36,23 @@ export function generateInviteCode(): string {
 }
 
 /**
+ * An invite code as a person typed or pasted it, tidied the way the website
+ * reads codes: upper case, letters and digits only, and the dashes put back
+ * when exactly nine are left ("abc def ghi" -> "ABC-DEF-GHI"). Anything else
+ * is returned as stripped, for the database to refuse. The website's join box
+ * and joinGroupByCode both use it.
+ */
+export function tidyInviteCode(raw: string): string {
+  const stripped = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  if (stripped.length === 9) {
+    return `${stripped.slice(0, 3)}-${stripped.slice(3, 6)}-${stripped.slice(6, 9)}`;
+  }
+
+  return stripped;
+}
+
+/**
  * Generate a secure token for invitations
  */
 export function generateInviteToken(): string {

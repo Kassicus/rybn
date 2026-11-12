@@ -35,9 +35,9 @@ export function InviteMembersButton({
     setWarning(null);
     setSuccess(false);
 
+    // The action reads the group's name itself; groupName is only shown here.
     const result = await sendGroupInvitation({
       groupId,
-      groupName,
       email,
     });
 

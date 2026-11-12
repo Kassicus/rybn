@@ -35,11 +35,20 @@ vi.mock("@/lib/resend/send", () => ({
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 const getUserId = vi.fn();
+const requireAuthWithProfile = vi.fn();
 
 vi.mock("@/lib/auth/require-auth", () => ({
   getUserId: () => getUserId(),
-  requireAuthWithProfile: vi.fn(),
+  requireAuthWithProfile: () => requireAuthWithProfile(),
 }));
+
+/**
+ * Every query the action builds, as `(table, "from")` and then
+ * `(table, method, ...args)` for each chain call, so a test can read what was
+ * asked for and with which values -- or that nothing was asked at all.
+ */
+const query = vi.fn();
+const rpc = vi.fn();
 
 /**
  * Supabase's query builder is thenable, so `await from().select().eq()`
@@ -59,6 +68,7 @@ function createSupabaseMock(script: Record<string, unknown[]>) {
 
   return {
     from(table: string) {
+      query(table, "from");
       const next = () => {
         const queue = queues[table];
         if (!queue || queue.length === 0) {
@@ -77,7 +87,10 @@ function createSupabaseMock(script: Record<string, unknown[]>) {
         "order",
         "limit",
       ]) {
-        chain[method] = () => chain;
+        chain[method] = (...args: unknown[]) => {
+          query(table, method, ...args);
+          return chain;
+        };
       }
       chain.maybeSingle = async () => next();
       chain.single = async () => next();
@@ -91,10 +104,22 @@ function createSupabaseMock(script: Record<string, unknown[]>) {
 let supabase: ReturnType<typeof createSupabaseMock>;
 
 vi.mock("@/lib/supabase/server", () => ({
-  createClient: async () => supabase,
+  createClient: async () => ({
+    ...supabase,
+    rpc: (...args: unknown[]) => rpc(...args),
+  }),
 }));
 
-const { sendGroupInvitation } = await import("./invitations");
+const { sendGroupInvitation, joinGroupByCode } = await import("./invitations");
+
+/**
+ * The caller's membership as the action reads it: their role, and the name of
+ * the group it belongs to.
+ */
+const MEMBERSHIP = {
+  data: { role: "admin", groups: { name: "The Suchows" } },
+  error: null,
+};
 
 /**
  * The happy-path query sequence sendGroupInvitation walks, in order:
@@ -113,13 +138,14 @@ function happyPathScript() {
       { data: [], error: null }, // no existing invitation
       { data: { id: "invitation-1" }, error: null }, // insert
     ],
-    group_members: [{ data: { role: "admin" }, error: null }],
+    group_members: [MEMBERSHIP],
   };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   getUserId.mockResolvedValue("user_123");
+  requireAuthWithProfile.mockResolvedValue("user_123");
   supabase = createSupabaseMock(happyPathScript());
 });
 
@@ -141,7 +167,6 @@ describe("sendGroupInvitation invitee copy", () => {
 
     await sendGroupInvitation({
       groupId: "group-1",
-      groupName: "The Suchows",
       email: "invitee@example.com",
     });
 
@@ -157,7 +182,7 @@ describe("sendGroupInvitation invitee copy", () => {
         { data: { id: "user-existing" }, error: null }, // invitee HAS an account
       ],
       group_members: [
-        { data: { role: "admin" }, error: null }, // inviter's membership
+        MEMBERSHIP, // inviter's membership
         { data: null, error: null }, // invitee is not in this group yet
       ],
       invitations: [
@@ -170,7 +195,6 @@ describe("sendGroupInvitation invitee copy", () => {
 
     await sendGroupInvitation({
       groupId: "group-1",
-      groupName: "The Suchows",
       email: "invitee@example.com",
     });
 
@@ -195,7 +219,6 @@ describe("sendGroupInvitation", () => {
 
     const result = await sendGroupInvitation({
       groupId: "group-1",
-      groupName: "The Suchows",
       email: "invitee@example.com",
     });
 
@@ -216,7 +239,6 @@ describe("sendGroupInvitation", () => {
 
     const result = await sendGroupInvitation({
       groupId: "group-1",
-      groupName: "The Suchows",
       email: "invitee@example.com",
     });
 
@@ -235,11 +257,135 @@ describe("sendGroupInvitation", () => {
 
     const result = await sendGroupInvitation({
       groupId: "group-1",
-      groupName: "The Suchows",
       email: "invitee@example.com",
     });
 
     expect(result.emailSent).toBe(true);
     expect(result.warning).toBeUndefined();
+  });
+});
+
+/**
+ * The action checks the address and reads the group's name itself, so a
+ * caller other than the website's invite dialog gets the same rules.
+ */
+describe("sendGroupInvitation checks what it is given", () => {
+  it("reads the group's name itself", async () => {
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    await sendGroupInvitation({
+      groupId: "group-1",
+      email: "invitee@example.com",
+    });
+
+    // The name comes from the caller's membership row, joined to its group.
+    expect(query).toHaveBeenCalledWith(
+      "group_members",
+      "select",
+      "role, groups ( name )"
+    );
+    expect(sendGroupInviteEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ groupName: "The Suchows" })
+    );
+  });
+
+  it("refuses an address that is not an email, before any query", async () => {
+    const result = await sendGroupInvitation({
+      groupId: "group-1",
+      email: "not-an-email",
+    });
+
+    expect(result).toEqual({ error: "Please enter a valid email address" });
+    expect(query).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+    expect(sendGroupInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it("refuses an address longer than 254 characters, before any query", async () => {
+    // Well formed, and 255 characters long: 64 + "@" + 186 + ".com".
+    const email = `${"a".repeat(64)}@${"b".repeat(186)}.com`;
+    expect(email).toHaveLength(255);
+
+    const result = await sendGroupInvitation({ groupId: "group-1", email });
+
+    expect(result).toEqual({ error: "Please enter a valid email address" });
+    expect(query).not.toHaveBeenCalled();
+    expect(sendGroupInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it("trims the address before checking it, and invites and emails the trimmed one", async () => {
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    await sendGroupInvitation({
+      groupId: "group-1",
+      email: " gran@example.com ",
+    });
+
+    expect(query).toHaveBeenCalledWith(
+      "invitations",
+      "insert",
+      expect.objectContaining({ email: "gran@example.com" })
+    );
+    expect(sendGroupInviteEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ toEmail: "gran@example.com" })
+    );
+    // The account lookup and the waiting-invitation lookup use it too.
+    const emailFilters = query.mock.calls.filter(
+      ([, method, column]) => method === "eq" && column === "email"
+    );
+    expect(emailFilters).toHaveLength(2);
+    for (const [, , , value] of emailFilters) {
+      expect(value).toBe("gran@example.com");
+    }
+  });
+
+  it.each([
+    ["no row", { data: null, error: null }],
+    ["a row without its group", { data: { role: "member", groups: null }, error: null }],
+  ])(
+    "answers You are not a member of this group when the membership read finds nothing (%s)",
+    async (_case, membership) => {
+      supabase = createSupabaseMock({
+        ...happyPathScript(),
+        group_members: [membership],
+      });
+
+      const result = await sendGroupInvitation({
+        groupId: "group-1",
+        email: "invitee@example.com",
+      });
+
+      expect(result).toEqual({ error: "You are not a member of this group" });
+      expect(query).not.toHaveBeenCalledWith(
+        "invitations",
+        "insert",
+        expect.anything()
+      );
+      expect(sendGroupInviteEmail).not.toHaveBeenCalled();
+    }
+  );
+});
+
+describe("joinGroupByCode", () => {
+  it("tidies the code before asking the database", async () => {
+    rpc.mockResolvedValue({ data: "group-1", error: null });
+
+    const result = await joinGroupByCode("k7p mxr 4tq");
+
+    expect(rpc).toHaveBeenCalledWith("join_group_with_code", {
+      p_invite_code: "K7P-MXR-4TQ",
+    });
+    expect(result).toEqual({ data: { id: "group-1" } });
+  });
+
+  it.each([
+    ["22023", "Invalid invite code"],
+    ["23505", "You are already a member of this group"],
+  ])("answers %s as %j", async (code, sentence) => {
+    rpc.mockResolvedValue({ data: null, error: { code, message: "refused" } });
+
+    const result = await joinGroupByCode("K7P-MXR-4TQ");
+
+    expect(result).toEqual({ error: sentence });
   });
 });

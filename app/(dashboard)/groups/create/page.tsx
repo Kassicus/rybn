@@ -2,23 +2,16 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { Home, Users, Briefcase, Grid } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Heading, Text } from "@/components/ui/text";
 import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { createGroup } from "@/lib/actions/groups";
-
-const createGroupSchema = z.object({
-  name: z.string().min(1, "Group name is required").max(50, "Group name must be less than 50 characters"),
-  description: z.string().max(200, "Description must be less than 200 characters").optional(),
-  type: z.enum(["family", "friends", "work", "custom"]),
-});
-
-type CreateGroupFormData = z.infer<typeof createGroupSchema>;
+// The schema createGroup checks with, so the form and the action agree.
+import { createGroupSchema, type CreateGroupInput } from "@/lib/schemas/groups";
 
 const groupTypes = [
   {
@@ -56,18 +49,18 @@ export default function CreateGroupPage() {
     register,
     handleSubmit,
     setValue,
-    watch,
+    control,
     formState: { errors },
-  } = useForm<CreateGroupFormData>({
+  } = useForm<CreateGroupInput>({
     resolver: zodResolver(createGroupSchema),
     defaultValues: {
       type: "family",
     },
   });
 
-  const selectedType = watch("type");
+  const selectedType = useWatch({ control, name: "type" });
 
-  const onSubmit = async (data: CreateGroupFormData) => {
+  const onSubmit = async (data: CreateGroupInput) => {
     setIsLoading(true);
     setError(null);
 

@@ -2,7 +2,12 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getUserId, requireAuthWithProfile } from "@/lib/auth/require-auth";
-import { generateInviteToken, getInviteExpiration } from "@/lib/utils/groups";
+import {
+  generateInviteToken,
+  getInviteExpiration,
+  tidyInviteCode,
+} from "@/lib/utils/groups";
+import { GROUP_RULES, invitationEmailSchema } from "@/lib/schemas/groups";
 import { sendGroupInviteEmail } from "@/lib/resend/send";
 import { revalidatePath } from "next/cache";
 
@@ -27,9 +32,16 @@ const EMAIL_SEND_FAILED_MESSAGE =
   "The invitation is saved, but we couldn't send the email just now. " +
   "Try resending it in a moment.";
 
+/**
+ * Invites an address to a group the caller belongs to, by email.
+ *
+ * The address is checked and trimmed here, before any query, and every
+ * lookup, the invitation row and the email use the trimmed address. The
+ * group's name in the email is read from the caller's own membership, so it
+ * is always the name of the group the invitation is for.
+ */
 export async function sendGroupInvitation(data: {
   groupId: string;
-  groupName: string;
   email: string;
 }) {
   const supabase = await createClient();
@@ -40,6 +52,12 @@ export async function sendGroupInvitation(data: {
   if (!userId) {
     return { error: "Not authenticated" };
   }
+
+  const parsedEmail = invitationEmailSchema.safeParse(data.email);
+  if (!parsedEmail.success) {
+    return { error: GROUP_RULES.email };
+  }
+  const email = parsedEmail.data;
 
   // Clerk's auth() only returns ids, so the inviter's display details come
   // from their profile row.
@@ -68,10 +86,10 @@ export async function sendGroupInvitation(data: {
     };
   }
 
-  // Check if user is a member of the group
+  // Check if user is a member of the group, reading the group's name with it
   const { data: membership, error: membershipError } = await supabase
     .from("group_members")
-    .select("role")
+    .select("role, groups ( name )")
     .eq("group_id", data.groupId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -81,7 +99,9 @@ export async function sendGroupInvitation(data: {
     return { error: "Failed to verify group membership. Please try again." };
   }
 
-  if (!membership) {
+  const groupName = membership?.groups?.name;
+
+  if (!membership || !groupName) {
     return { error: "You are not a member of this group" };
   }
 
@@ -89,7 +109,7 @@ export async function sendGroupInvitation(data: {
   const { data: existingUser } = await supabase
     .from("user_profiles")
     .select("id")
-    .eq("email", data.email)
+    .eq("email", email)
     .maybeSingle();
 
   if (existingUser) {
@@ -111,7 +131,7 @@ export async function sendGroupInvitation(data: {
     .from("invitations")
     .select("id, accepted")
     .eq("group_id", data.groupId)
-    .eq("email", data.email)
+    .eq("email", email)
     .order("created_at", { ascending: false })
     .limit(1);
 
@@ -160,7 +180,7 @@ export async function sendGroupInvitation(data: {
       .from("invitations")
       .insert({
         group_id: data.groupId,
-        email: data.email,
+        email,
         invited_by: userId,
         token,
         expires_at: expiresAt.toISOString(),
@@ -197,8 +217,8 @@ export async function sendGroupInvitation(data: {
 
   try {
     const { error: sendError } = await sendGroupInviteEmail({
-      toEmail: data.email,
-      groupName: data.groupName,
+      toEmail: email,
+      groupName,
       inviterName,
       inviteToken: token,
       // Looked up above, to check whether this person is already in the
@@ -221,8 +241,8 @@ export async function sendGroupInvitation(data: {
     // The provider's own words stop here. See EMAIL_SEND_FAILED_MESSAGE.
     console.error("Invite email failed to send:", {
       reason: emailError,
-      toEmail: data.email,
-      groupName: data.groupName,
+      toEmail: email,
+      groupName,
       inviterName,
     });
   }
@@ -330,8 +350,9 @@ export async function acceptInvitation(token: string): Promise<
  * invite_code from here would return nothing anyway -- the groups SELECT
  * policy is membership-only, and a joiner is by definition not a member yet.
  *
- * The code is normalised to upper case inside the function, so the caller does
- * not have to; JoinGroupButton still formats it for display.
+ * The code is tidied here with tidyInviteCode (upper case, letters and digits
+ * only, dashes put back), so a code typed with spaces or in lower case joins
+ * from any caller; the website's join box tidies with the same function.
  */
 export async function joinGroupByCode(inviteCode: string): Promise<
   | { error: string; data?: never }
@@ -350,7 +371,7 @@ export async function joinGroupByCode(inviteCode: string): Promise<
   const supabase = await createClient();
 
   const { data: groupId, error } = await supabase.rpc("join_group_with_code", {
-    p_invite_code: inviteCode,
+    p_invite_code: tidyInviteCode(inviteCode),
   });
 
   if (error) {

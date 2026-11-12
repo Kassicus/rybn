@@ -3,11 +3,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateInviteCode } from "@/lib/utils/groups";
+import { createGroupSchema, type CreateGroupInput } from "@/lib/schemas/groups";
 import { revalidatePath } from "next/cache";
-import type { Database } from "@/types/database";
 
 import { getUserId } from "@/lib/auth/require-auth";
-type GroupType = Database['public']['Enums']['group_type'];
 
 type UserClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -106,11 +105,13 @@ async function rotateInviteCode(
   return { inviteCode: updated.invite_code };
 }
 
-export async function createGroup(formData: {
-  name: string;
-  description?: string;
-  type: GroupType;
-}) {
+/**
+ * Makes a group with the caller as its owner. The input is checked with the
+ * create form's own schema before anything reaches the database, so a caller
+ * other than the form is refused with the form's sentences, and the name and
+ * description are stored trimmed.
+ */
+export async function createGroup(formData: CreateGroupInput) {
   // Use regular client for auth check
   const supabase = await createClient();
 
@@ -120,6 +121,14 @@ export async function createGroup(formData: {
   if (!userId) {
     return { error: "Not authenticated" };
   }
+
+  // A refused parse always carries at least one issue; the first is the
+  // sentence the form would show.
+  const parsed = createGroupSchema.safeParse(formData);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0].message };
+  }
+  const { name, description, type } = parsed.data;
 
   // Debug: Log user ID to help diagnose RLS issues
   console.log("Creating group with user ID:", userId);
@@ -137,9 +146,9 @@ export async function createGroup(formData: {
   const { data: group, error: groupError } = await adminClient
     .from("groups")
     .insert({
-      name: formData.name,
-      description: formData.description || null,
-      type: formData.type,
+      name,
+      description: description || null,
+      type,
       invite_code: inviteCode,
       created_by: userId,
     })
