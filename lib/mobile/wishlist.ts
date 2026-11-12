@@ -37,7 +37,7 @@ export const RULES = {
   chooseGroup: "Choose one of your groups.",
   characters: "That has characters Rybn can't save. Try typing it again.",
   chooseDate: "Choose one of your dates.",
-  tooManyDates: "Choose 20 dates or fewer.",
+  tooManyDates: "Add 20 dates or fewer at a time.",
 } as const;
 
 /** Control characters: U+0000 to U+001F and U+007F. */

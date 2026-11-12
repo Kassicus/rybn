@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fixture, groupRows, rowFor } from "@/lib/mobile/test-fixtures";
 import { IDS, world } from "@/lib/mobile/test-shopping";
-import { KEYS, TAG_IDS, tagging, tagsFor } from "@/lib/mobile/test-wishlist";
+import { KEYS, TAG_IDS, groupDates, tagging, tagsFor } from "@/lib/mobile/test-wishlist";
 import { formDataFromBody } from "@/lib/mobile/wishlist";
 
 const ensureProfile = vi.fn();
@@ -137,6 +137,17 @@ describe("PUT /api/mobile/v1/wishlist/[id]", () => {
     expect(await keysOf(res)).toHaveLength(26);
     expect(tagItemForGroupDate.mock.calls).toEqual([[ID, IDS.xmas]]);
     expect(untagItem).not.toHaveBeenCalled();
+  });
+  it("answers 422 'Add 20 dates or fewer at a time.' for 21 dates new to the item, and writes nothing", async () => {
+    getWishlistItem.mockResolvedValue(mine());
+    const dates = groupDates(21);
+    getUpcomingOccasions.mockResolvedValue({ data: [...tagging().upcoming, ...dates] });
+    // The item's own two tags are sent back too; only the 21 new dates count.
+    const res = await PUT(saving([KEYS.samBirthday, KEYS.xmas, ...dates.map((o) => `group_date:${o.occasionId}`)]), ctx(ID));
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toEqual({ code: "invalid", message: "Add 20 dates or fewer at a time." });
+    expect(updateWishlistItem).not.toHaveBeenCalled();
+    expect(tagWrites()).toEqual([]);
   });
   it("answers 422 for a date that is not one of the caller's and writes nothing, not even the item", async () => {
     getWishlistItem.mockResolvedValue(mine());

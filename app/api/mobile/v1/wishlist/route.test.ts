@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { INVALID_IMAGE_ERROR } from "@/lib/storage/image-value";
 import { fixture, groupRows, rowFor } from "@/lib/mobile/test-fixtures";
 import { IDS } from "@/lib/mobile/test-shopping";
-import { KEYS, TAG_IDS, tagging, tagsFor } from "@/lib/mobile/test-wishlist";
+import { KEYS, TAG_IDS, groupDates, tagging, tagsFor } from "@/lib/mobile/test-wishlist";
 import { formDataFromBody } from "@/lib/mobile/wishlist";
 
 const ensureProfile = vi.fn();
@@ -238,6 +238,15 @@ describe("POST /api/mobile/v1/wishlist", () => {
     const res = await POST(post({ ...fixture("wishlist-item-request"), occasions: [KEYS.xmas, "birthday:user_2momABC:2027"] }), ctx);
     expect(res.status).toBe(422);
     expect((await res.json()).error).toEqual({ code: "invalid", message: "Choose one of your dates." });
+    expect(createWishlistItem).not.toHaveBeenCalled();
+    expect(tagWrites()).toEqual([]);
+  });
+  it("answers 422 'Add 20 dates or fewer at a time.' for 21 new dates, and writes nothing", async () => {
+    const dates = groupDates(21);
+    getUpcomingOccasions.mockResolvedValue({ data: [...tagging().upcoming, ...dates] });
+    const res = await POST(post({ ...fixture("wishlist-item-request"), occasions: dates.map((o) => `group_date:${o.occasionId}`) }), ctx);
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toEqual({ code: "invalid", message: "Add 20 dates or fewer at a time." });
     expect(createWishlistItem).not.toHaveBeenCalled();
     expect(tagWrites()).toEqual([]);
   });

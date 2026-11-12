@@ -40,6 +40,15 @@ export function tagging() {
   return { upcoming, occasionRows, tags };
 }
 
+/** `count` upcoming dates of Rivera Family the caller may tag, none of them in the fixtures. */
+export function groupDates(count: number): UpcomingOccasion[] {
+  return Array.from({ length: count }, (_, i) => ({
+    occasionId: `66666666-0000-4000-8000-${String(i).padStart(12, "0")}`, kind: "group_date", name: `Date ${i + 1}`,
+    occasionDate: "2026-12-01", celebrantId: null, celebrantUsername: null, celebrantDisplayName: null, groupId: IDS.rivera,
+    groupName: "Rivera Family", partnerId: null, partnerUsername: null, partnerDisplayName: null,
+  }));
+}
+
 /** getTagsForItems over `tags`: only the items asked for, and an untagged item absent. */
 export function tagsFor(tags: Record<string, string[]>, ids: string[]): { data: Record<string, string[]> } {
   return { data: Object.fromEntries(Object.entries(tags).filter(([id]) => ids.includes(id))) };
