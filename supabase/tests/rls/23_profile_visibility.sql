@@ -10,9 +10,10 @@
 --      visible_to_group_types is a not-null group_type[].
 --   2. Row-level security (assertions 5-14). RLS is on. Exactly one
 --      permissive SELECT, INSERT and UPDATE policy, none for DELETE or ALL,
---      each for authenticated alone, and each comparing requesting_user_id()
---      with user_id and nothing else. authenticated may select, insert and
---      update, never delete; anon may do none of the four. Then live: a
+--      each for authenticated alone, and each, compared whole as Postgres
+--      prints it, comparing requesting_user_id() with user_id and nothing
+--      else. authenticated may select, insert and update, never delete;
+--      anon may do none of the four. Then live: a
 --      person with no row inserts their own and gets all four kinds by
 --      default; a reads their own row; a sees nothing of b's row although
 --      the two share a family group; a's update of b's row touches nothing;
@@ -20,14 +21,19 @@
 --   3. The function (assertions 15-16). Not SECURITY DEFINER, search_path
 --      pinned, executable by none of anon, authenticated and service_role.
 --   4. The repair and the start, on this file's own people (assertions
---      17-23). hidden's four fields name no kind of group (an empty list, no
---      list, an empty object, a list naming only an unknown kind): each is
---      set to all four kinds, a key other than the two it sets is kept, and
---      hidden's row holds all four. mixed's fields all name a kind, or are
---      tied to one group: none is touched, and mixed's row holds the setting
---      two of its three voting fields have (a list's order does not matter;
---      the field tied to a group does not vote). tie has one field naming
---      one kind and one naming two: the row holds the one naming fewer. none
+--      17-23). hidden's five fields name no kind of group (an empty list, no
+--      list, an empty object, a list naming only an unknown kind, and
+--      settings that are an array rather than an object): each becomes an
+--      object naming all four kinds, a key other than the two it sets is
+--      kept, and hidden's row holds all four. mixed's fields each name a
+--      kind (one of them beside an unknown kind) or are tied to the group:
+--      none is touched. mixed's row holds the setting two of its three
+--      untied fields have (a list's order does not matter, and an unknown
+--      kind is not counted). Its three tied fields do not vote: if they did,
+--      the two naming work would tie the two naming family and friends, and
+--      win on fewer kinds. tie's three fields each name a different setting,
+--      one field apiece: the two naming one kind beat the one naming two,
+--      and between work and custom the enum's order puts work first. none
 --      has no fields and gets no row. a and b, not passed to the function,
 --      keep their field and rows as they were.
 --
@@ -66,6 +72,7 @@ declare
   v_none            text := 'user_pvis_none';
   v_group           uuid;
   v_ring_settings   jsonb;
+  v_tied_work_settings jsonb;
   v_settings        jsonb;
   v_count           int;
   v_count2          int;
@@ -124,10 +131,15 @@ begin
     values (v_a, '{family}'::public.group_type[]),
            (v_b, '{friends}'::public.group_type[]);
 
-  -- mixed's ring size is tied to the group, so it neither is repaired nor
-  -- votes.
+  -- mixed's ring, pants and dress sizes are tied to the group, so none of
+  -- them is repaired or votes. The pants and dress sizes name work: if tied
+  -- fields voted, work would win assertion 21.
   v_ring_settings := jsonb_build_object(
     'visibleToGroupTypes', '[]'::jsonb,
+    'restrictToGroup', v_group);
+
+  v_tied_work_settings := jsonb_build_object(
+    'visibleToGroupTypes', '["work"]'::jsonb,
     'restrictToGroup', v_group);
 
   insert into profile_info (user_id, category, field_name, field_value, privacy_settings)
@@ -141,18 +153,26 @@ begin
             '{}'::jsonb),
            (v_hidden, 'preferences', 'hobbies',    'Climbing',
             '{"visibleToGroupTypes": ["nonsense"], "restrictToGroup": null, "overrides": {"x": "y"}}'::jsonb),
+           (v_hidden, 'sizes',       'pants_size', '30',
+            '[]'::jsonb),
            (v_mixed,  'sizes',       'shoe_size',  '8',
             '{"visibleToGroupTypes": ["family", "friends"], "restrictToGroup": null}'::jsonb),
            (v_mixed,  'sizes',       'shirt_size', 'M',
             '{"visibleToGroupTypes": ["friends", "family"], "restrictToGroup": null}'::jsonb),
            (v_mixed,  'sizes',       'hat_size',   '7',
-            '{"visibleToGroupTypes": ["family"], "restrictToGroup": null}'::jsonb),
+            '{"visibleToGroupTypes": ["family", "nonsense"], "restrictToGroup": null}'::jsonb),
            (v_mixed,  'sizes',       'ring_size',  '5',
             v_ring_settings),
+           (v_mixed,  'sizes',       'pants_size', '32',
+            v_tied_work_settings),
+           (v_mixed,  'sizes',       'dress_size', '8',
+            v_tied_work_settings),
            (v_tie,    'sizes',       'shoe_size',  '11',
             '{"visibleToGroupTypes": ["work"], "restrictToGroup": null}'::jsonb),
            (v_tie,    'sizes',       'shirt_size', 'L',
-            '{"visibleToGroupTypes": ["family", "friends"], "restrictToGroup": null}'::jsonb);
+            '{"visibleToGroupTypes": ["family", "friends"], "restrictToGroup": null}'::jsonb),
+           (v_tie,    'sizes',       'ring_size',  '7',
+            '{"visibleToGroupTypes": ["custom"], "restrictToGroup": null}'::jsonb);
 
   ---------------------------------------------------------------------------
   -- Assertions 1-2: the columns.
@@ -272,11 +292,13 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 7: each of the four expressions compares requesting_user_id()
-  -- with user_id and nothing else -- it names the function, ends with the
-  -- comparison against user_id, and has no `or` that could admit another
-  -- row. The INSERT policy's with check is what refuses a row written for
-  -- someone else, which is not attempted live (see the header).
+  -- Assertion 7: each of the four expressions is exactly the text Postgres
+  -- prints for `(select public.requesting_user_id()) = user_id`, compared
+  -- whole as 14_tag_visibility.sql compares its policy, so a changed
+  -- operator or an added condition fails it. The INSERT policy's with check
+  -- is what refuses a row written for someone else, and the UPDATE policy's
+  -- check what refuses moving a row to another person; neither is attempted
+  -- live (see the header), so this is what holds them.
   ---------------------------------------------------------------------------
   select qual into v_select_qual
     from pg_policies
@@ -295,14 +317,11 @@ begin
 
   select count(*) into v_count
     from unnest(array[v_select_qual, v_insert_check, v_update_qual, v_update_check]) e(expr)
-   where e.expr is not null
-     and position('requesting_user_id()' in e.expr) > 0
-     and right(e.expr, 10) = '= user_id)'
-     and position(' or ' in lower(e.expr)) = 0;
+   where e.expr = '(( SELECT requesting_user_id() AS requesting_user_id) = user_id)';
 
   if v_count <> 4 then
     raise exception
-      'RLS FAIL: % of the four policy expressions compare requesting_user_id() with user_id alone, expected 4. SELECT using: %; INSERT with check: %; UPDATE using: %; UPDATE with check: %',
+      'RLS FAIL: % of the four policy expressions read exactly (( SELECT requesting_user_id() AS requesting_user_id) = user_id), expected 4. SELECT using: %; INSERT with check: %; UPDATE using: %; UPDATE with check: %',
       v_count, v_select_qual, v_insert_check, v_update_qual, v_update_check;
   end if;
   v_checks := v_checks + 1;
@@ -417,8 +436,8 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 13: a's update of b's row touches nothing (the UPDATE policy
-  -- filters it out, so no raise), and b's row is still {friends}.
+  -- Assertion 13: a's update of b's row touches nothing (the policies
+  -- filter it out, so no raise), and b's row is still {friends}.
   ---------------------------------------------------------------------------
   perform set_config('request.jwt.claims',
     '{"sub":"' || v_a || '","role":"authenticated"}', true);
@@ -505,8 +524,10 @@ begin
   perform public.start_profile_visibility(array[v_hidden, v_mixed, v_tie, v_none]);
 
   ---------------------------------------------------------------------------
-  -- Assertion 17: each of hidden's four fields now names all four kinds, in
-  -- the order the repair writes, and is tied to no group.
+  -- Assertion 17: each of hidden's five fields is now an object naming all
+  -- four kinds, in the order the repair writes, and tied to no group. The
+  -- pants size's settings were an array, not an object; the repair starts
+  -- it from an empty object, or it would become an array holding one.
   ---------------------------------------------------------------------------
   select count(*) into v_count
     from profile_info
@@ -514,9 +535,9 @@ begin
      and privacy_settings->'visibleToGroupTypes' = '["family", "friends", "work", "custom"]'::jsonb
      and privacy_settings->'restrictToGroup' = 'null'::jsonb;
 
-  if v_count <> 4 then
+  if v_count <> 5 then
     raise exception
-      'START FAIL: % of %''s fields name all four kinds and no group after the repair, expected 4',
+      'START FAIL: % of %''s five fields name all four kinds and no group after the repair, expected 5',
       v_count, v_hidden;
   end if;
   v_checks := v_checks + 1;
@@ -553,9 +574,9 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 20: none of mixed's fields is touched -- three name a kind,
-  -- and one is tied to the group. Each still holds exactly what the fixture
-  -- wrote.
+  -- Assertion 20: none of mixed's six fields is touched -- three name a
+  -- kind (the hat size beside an unknown kind), and three are tied to the
+  -- group. Each still holds exactly what the fixture wrote.
   ---------------------------------------------------------------------------
   select count(*) into v_count
     from profile_info
@@ -566,13 +587,15 @@ begin
        or (field_name = 'shirt_size'
            and privacy_settings = '{"visibleToGroupTypes": ["friends", "family"], "restrictToGroup": null}'::jsonb)
        or (field_name = 'hat_size'
-           and privacy_settings = '{"visibleToGroupTypes": ["family"], "restrictToGroup": null}'::jsonb)
+           and privacy_settings = '{"visibleToGroupTypes": ["family", "nonsense"], "restrictToGroup": null}'::jsonb)
        or (field_name = 'ring_size'
-           and privacy_settings = v_ring_settings));
+           and privacy_settings = v_ring_settings)
+       or (field_name in ('pants_size', 'dress_size')
+           and privacy_settings = v_tied_work_settings));
 
-  if v_count <> 4 then
+  if v_count <> 6 then
     raise exception
-      'START FAIL: % of %''s four fields still hold what the fixture wrote, expected 4 -- the repair touched a field that names a kind or is tied to a group',
+      'START FAIL: % of %''s six fields still hold what the fixture wrote, expected 6 -- the repair touched a field that names a kind or is tied to a group',
       v_count, v_mixed;
   end if;
   v_checks := v_checks + 1;
@@ -580,7 +603,10 @@ begin
   ---------------------------------------------------------------------------
   -- Assertion 21: mixed's row holds {family,friends}. ["friends","family"]
   -- counts with ["family","friends"], so that setting has two fields to the
-  -- one of {family}; the ring size, tied to the group, does not vote.
+  -- one of {family} (the hat size; its unknown kind is not counted). The
+  -- three fields tied to the group do not vote: if they did, the pants and
+  -- dress sizes would give {work} two fields too, and {work} would win on
+  -- fewer kinds.
   ---------------------------------------------------------------------------
   select visible_to_group_types into v_kinds
     from profile_visibility
@@ -594,7 +620,9 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 22: a tie goes to the setting naming fewer kinds.
+  -- Assertion 22: a three-way tie of one field each: {work} and {custom}
+  -- name one kind and beat {family,friends}; between those two the enum's
+  -- order puts work first.
   ---------------------------------------------------------------------------
   select visible_to_group_types into v_kinds
     from profile_visibility
@@ -602,7 +630,7 @@ begin
 
   if v_kinds is distinct from '{work}'::public.group_type[] then
     raise exception
-      'START FAIL: %''s row reads % after a one-to-one tie between {work} and {family,friends}, expected {work}',
+      'START FAIL: %''s row reads % after a three-way tie of one field each between {work}, {custom} and {family,friends}, expected {work} (fewer kinds, then the enum''s order)',
       v_tie, v_kinds;
   end if;
   v_checks := v_checks + 1;

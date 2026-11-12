@@ -12,11 +12,11 @@
 --      field's default. A person reads and writes their own row only.
 --   2. start_profile_visibility(): for the people given, sets every field that
 --      names no kind of group and is not tied to one group to all four kinds
---      (D10), then gives each of them who has fields a row holding the setting
---      most of their fields have (D11; a tie goes to the one naming fewer
---      kinds). Called once below for everyone with fields;
---      23_profile_visibility.sql calls it on its own people. No API role may
---      execute it.
+--      (D10), then gives each of them who has a field not tied to one group a
+--      row holding the setting most of their fields have (D11; a tie goes to
+--      the one naming fewer kinds). Called once below for everyone with
+--      fields; 23_profile_visibility.sql calls it on its own people. No API
+--      role may execute it.
 --
 -- can_view_field() and every existing policy are unchanged: who can see a
 -- field is still decided by the field alone.
@@ -101,7 +101,7 @@ begin
         ) f
        group by f.user_id, f.kinds
     ) s
-   order by s.user_id, s.fields desc, cardinality(s.kinds), s.kinds::text
+   order by s.user_id, s.fields desc, cardinality(s.kinds), s.kinds
   on conflict (user_id) do nothing;
 end;
 $$;
@@ -109,6 +109,6 @@ $$;
 revoke execute on function public.start_profile_visibility(text[]) from public, anon, authenticated, service_role;
 
 comment on function public.start_profile_visibility(text[]) is
-  'D10 and D11 for the people given: a field naming no kind of group, and not tied to one group, is set to all four kinds; then each of them with fields gets a profile_visibility row holding the setting most of their fields have (ties: fewer kinds). Run once by 20261112000000_profile_visibility.sql; 23_profile_visibility.sql runs it on its own people. Executable by no API role.';
+  'D10 and D11 for the people given: a field naming no kind of group, and not tied to one group, is set to all four kinds; then each of them with a field not tied to one group gets a profile_visibility row holding the setting most of those fields have (ties: fewer kinds, then the enum''s order). Run once, on everyone, by 20261112000000_profile_visibility.sql. After that a field naming no kind is its person''s own choice, so only 23_profile_visibility.sql calls it, on that file''s own people. Executable by no API role.';
 
 select public.start_profile_visibility(array(select distinct user_id from public.profile_info));
