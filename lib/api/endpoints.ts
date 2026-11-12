@@ -61,6 +61,7 @@ export const API_ENDPOINTS: ApiEndpoint[] = [
       }
     },
     notes: [
+      'Developers only: 404 unless your Clerk user id is in DEVELOPER_USER_IDS',
       'Verifies date_notifications table exists',
       'Tests the get_dates_today_for_user database function',
       'Returns diagnostics for troubleshooting'

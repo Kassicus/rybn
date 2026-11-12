@@ -1,23 +1,24 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { getUserId } from '@/lib/auth/require-auth';
+import { getDeveloperId } from '@/lib/auth/developer';
 
 /**
  * Test endpoint to verify date reminders database setup
  * GET /api/test-reminders
+ *
+ * Developer diagnostic. Answers only for a Clerk user id listed in
+ * DEVELOPER_USER_IDS (lib/auth/developer.ts); for everyone else, signed in or
+ * not, it is a 404, decided before a database client is opened.
  */
 export async function GET() {
+  const userId = await getDeveloperId();
+
+  if (!userId) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
   try {
     const supabase = await createClient();
-
-    // Get current user
-    const userId = await getUserId();
-
-    if (!userId) {
-      return NextResponse.json({
-        error: "Not authenticated"
-      }, { status: 401 });
-    }
 
     // Email lives on the profile row now; Clerk's auth() only returns ids.
     const { data: profile } = await supabase
