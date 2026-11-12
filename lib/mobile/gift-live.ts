@@ -21,7 +21,6 @@ import {
   type GiftView,
   type MobileGift,
   type RecipientRow,
-  type StepDirection,
 } from "./gifts";
 import { mobileOccasion, type MobileOccasion, type PersonRow } from "./occasions";
 import { groupMembers, occasionsForPerson, profiles, upcomingForCaller } from "./people-live";
@@ -273,52 +272,23 @@ async function moveClaim(itemId: string, occasionId: string | null): Promise<Res
   throw new Error(`set_claim_occasion failed: ${error.code ?? ""} ${error.message}`);
 }
 
-type Settled = { ok: true; answer: Answer<{ gift: MobileGift }> } | { ok: false; error: unknown };
-const stepping = new Map<string, { direction: StepDirection; settled: Promise<Settled> }>();
-
 /**
- * One step forward or back. Requests for the same gift are never run side by side: one in the same direction that is
- * already on its way is the same tap sent twice, so it shares that request's answer and the gift moves one step; one in
- * the other direction waits its turn. (Held in this process only: a second server instance is not seen.)
+ * One step forward or back, made only if the gift is still at the stage the app saw (`from`). A retry after a lost
+ * answer, or a second tap, finds the gift moved and gets it as it now is, so a gift never moves twice. The write
+ * itself is conditional on the stored status, so two requests at once cannot both make the step.
  */
 export async function stepGiftAnswer(userId: string, giftId: string, raw: unknown): Promise<Answer<{ gift: MobileGift }>> {
   const parsed = parseStepBody(raw);
   if (!parsed.ok) return mobileError("invalid", parsed.message);
   if (!UUID.test(giftId)) return mobileError("not_found");
-  const direction = parsed.direction;
-  const key = `${userId}:${giftId}`;
+  const { direction, from } = parsed;
 
-  for (;;) {
-    const running = stepping.get(key);
-    if (!running) break;
-    const outcome = await running.settled;
-    if (running.direction === direction) return replay(outcome);
-  }
-
-  const settled: Promise<Settled> = stepOnce(userId, giftId, direction).then(
-    (answer): Settled => ({ ok: true, answer }),
-    (error): Settled => ({ ok: false, error }),
-  );
-  stepping.set(key, { direction, settled });
-  try {
-    return replay(await settled);
-  } finally {
-    if (stepping.get(key)?.settled === settled) stepping.delete(key);
-  }
-}
-
-/** Every caller gets its own copy of a shared answer: a Response body can be read once. */
-function replay(outcome: Settled): Answer<{ gift: MobileGift }> {
-  if (!outcome.ok) throw outcome.error;
-  return outcome.answer instanceof Response ? outcome.answer.clone() : outcome.answer;
-}
-
-async function stepOnce(userId: string, giftId: string, direction: StepDirection): Promise<Answer<{ gift: MobileGift }>> {
   const today = todayISO();
   const store = await createGiftStore(userId);
   const view = await findView(userId, store, today, giftId);
   if (!view) return mobileError("not_found");
   const gift = view.gift;
+  if (gift.status !== from) return { gift };
 
   const plan = planStep(
     {
@@ -343,10 +313,11 @@ async function stepOnce(userId: string, giftId: string, direction: StepDirection
     }
   }
 
-  const updated = await store.updateGift(giftId, { status: plan.to });
-  if (updated === null) return mobileError("not_found");
-  if (!updated.ok) throw new Error("updateGift reported an item clash for a status change");
-  return answerView(userId, store, today, giftId);
+  const updated = await store.updateGift(giftId, { status: plan.to }, { status: view.status });
+  if (updated !== null && !updated.ok) throw new Error("updateGift reported an item clash for a status change");
+  // null: another request moved it first (or it has gone). Answer it as it now is.
+  const now = await findView(userId, store, today, giftId);
+  return now ? { gift: now.gift } : mobileError("not_found");
 }
 
 export async function deleteGiftAnswer(userId: string, giftId: string): Promise<Answer<null>> {

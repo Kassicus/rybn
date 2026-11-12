@@ -72,19 +72,19 @@ describe("POST /api/mobile/v1/gifts/[id]/step", () => {
   it("un-marks the item stepping back to Claimed", async () => {
     await holder.current.store.updateGift(IDS.giftScarf, { status: "ordered" });
     holder.current.markAsPurchased.mockResolvedValue({ data: {} });
-    const body = await (await POST(post({ direction: "back" }), ctx(IDS.giftScarf))).json();
+    const body = await (await POST(post({ direction: "back", from: "ordered" }), ctx(IDS.giftScarf))).json();
     expect(holder.current.markAsPurchased).toHaveBeenCalledWith(IDS.scarf, false);
     expect(body.gift.status).toBe("claimed");
   });
   it("un-marks Catan stepping back from Ordered", async () => {
     holder.current.markAsPurchased.mockResolvedValue({ data: {} });
-    const body = await (await POST(post({ direction: "back" }, IDS.giftCatan), ctx(IDS.giftCatan))).json();
+    const body = await (await POST(post({ direction: "back", from: "ordered" }, IDS.giftCatan), ctx(IDS.giftCatan))).json();
     expect(holder.current.markAsPurchased).toHaveBeenCalledWith(IDS.catan, false);
     expect(body.gift.status).toBe("claimed");
   });
   it("refuses to step back below Ordered after the date, touching nothing", async () => {          // D13
     holder.current.todayISO.mockReturnValue("2026-12-26");
-    const res = await POST(post({ direction: "back" }), ctx(IDS.giftCatan));
+    const res = await POST(post({ direction: "back", from: "ordered" }), ctx(IDS.giftCatan));
     expect([res.status, (await res.json()).error.message]).toEqual([422, "That occasion has passed, so it stays at Ordered."]);
     expect(holder.current.markAsPurchased).not.toHaveBeenCalled();
     expect(holder.current.store.writes).toEqual([]);
@@ -117,25 +117,25 @@ describe("POST /api/mobile/v1/gifts/[id]/step", () => {
   });
   it("steps a gift whose item the owner deleted without marking it, and back again", async () => {   // Review Focus 5
     holder.current.linkedItems.mockResolvedValue(new Map());
-    const forward = await (await POST(post({ direction: "forward" }), ctx(IDS.giftScarf))).json();
+    const forward = await (await POST(post({ direction: "forward", from: "claimed" }), ctx(IDS.giftScarf))).json();
     expect([forward.gift.itemGone, forward.gift.status]).toEqual([true, "ordered"]);
-    const back = await (await POST(post({ direction: "back" }), ctx(IDS.giftScarf))).json();
+    const back = await (await POST(post({ direction: "back", from: "ordered" }), ctx(IDS.giftScarf))).json();
     expect(back.gift.status).toBe("claimed");
     expect(holder.current.markAsPurchased).not.toHaveBeenCalled();
   });
   it("steps a hand-added gift by its status alone", async () => {
-    const body = await (await POST(post({ direction: "forward" }, IDS.giftPhotoBook), ctx(IDS.giftPhotoBook))).json();
+    const body = await (await POST(post({ direction: "forward", from: "ordered" }, IDS.giftPhotoBook), ctx(IDS.giftPhotoBook))).json();
     expect(body.gift.status).toBe("arrived");
     expect(holder.current.markAsPurchased).not.toHaveBeenCalled();
   });
   it("refuses a step past the ends", async () => {
-    const last = await POST(post({ direction: "forward" }, IDS.giftHat), ctx(IDS.giftHat));
+    const last = await POST(post({ direction: "forward", from: "given" }, IDS.giftHat), ctx(IDS.giftHat));
     expect([last.status, (await last.json()).error.message]).toEqual([422, "That gift has already been given."]);
-    const first = await POST(post({ direction: "back" }), ctx(IDS.giftScarf));
+    const first = await POST(post({ direction: "back", from: "claimed" }), ctx(IDS.giftScarf));
     expect([first.status, (await first.json()).error.message]).toEqual([422, "That's already the first step."]);
   });
   it("refuses a body that is not a step", async () => {
-    for (const body of [{ direction: "up" }, {}, "forward", null]) expect((await POST(post(body), ctx(IDS.giftScarf))).status).toBe(422);
+    for (const body of [{ direction: "up", from: "claimed" }, { direction: "forward" }, { direction: "forward", from: "sent" }, {}, "forward", null]) expect((await POST(post(body), ctx(IDS.giftScarf))).status).toBe(422);
     expect(holder.current.store.writes).toEqual([]);
   });
   it("answers 404 for a gift that is not there, or an id that is not a UUID", async () => {
@@ -160,62 +160,48 @@ describe("POST /api/mobile/v1/gifts/[id]/step", () => {
     expect(holder.current.markAsPurchased).not.toHaveBeenCalled();
   });
 
-  it("moves one step, not two, when two requests for the same step arrive together", async () => {    // requirement 4
+  it("answers the gift as it is, touching nothing, when it is no longer where the app saw it", async () => {
+    const res = await POST(post({ direction: "forward", from: "ordered" }), ctx(IDS.giftScarf));
+    expect([res.status, (await res.json()).gift.status]).toEqual([200, "claimed"]);
+    expect(holder.current.markAsPurchased).not.toHaveBeenCalled();
+    expect(holder.current.store.writes).toEqual([]);
+    expect(statusOf(IDS.giftScarf)).toBe("planned");
+  });
+  it("moves one step when two requests arrive together", async () => {    // requirement 4
     holder.current.markAsPurchased.mockResolvedValue({ data: {} });
     const [a, b] = await Promise.all([
       POST(post(fixture("step-request")), ctx(IDS.giftScarf)),
       POST(post(fixture("step-request")), ctx(IDS.giftScarf)),
     ]);
     expect([a.status, b.status]).toEqual([200, 200]);
-    expect((await a.json()).gift.status).toBe("ordered");
-    expect((await b.json()).gift.status).toBe("ordered");
-    expect(statusOf(IDS.giftScarf)).toBe("ordered");
-    expect(holder.current.markAsPurchased).toHaveBeenCalledTimes(1);
-    expect(holder.current.store.writes.filter((w) => w.startsWith("updateGift"))).toHaveLength(1);
-  });
-  it("moves a hand-added gift one step when two requests arrive together", async () => {
-    const [a, b] = await Promise.all([
-      POST(post({ direction: "forward" }, IDS.giftPhotoBook), ctx(IDS.giftPhotoBook)),
-      POST(post({ direction: "forward" }, IDS.giftPhotoBook), ctx(IDS.giftPhotoBook)),
-    ]);
-    expect([(await a.json()).gift.status, (await b.json()).gift.status]).toEqual(["arrived", "arrived"]);
-    expect(statusOf(IDS.giftPhotoBook)).toBe("arrived");
-  });
-  it("shares a refusal between two requests together, each able to read it", async () => {
-    holder.current.todayISO.mockReturnValue("2026-12-26");
-    const [a, b] = await Promise.all([
-      POST(post({ direction: "back" }, IDS.giftCatan), ctx(IDS.giftCatan)),
-      POST(post({ direction: "back" }, IDS.giftCatan), ctx(IDS.giftCatan)),
-    ]);
-    expect([a.status, b.status]).toEqual([422, 422]);
-    expect([(await a.json()).error.message, (await b.json()).error.message]).toEqual(Array(2).fill("That occasion has passed, so it stays at Ordered."));
-  });
-  it("answers a failure of the shared request to both, and steps again afterwards", async () => {
-    holder.current.markAsPurchased.mockRejectedValueOnce(new Error("boom"));
-    const [a, b] = await Promise.all([
-      POST(post(fixture("step-request")), ctx(IDS.giftScarf)),
-      POST(post(fixture("step-request")), ctx(IDS.giftScarf)),
-    ]);
-    expect([a.status, b.status]).toEqual([500, 500]);
-    holder.current.markAsPurchased.mockResolvedValue({ data: {} });
-    expect((await POST(post(fixture("step-request")), ctx(IDS.giftScarf))).status).toBe(200);
+    expect([(await a.json()).gift.status, (await b.json()).gift.status]).toEqual(["ordered", "ordered"]);
     expect(statusOf(IDS.giftScarf)).toBe("ordered");
   });
-  it("runs a request for the other direction after the one in flight", async () => {
+  it("answers the gift as another request left it when its own conditional write finds it moved", async () => {
     holder.current.markAsPurchased.mockResolvedValue({ data: {} });
-    const [forward, back] = await Promise.all([
-      POST(post({ direction: "forward" }), ctx(IDS.giftScarf)),
-      POST(post({ direction: "back" }), ctx(IDS.giftScarf)),
-    ]);
-    expect([forward.status, (await back.json()).gift.status]).toEqual([200, "claimed"]);
-    expect(statusOf(IDS.giftScarf)).toBe("planned");
-    expect(holder.current.markAsPurchased.mock.calls).toEqual([[IDS.scarf, true], [IDS.scarf, false]]);
+    const store = holder.current.store;
+    const write = store.updateGift.bind(store);
+    let raced = false;
+    store.updateGift = async (id, patch, expect) => {
+      if (!raced && expect) {            // another request gets in between this one's read and its write
+        raced = true;
+        await write(id, { status: "ordered" });
+      }
+      return write(id, patch, expect);
+    };
+    const res = await POST(post(fixture("step-request")), ctx(IDS.giftScarf));
+    expect([res.status, (await res.json()).gift.status]).toEqual([200, "ordered"]);
+    expect(statusOf(IDS.giftScarf)).toBe("ordered");
+    expect(store.writes.filter((w) => w.startsWith("updateGift"))).toHaveLength(1);
   });
-  it("steps twice for two requests one after the other", async () => {
-    holder.current.markAsPurchased.mockResolvedValue({ data: {} });
-    await POST(post(fixture("step-request")), ctx(IDS.giftScarf));
-    await POST(post(fixture("step-request")), ctx(IDS.giftScarf));
-    expect(statusOf(IDS.giftScarf)).toBe("arrived");
+  it("answers 404 when the gift is gone by the time its write is made", async () => {
+    const store = holder.current.store;
+    const write = store.updateGift.bind(store);
+    store.updateGift = async (id, patch, expect) => {
+      await store.deleteGift(id);
+      return write(id, patch, expect);
+    };
+    expect((await POST(post({ direction: "forward", from: "ordered" }, IDS.giftPhotoBook), ctx(IDS.giftPhotoBook))).status).toBe(404);
   });
 
   it("says nothing of an owner in what it answers or logs", async () => {   // §5.5

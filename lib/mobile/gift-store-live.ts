@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import type { GiftStatus } from "@/lib/schemas/gift-tracking";
 import { resolveStoredImageValue } from "@/lib/storage/image-value";
 import type { GiftPatch, GiftStore, NewGift } from "./gift-store";
 import type { ClaimRow, RecipientRow, StoredGift } from "./gifts";
@@ -197,16 +198,12 @@ export async function createGiftStore(userId: string): Promise<GiftStore> {
       return { ok: true, row: toGift(data) };
     },
 
-    async updateGift(id: string, patch: GiftPatch) {
+    async updateGift(id: string, patch: GiftPatch, expect?: { status: GiftStatus }) {
       const { photo_url: photoUrl, ...rest } = patch;
       const write = photoUrl === undefined ? rest : { ...rest, photo_url: storedPhoto("updateGift", photoUrl) };
-      const { data, error } = await supabase
-        .from("tracked_gifts")
-        .update(write)
-        .eq("id", id)
-        .eq("user_id", userId)
-        .select(GIFT_COLUMNS)
-        .maybeSingle();
+      let update = supabase.from("tracked_gifts").update(write).eq("id", id).eq("user_id", userId);
+      if (expect) update = update.eq("status", expect.status);
+      const { data, error } = await update.select(GIFT_COLUMNS).maybeSingle();
       if (error) {
         if (clashOf(error, { tracked_gifts_one_per_item: "item" }) === "item") return { ok: false, clash: "item" };
         throw failure("updateGift", error);

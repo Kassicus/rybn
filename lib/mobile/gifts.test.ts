@@ -180,6 +180,6 @@ describe("parseGiftBody", () => {
     expect(parseGiftBody({ ...request, person: null, recipientName: "🎁".repeat(100) })).toMatchObject({ ok: true }));
 });
 describe("parseStepBody", () => {
-  it("accepts the step fixture", () => expect(parseStepBody(fixture("step-request"))).toEqual({ ok: true, direction: "forward" }));
-  it.each([undefined, {}, { direction: "sideways" }])("refuses %j", (raw) => expect(parseStepBody(raw)).toEqual({ ok: false, message: RULES.request }));
+  it("accepts the step fixture", () => expect(parseStepBody(fixture("step-request"))).toEqual({ ok: true, direction: "forward", from: "claimed" }));
+  it.each([undefined, {}, { direction: "sideways", from: "claimed" }, { direction: "forward" }, { direction: "forward", from: "sent" }])("refuses %j", (raw) => expect(parseStepBody(raw)).toEqual({ ok: false, message: RULES.request }));
 });

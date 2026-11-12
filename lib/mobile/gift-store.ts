@@ -1,3 +1,4 @@
+import type { GiftStatus } from "@/lib/schemas/gift-tracking";
 import type { ClaimRow, RecipientRow, StoredGift } from "./gifts";
 
 /** A gift to insert: every column the step sets. season_year is always a number. */
@@ -17,7 +18,10 @@ export interface GiftStore {
     person_id: string | null;
   }): Promise<{ ok: true; row: RecipientRow } | { ok: false; clash: "name" | "person" }>;
   insertGift(row: NewGift): Promise<{ ok: true; row: StoredGift } | { ok: false; clash: "item" }>;
-  /** null: no such gift of the caller's. */
-  updateGift(id: string, patch: GiftPatch): Promise<{ ok: true; row: StoredGift } | { ok: false; clash: "item" } | null>;
+  /**
+   * null: no such gift of the caller's, or, with `expect`, its stored status is no longer that one (the write is
+   * conditional on it, so a request that lost a race changes nothing).
+   */
+  updateGift(id: string, patch: GiftPatch, expect?: { status: GiftStatus }): Promise<{ ok: true; row: StoredGift } | { ok: false; clash: "item" } | null>;
   deleteGift(id: string): Promise<void>;
 }

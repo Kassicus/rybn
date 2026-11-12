@@ -1,4 +1,5 @@
 // Tests only. A GiftStore that behaves as the database would, including its two unique indexes.
+import type { GiftStatus } from "@/lib/schemas/gift-tracking";
 import type { ClaimRow, RecipientRow, StoredGift } from "./gifts";
 import type { GiftPatch, GiftStore, NewGift } from "./gift-store";
 
@@ -76,10 +77,11 @@ export function memoryGiftStore(
       writes.push(`insertGift:${row.name}`);
       return { ok: true, row: strip(made) };
     },
-    async updateGift(id: string, patch: GiftPatch) {
+    async updateGift(id: string, patch: GiftPatch, expect?: { status: GiftStatus }) {
       await tick();
       const g = mine(gifts).find((x) => x.id === id);
       if (!g) return null;
+      if (expect && g.status !== expect.status) return null;
       if (
         patch.wishlist_item_id !== undefined &&
         patch.wishlist_item_id !== null &&

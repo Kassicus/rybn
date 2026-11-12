@@ -382,12 +382,16 @@ export function parseGiftBody(raw: unknown): { ok: true; body: GiftBody } | { ok
 }
 
 const stepBodySchema = z.object(
-  { direction: z.enum(["forward", "back"], { error: RULES.request }) },
+  {
+    direction: z.enum(["forward", "back"], { error: RULES.request }),
+    from: z.enum(["claimed", "planned", "ordered", "arrived", "wrapped", "given"], { error: RULES.request }),
+  },
   { error: RULES.request },
 );
 
-export function parseStepBody(raw: unknown): { ok: true; direction: StepDirection } | { ok: false; message: string } {
+/** `from` is the stage the app saw the gift at: the step is made only if the gift is still there. */
+export function parseStepBody(raw: unknown): { ok: true; direction: StepDirection; from: GiftStage } | { ok: false; message: string } {
   const result = stepBodySchema.safeParse(raw);
   if (!result.success) return { ok: false, message: RULES.request };
-  return { ok: true, direction: result.data.direction };
+  return { ok: true, direction: result.data.direction, from: result.data.from };
 }
