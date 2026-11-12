@@ -2,8 +2,13 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { readStoredChoice, visibleToSchema, VISIBILITY_INVALID } from "@/lib/profile/visibility";
+import type { Database } from "@/types/database";
 
 import { getUserId } from "@/lib/auth/require-auth";
+
+type ProfileInfo = Database["public"]["Tables"]["profile_info"];
+
 export interface EmailPreferences {
   email_group_invites: boolean;
   email_date_reminders: boolean;
@@ -22,7 +27,21 @@ export interface UserSettings {
 }
 
 /**
- * Get user's email preferences and privacy settings
+ * The email_preferences a user_profiles row holds. The column is not in the
+ * hand-kept Row type (types/database.ts), so it is read off the row here.
+ */
+function storedEmailPreferences(profile: unknown): Partial<EmailPreferences> {
+  if (typeof profile !== "object" || profile === null) return {};
+  const stored = (profile as { email_preferences?: unknown }).email_preferences;
+  return typeof stored === "object" && stored !== null && !Array.isArray(stored)
+    ? (stored as Partial<EmailPreferences>)
+    : {};
+}
+
+/**
+ * Get user's email preferences and privacy settings. The privacy setting is
+ * the person's stored choice (profile_visibility; all four kinds of group
+ * until they choose).
  */
 export async function getMySettings() {
   const supabase = await createClient();
@@ -45,23 +64,9 @@ export async function getMySettings() {
     return { data: null, error: "Failed to load settings" };
   }
 
-  // Get profile_info for privacy settings
-  const { data: profileInfo, error: profileInfoError } = await supabase
-    .from("profile_info")
-    .select("*")
-    .eq("user_id", userId);
-
-  if (profileInfoError) {
-    console.error("Error fetching profile info:", profileInfoError);
-  }
-
-  // Extract privacy settings from profile_info
-  let visibleToGroupTypes: string[] = [];
-  if (profileInfo && Array.isArray(profileInfo) && profileInfo.length > 0) {
-    const firstField = profileInfo[0] as any;
-    if (firstField.privacy_settings?.visibleToGroupTypes) {
-      visibleToGroupTypes = firstField.privacy_settings.visibleToGroupTypes;
-    }
+  const stored = await readStoredChoice(supabase, userId);
+  if ("error" in stored) {
+    return { data: null, error: "Failed to load settings" };
   }
 
   // Default email preferences if not set
@@ -71,13 +76,13 @@ export async function getMySettings() {
     email_gift_updates: true,
     email_exchange_notifications: true,
     email_marketing: false,
-    ...(profile && (profile as any).email_preferences ? ((profile as any).email_preferences as Partial<EmailPreferences>) : {}),
+    ...storedEmailPreferences(profile),
   };
 
   const settings: UserSettings = {
     email_preferences: emailPreferences,
     privacy_settings: {
-      visible_to_group_types: visibleToGroupTypes,
+      visible_to_group_types: stored.choice,
     },
   };
 
@@ -115,7 +120,8 @@ export async function updateEmailPreferences(preferences: EmailPreferences) {
 }
 
 /**
- * Update user's privacy settings
+ * Update user's privacy settings: store the choice (profile_visibility), then
+ * write it onto every profile_info field the person has.
  */
 export async function updatePrivacySettings(settings: PrivacySettings) {
   const supabase = await createClient();
@@ -124,6 +130,22 @@ export async function updatePrivacySettings(settings: PrivacySettings) {
 
   if (!userId) {
     return { data: null, error: "Not authenticated" };
+  }
+
+  // Any of the four kinds, once each, in the order family, friends, work, custom.
+  const parsed = visibleToSchema.safeParse(settings.visible_to_group_types);
+  if (!parsed.success) {
+    return { data: null, error: VISIBILITY_INVALID };
+  }
+  const kinds = parsed.data;
+
+  const { error: choiceError } = await supabase
+    .from("profile_visibility")
+    .upsert({ user_id: userId, visible_to_group_types: kinds }, { onConflict: "user_id" });
+
+  if (choiceError) {
+    console.error("Error storing profile visibility:", choiceError);
+    return { data: null, error: "Failed to update privacy settings" };
   }
 
   // Get current profile_info records
@@ -139,17 +161,19 @@ export async function updatePrivacySettings(settings: PrivacySettings) {
 
   // Update privacy settings in all profile_info fields
   if (profileInfo && profileInfo.length > 0) {
-    const updatedProfileInfo = profileInfo.map((field: any) => ({
-      ...field,
-      privacy_settings: {
-        visibleToGroupTypes: settings.visible_to_group_types,
-      },
-    }));
+    const updatedProfileInfo: ProfileInfo["Insert"][] = profileInfo.map(
+      (field: ProfileInfo["Row"]) => ({
+        ...field,
+        privacy_settings: {
+          visibleToGroupTypes: kinds,
+        },
+      })
+    );
 
     // Update each profile_info record
     const { error: updateError } = await supabase
       .from("profile_info")
-      .upsert(updatedProfileInfo as any, {
+      .upsert(updatedProfileInfo, {
         onConflict: "user_id,category,field_name",
         ignoreDuplicates: false,
       });

@@ -4,6 +4,29 @@
 
 import { z } from 'zod';
 import { privacyLevelSchema } from '@/lib/utils/privacy';
+import { isCalendarDay } from '@/lib/utils/dates';
+import {
+  PROFILE_LIMITS,
+  PROFILE_SECTIONS,
+  fieldSpec,
+  type ProfileCategory,
+  type ProfileFieldName,
+} from '@/lib/profile/fields';
+
+/**
+ * A text profile field, its limit and label read from the catalog
+ * (lib/profile/fields.ts), so the form and the catalog cannot disagree.
+ */
+function profileText(name: ProfileFieldName) {
+  const spec = fieldSpec(name);
+  if (!spec) throw new Error(`No profile field named ${name}`);
+  return z.string()
+    .max(spec.max, `${spec.label} must be at most ${spec.max} characters`)
+    .optional()
+    .nullable();
+}
+
+const DATE_MESSAGE = 'Please enter a valid date (YYYY-MM-DD)';
 
 /**
  * Basic profile information schema
@@ -51,16 +74,16 @@ export const profileEditSchema = z.object({
   // Basic info
   username: z.string()
     .min(3, 'Username must be at least 3 characters')
-    .max(30, 'Username must be at most 30 characters')
+    .max(PROFILE_LIMITS.username, `Username must be at most ${PROFILE_LIMITS.username} characters`)
     .regex(/^[a-zA-Z0-9_-]+$/, 'Username can only contain letters, numbers, underscores, and hyphens'),
 
   display_name: z.string()
-    .max(50, 'Display name must be less than 50 characters')
+    .max(PROFILE_LIMITS.displayName, `Display name must be less than ${PROFILE_LIMITS.displayName} characters`)
     .optional()
     .nullable(),
 
   bio: z.string()
-    .max(500, 'Bio must be less than 500 characters')
+    .max(PROFILE_LIMITS.bio, `Bio must be less than ${PROFILE_LIMITS.bio} characters`)
     .optional()
     .nullable(),
 
@@ -71,39 +94,40 @@ export const profileEditSchema = z.object({
     .or(z.literal('')),
 
   // Sizes
-  shoe_size: z.string().max(20).optional().nullable(),
-  shirt_size: z.string().max(20).optional().nullable(),
-  pants_size: z.string().max(20).optional().nullable(),
-  dress_size: z.string().max(20).optional().nullable(),
-  ring_size: z.string().max(20).optional().nullable(),
-  hat_size: z.string().max(20).optional().nullable(),
+  shoe_size: profileText('shoe_size'),
+  shirt_size: profileText('shirt_size'),
+  pants_size: profileText('pants_size'),
+  dress_size: profileText('dress_size'),
+  ring_size: profileText('ring_size'),
+  hat_size: profileText('hat_size'),
 
   // Preferences
-  favorite_colors: z.string().max(200).optional().nullable(),
-  favorite_brands: z.string().max(200).optional().nullable(),
-  style_preferences: z.string().max(200).optional().nullable(),
-  hobbies: z.string().max(300).optional().nullable(),
-  interests: z.string().max(300).optional().nullable(),
-  dislikes: z.string().max(300).optional().nullable(),
+  favorite_colors: profileText('favorite_colors'),
+  favorite_brands: profileText('favorite_brands'),
+  style_preferences: profileText('style_preferences'),
+  hobbies: profileText('hobbies'),
+  interests: profileText('interests'),
+  dislikes: profileText('dislikes'),
 
   // Vehicles
-  vehicle_make: z.string().max(50).optional().nullable(),
-  vehicle_model: z.string().max(50).optional().nullable(),
-  vehicle_year: z.string().max(4).optional().nullable(),
-  vehicle_accessories_needed: z.string().max(200).optional().nullable(),
+  vehicle_make: profileText('vehicle_make'),
+  vehicle_model: profileText('vehicle_model'),
+  vehicle_year: profileText('vehicle_year'),
+  vehicle_accessories_needed: profileText('vehicle_accessories_needed'),
 
   // Personal
-  dietary_restrictions: z.string().max(200).optional().nullable(),
-  allergies: z.string().max(200).optional().nullable(),
-  coffee_order: z.string().max(100).optional().nullable(),
-  favorite_restaurant: z.string().max(100).optional().nullable(),
-  favorite_snacks: z.string().max(200).optional().nullable(),
+  dietary_restrictions: profileText('dietary_restrictions'),
+  allergies: profileText('allergies'),
+  coffee_order: profileText('coffee_order'),
+  favorite_restaurant: profileText('favorite_restaurant'),
+  favorite_snacks: profileText('favorite_snacks'),
 
-  // Important dates
-  birthday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Please enter a valid date (YYYY-MM-DD)').optional().nullable().or(z.literal('')),
-  anniversary: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Please enter a valid date (YYYY-MM-DD)').optional().nullable().or(z.literal('')),
+  // Important dates: YYYY-MM-DD, and a day that exists
+  birthday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, DATE_MESSAGE).refine(isCalendarDay, DATE_MESSAGE).optional().nullable().or(z.literal('')),
+  anniversary: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, DATE_MESSAGE).refine(isCalendarDay, DATE_MESSAGE).optional().nullable().or(z.literal('')),
 
-  // Privacy settings - array of group types that can see profile
+  // Not read by updateProfile: a field keeps its own setting, and a new one
+  // takes the person's stored choice (lib/profile/visibility.ts).
   visible_to_group_types: z.array(z.enum(['family', 'friends', 'work', 'custom'])).default([]),
 
   // Per-field privacy overrides (optional for future use)
@@ -160,133 +184,28 @@ export type ProfileInfoFieldData = z.infer<typeof profileInfoFieldSchema>;
 export type ProfileEditFormData = z.infer<typeof profileEditSchema>;
 
 /**
- * Helper function to convert form data to profile_info records
+ * What a profile save does to each catalog field, in catalog order: a
+ * non-empty string is set, null or an empty string is cleared, and a field
+ * the input does not name (undefined) is in neither list, so it is left as
+ * it is. Who can see a field is not decided here (see updateProfile).
  */
-export function formDataToProfileInfo(
-  userId: string,
-  formData: ProfileEditFormData
-): Array<{
-  user_id: string;
-  category: string;
-  field_name: string;
-  field_value: string | null;
-  privacy_settings: { visibleToGroupTypes: string[]; restrictToGroup: null };
-}> {
-  const records: Array<{
-    user_id: string;
-    category: string;
-    field_name: string;
-    field_value: string | null;
-    privacy_settings: { visibleToGroupTypes: string[]; restrictToGroup: null };
-  }> = [];
+export function planProfileFields(data: ProfileEditFormData): {
+  set: { category: ProfileCategory; field_name: ProfileFieldName; field_value: string }[];
+  clear: { category: ProfileCategory; field_name: ProfileFieldName }[];
+} {
+  const set: { category: ProfileCategory; field_name: ProfileFieldName; field_value: string }[] = [];
+  const clear: { category: ProfileCategory; field_name: ProfileFieldName }[] = [];
 
-  // Get the visible group types from the form
-  const visibleToGroupTypes = formData.visible_to_group_types || [];
-
-  // Sizes
-  const sizeFields = [
-    'shoe_size', 'shirt_size', 'pants_size', 'dress_size', 'ring_size', 'hat_size'
-  ] as const;
-
-  sizeFields.forEach(field => {
-    const value = formData[field];
-    if (value !== undefined && value !== null && value !== '') {
-      records.push({
-        user_id: userId,
-        category: 'sizes',
-        field_name: field,
-        field_value: value,
-        privacy_settings: {
-          visibleToGroupTypes,
-          restrictToGroup: null,
-        },
-      });
+  for (const section of PROFILE_SECTIONS) {
+    for (const field of section.fields) {
+      const value = data[field.name];
+      if (typeof value === 'string' && value !== '') {
+        set.push({ category: section.id, field_name: field.name, field_value: value });
+      } else if (value === null || value === '') {
+        clear.push({ category: section.id, field_name: field.name });
+      }
     }
-  });
+  }
 
-  // Preferences
-  const preferenceFields = [
-    'favorite_colors', 'favorite_brands', 'style_preferences',
-    'hobbies', 'interests', 'dislikes'
-  ] as const;
-
-  preferenceFields.forEach(field => {
-    const value = formData[field];
-    if (value !== undefined && value !== null && value !== '') {
-      records.push({
-        user_id: userId,
-        category: 'preferences',
-        field_name: field,
-        field_value: value,
-        privacy_settings: {
-          visibleToGroupTypes,
-          restrictToGroup: null,
-        },
-      });
-    }
-  });
-
-  // Vehicles
-  const vehicleFields = [
-    'vehicle_make', 'vehicle_model', 'vehicle_year', 'vehicle_accessories_needed'
-  ] as const;
-
-  vehicleFields.forEach(field => {
-    const value = formData[field];
-    if (value !== undefined && value !== null && value !== '') {
-      records.push({
-        user_id: userId,
-        category: 'vehicles',
-        field_name: field,
-        field_value: value,
-        privacy_settings: {
-          visibleToGroupTypes,
-          restrictToGroup: null,
-        },
-      });
-    }
-  });
-
-  // Personal
-  const personalFields = [
-    'dietary_restrictions', 'allergies', 'coffee_order',
-    'favorite_restaurant', 'favorite_snacks'
-  ] as const;
-
-  personalFields.forEach(field => {
-    const value = formData[field];
-    if (value !== undefined && value !== null && value !== '') {
-      records.push({
-        user_id: userId,
-        category: 'personal',
-        field_name: field,
-        field_value: value,
-        privacy_settings: {
-          visibleToGroupTypes,
-          restrictToGroup: null,
-        },
-      });
-    }
-  });
-
-  // Dates
-  const dateFields = ['birthday', 'anniversary'] as const;
-
-  dateFields.forEach(field => {
-    const value = formData[field];
-    if (value !== undefined && value !== null && value !== '') {
-      records.push({
-        user_id: userId,
-        category: 'dates',
-        field_name: field,
-        field_value: value,
-        privacy_settings: {
-          visibleToGroupTypes,
-          restrictToGroup: null,
-        },
-      });
-    }
-  });
-
-  return records;
+  return { set, clear };
 }
