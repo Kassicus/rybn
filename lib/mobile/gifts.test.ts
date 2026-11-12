@@ -20,7 +20,8 @@ import {
 } from "./gifts";
 
 const w = world(), views = w.giftViews(), view = (id: string, vs = views) => vs.find((v) => v.gift.id === id)!;
-const base: StepFacts = { status: "planned", fromList: true, itemLinked: true, held: true, occasionDate: "2026-12-25", today: TODAY };
+const base: StepFacts = { status: "planned", fromList: true, itemLinked: true, itemHidden: false, held: true, occasionDate: "2026-12-25", today: TODAY };
+const hidden: Partial<StepFacts> = { itemLinked: false, itemHidden: true };
 const withRows = (change: (r: GiftRow) => GiftRow, ctx = w.giftContext()) => buildGiftViews(w.giftRows().map(change), ctx);
 
 describe("planStep (§5.3, D6, D7, D13)", () => {
@@ -30,7 +31,13 @@ describe("planStep (§5.3, D6, D7, D13)", () => {
     ["Ordered → Arrived touches nothing else", { status: "ordered" }, "forward", { ok: true, to: "arrived", markBought: null }],
     ["Given → Wrapped", { status: "given" }, "back", { ok: true, to: "wrapped", markBought: null }],
     ["a hand-added gift never touches an item", { fromList: false, itemLinked: false, held: false }, "forward", { ok: true, to: "ordered", markBought: null }],
-    ["an item that has gone or cannot be seen is never touched", { itemLinked: false, held: false }, "forward", { ok: true, to: "ordered", markBought: null }], // Review Focus 5
+    ["an item that has gone is never touched", { itemLinked: false, held: false }, "forward", { ok: true, to: "ordered", markBought: null }], // Review Focus 5
+    ["an item that has gone is never touched going back either", { status: "ordered", itemLinked: false, held: false }, "back", { ok: true, to: "planned", markBought: null }],
+    ["an item that cannot be seen is not marked ordered", hidden, "forward", { ok: false, message: SHOPPING_RULES.itemHiddenForward }],
+    ["an item that cannot be seen is not marked ordered, held or not", { ...hidden, held: false }, "forward", { ok: false, message: SHOPPING_RULES.itemHiddenForward }],
+    ["an item that cannot be seen keeps its gift at Ordered", { ...hidden, status: "ordered" }, "back", { ok: false, message: SHOPPING_RULES.itemHiddenBack }],
+    ["an item that cannot be seen: Ordered → Arrived goes ahead and touches nothing", { ...hidden, status: "ordered" }, "forward", { ok: true, to: "arrived", markBought: null }],
+    ["an item that cannot be seen: Arrived → Ordered goes ahead and touches nothing", { ...hidden, status: "arrived" }, "back", { ok: true, to: "ordered", markBought: null }],
     ["refused when the claim is no longer held", { held: false }, "forward", { ok: false, message: SHOPPING_RULES.notHeld }],
     ["back below Ordered refused once the date has passed", { status: "ordered", occasionDate: "2026-11-10" }, "back", { ok: false, message: SHOPPING_RULES.pastOccasion }],
     ["back below Ordered allowed on the day itself", { status: "ordered", occasionDate: TODAY }, "back", { ok: true, to: "planned", markBought: false }],
@@ -58,9 +65,22 @@ describe("buildGiftViews", () => {
     const g = view(IDS.giftScarf, withRows((r) => (r.id === IDS.giftScarf ? { ...r, wishlist_item_id: null } : r), ctx)).gift;
     expect(g).toMatchObject({ fromList: true, itemGone: true, held: false, canGoForward: true, canRelease: false, canRemove: true, itemId: null });
   });
-  it("treats an item the caller can no longer see as gone", () => {
+  it("treats an item the caller can no longer see as gone, and offers no Mark ordered while it is held at Claimed", () => {
     const ctx = w.giftContext(); ctx.items.delete(IDS.scarf);
-    expect(view(IDS.giftScarf, buildGiftViews(w.giftRows(), ctx)).gift).toMatchObject({ itemGone: true, canGoForward: true, imageUrl: null });
+    const v = view(IDS.giftScarf, buildGiftViews(w.giftRows(), ctx));
+    expect(v.gift).toMatchObject({ itemGone: true, held: true, imageUrl: null, canGoForward: false, canGoBack: false, canRelease: true, canRemove: false });
+    expect(v.itemHidden).toBe(true);
+  });
+  it("keeps a gift whose item can no longer be seen at Ordered: no Undo, and it can be removed though its claim is held", () => {
+    const ctx = w.giftContext(); ctx.items.delete(IDS.catan);
+    expect(view(IDS.giftCatan, buildGiftViews(w.giftRows(), ctx)).gift).toMatchObject(
+      { status: "ordered", itemGone: true, held: true, canGoForward: true, canGoBack: false, canRelease: false, canRemove: true });
+  });
+  it("lets a deleted item's gift step both ways, and says it is not hidden", () => {
+    const ctx = w.giftContext(); ctx.held.delete(IDS.catan);
+    const v = view(IDS.giftCatan, withRows((r) => (r.id === IDS.giftCatan ? { ...r, wishlist_item_id: null } : r), ctx));
+    expect(v.gift).toMatchObject({ itemGone: true, canGoForward: true, canGoBack: true, canRemove: true });
+    expect(v.itemHidden).toBe(false);
   });
   it("says No longer held at Claimed: no step forward, no release, and it can be removed", () => {
     const ctx = w.giftContext(); ctx.held.clear();

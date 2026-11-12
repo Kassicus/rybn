@@ -97,6 +97,23 @@ export function worldMocks(): WorldMocks {
   };
 }
 
+/**
+ * The owner hid this item from Sam, or Sam left the group they share: none of Sam's reads return the item any more
+ * (the claim's embedded item and owner come back null), though his claim on it stands. Its gift keeps its item id.
+ */
+export function hideItem(mocks: WorldMocks, itemId: string): void {
+  mocks.store = worldStore(world().claims.map((c) => (c.itemId === itemId ? { ...c, item: null, owner: null } : c)));
+  const linked = mocks.linkedItems.getMockImplementation()!;
+  mocks.linkedItems.mockImplementation(async (ids: string[]) => {
+    const found = new Map(await linked(ids));
+    found.delete(itemId);
+    return found;
+  });
+  const item = mocks.getWishlistItem.getMockImplementation()!;
+  mocks.getWishlistItem.mockImplementation(async (id: string) =>
+    id === itemId ? { error: "Item not found", notFound: true } : item(id));
+}
+
 export function bearer(url: string, init: RequestInit = {}): Request {
   return new Request(url, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), authorization: "Bearer test-token" } });
 }

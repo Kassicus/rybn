@@ -307,8 +307,10 @@ export async function stepGiftAnswer(userId: string, giftId: string, raw: unknow
     {
       status: view.status,
       fromList: gift.fromList,
-      // An item the caller can no longer see is stepped around: marking it would fail and answer 500.
+      // An item that has gone or cannot be seen is never marked: marking it would fail and answer 500. A hidden one
+      // is not crossed between Claimed and Ordered at all; a deleted one's gift steps alone.
       itemLinked: gift.itemId !== null && !gift.itemGone,
+      itemHidden: view.itemHidden,
       held: gift.held,
       occasionDate: gift.occasion?.date ?? null,
       today,
@@ -365,7 +367,9 @@ export async function deleteGiftAnswer(userId: string, giftId: string): Promise<
   const store = await createGiftStore(userId);
   const view = await findView(userId, store, today, giftId);
   if (!view) return null;
-  if (view.gift.held) return mobileError("invalid", SHOPPING_RULES.releaseInstead);
+  // A held gift is released, not deleted; except one past Claimed whose item the caller can no longer see, which can
+  // be neither stepped back nor released. Its claim is left as it is: the record that the item was bought.
+  if (!view.gift.canRemove) return mobileError("invalid", SHOPPING_RULES.releaseInstead);
   await store.deleteGift(giftId);
   return null;
 }

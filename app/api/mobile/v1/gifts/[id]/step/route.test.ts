@@ -42,7 +42,7 @@ vi.mock("@/lib/claims/active", async (importOriginal) => ({
 }));
 
 const { POST } = await import("./route");
-const { bearer, worldMocks, worldStore } = await import("@/lib/mobile/test-shopping-mocks");
+const { bearer, hideItem, worldMocks, worldStore } = await import("@/lib/mobile/test-shopping-mocks");
 const { memoryGiftStore } = await import("@/lib/mobile/test-gift-store");
 const { IDS, SAM, world } = await import("@/lib/mobile/test-shopping");
 
@@ -110,13 +110,33 @@ describe("POST /api/mobile/v1/gifts/[id]/step", () => {
     expect(await res.text()).not.toMatch(/connection/);
     expect(statusOf(IDS.giftScarf)).toBe("planned");
   });
-  it("steps a gift whose item can no longer be seen without marking it", async () => {              // Review Focus 5
-    holder.current.linkedItems.mockResolvedValue(new Map([[IDS.catan, world().linkedItems.get(IDS.catan)!]]));   // the scarf is hidden
-    const body = await (await POST(post(fixture("step-request")), ctx(IDS.giftScarf))).json();
-    expect(body.gift.status).toBe("ordered"); expect(holder.current.markAsPurchased).not.toHaveBeenCalled();
+  it("refuses to mark ordered a gift whose item can no longer be seen, writing nothing", async () => {   // Review Focus 5, Important 1
+    hideItem(holder.current, IDS.scarf);
+    const res = await POST(post(fixture("step-request")), ctx(IDS.giftScarf));
+    expect([res.status, (await res.json()).error.message]).toEqual([422, "You can't see that item any more, so it can't be marked ordered."]);
+    expect(holder.current.store.writes).toEqual([]);
+    expect(statusOf(IDS.giftScarf)).toBe("planned");
+    expect(holder.current.markAsPurchased).not.toHaveBeenCalled();
+  });
+  it("keeps at Ordered a gift whose item can no longer be seen, writing nothing", async () => {          // Important 1
+    hideItem(holder.current, IDS.catan);
+    const res = await POST(post({ direction: "back", from: "ordered" }, IDS.giftCatan), ctx(IDS.giftCatan));
+    expect([res.status, (await res.json()).error.message]).toEqual([422, "You can't see that item any more, so it stays at Ordered."]);
+    expect(holder.current.store.writes).toEqual([]);
+    expect(statusOf(IDS.giftCatan)).toBe("ordered");
+    expect(holder.current.markAsPurchased).not.toHaveBeenCalled();
+  });
+  it("steps a gift whose item can no longer be seen on from Ordered to Arrived, leaving the item alone", async () => {
+    hideItem(holder.current, IDS.catan);
+    const res = await POST(post({ direction: "forward", from: "ordered" }, IDS.giftCatan), ctx(IDS.giftCatan));
+    expect([res.status, (await res.json()).gift.status]).toEqual([200, "arrived"]);
+    expect(holder.current.markAsPurchased).not.toHaveBeenCalled();
   });
   it("steps a gift whose item the owner deleted without marking it, and back again", async () => {   // Review Focus 5
-    holder.current.linkedItems.mockResolvedValue(new Map());
+    // Deleting an item deletes its claim and clears the gift's item id.
+    holder.current.store = worldStore([world().claims[1]]);
+    await holder.current.store.updateGift(IDS.giftScarf, { wishlist_item_id: null });
+    holder.current.store.writes.length = 0;
     const forward = await (await POST(post({ direction: "forward", from: "claimed" }), ctx(IDS.giftScarf))).json();
     expect([forward.gift.itemGone, forward.gift.status]).toEqual([true, "ordered"]);
     const back = await (await POST(post({ direction: "back", from: "ordered" }), ctx(IDS.giftScarf))).json();

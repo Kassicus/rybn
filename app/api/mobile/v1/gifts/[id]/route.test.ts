@@ -43,7 +43,7 @@ vi.mock("@/lib/claims/active", async (importOriginal) => ({
 }));
 
 const { GET, PUT, DELETE } = await import("./route");
-const { bearer, worldMocks, worldStore } = await import("@/lib/mobile/test-shopping-mocks");
+const { bearer, hideItem, worldMocks, worldStore } = await import("@/lib/mobile/test-shopping-mocks");
 const { memoryGiftStore } = await import("@/lib/mobile/test-gift-store");
 const { SHOPPING_RULES } = await import("@/lib/mobile/shopping-rules");
 const { IDS, SAM, world } = await import("@/lib/mobile/test-shopping");
@@ -283,6 +283,25 @@ describe("DELETE /api/mobile/v1/gifts/[id]", () => {
   it("refuses a gift whose claim is held: release it instead", async () => {
     expect((await (await DELETE(del(IDS.giftScarf), ctx(IDS.giftScarf))).json()).error.message).toBe("Release this claim instead.");
     expect(holder.current.store.allGifts().map((g) => g.id)).toContain(IDS.giftScarf);
+  });
+  it("deletes a gift past Claimed whose item can no longer be seen, leaving its claim as the record it was bought", async () => {   // Important 1
+    hideItem(holder.current, IDS.catan);
+    const res = await DELETE(del(IDS.giftCatan), ctx(IDS.giftCatan));
+    expect(res.status).toBe(204);
+    expect(holder.current.store.allGifts().map((g) => g.id)).not.toContain(IDS.giftCatan);
+    expect(holder.current.releaseClaim).not.toHaveBeenCalled();
+    expect((await holder.current.store.activeClaims()).map((c) => c.itemId)).toContain(IDS.catan);
+  });
+  it("still refuses a held gift at Claimed whose item can no longer be seen: release it instead", async () => {
+    hideItem(holder.current, IDS.scarf);
+    const res = await DELETE(del(IDS.giftScarf), ctx(IDS.giftScarf));
+    expect([res.status, (await res.json()).error.message]).toEqual([422, "Release this claim instead."]);
+    expect(holder.current.store.allGifts().map((g) => g.id)).toContain(IDS.giftScarf);
+  });
+  it("still refuses a held gift past Claimed whose item can be seen", async () => {
+    const res = await DELETE(del(IDS.giftCatan), ctx(IDS.giftCatan));
+    expect([res.status, (await res.json()).error.message]).toEqual([422, "Release this claim instead."]);
+    expect(holder.current.store.allGifts().map((g) => g.id)).toContain(IDS.giftCatan);
   });
   it("removes a gift from a list whose claim is no longer held", async () => {
     holder.current.store = worldStore([world().claims[1]]);          // the scarf's claim is gone

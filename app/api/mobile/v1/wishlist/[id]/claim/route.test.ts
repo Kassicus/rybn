@@ -41,7 +41,7 @@ vi.mock("@/lib/claims/active", async (importOriginal) => ({
 }));
 
 const { POST, DELETE } = await import("./route");
-const { bearer, oven, worldMocks, worldStore } = await import("@/lib/mobile/test-shopping-mocks");
+const { bearer, hideItem, oven, worldMocks, worldStore } = await import("@/lib/mobile/test-shopping-mocks");
 const { memoryGiftStore } = await import("@/lib/mobile/test-gift-store");
 const { SHOPPING_RULES } = await import("@/lib/mobile/shopping-rules");
 const { IDS, SAM, world } = await import("@/lib/mobile/test-shopping");
@@ -345,6 +345,14 @@ describe("DELETE /api/mobile/v1/wishlist/[id]/claim", () => {
   it("answers 204 for an item that is gone or no longer visible, still removing its gift", async () => {
     holder.current.getWishlistItem.mockResolvedValue({ error: "Item not found", notFound: true });
     holder.current.releaseClaim.mockResolvedValue({ ok: false });
+    expect((await DELETE(del(), ctx(IDS.scarf))).status).toBe(204);
+    expect(holder.current.releaseClaim).toHaveBeenCalledWith(IDS.scarf);
+    expect(holder.current.store.allGifts().map((g) => g.id)).not.toContain(IDS.giftScarf);
+  });
+
+  it("still releases a claim at Claimed whose item can no longer be seen, removing its gift", async () => {   // Important 1
+    hideItem(holder.current, IDS.scarf);
+    holder.current.releaseClaim.mockResolvedValue({ ok: true });
     expect((await DELETE(del(), ctx(IDS.scarf))).status).toBe(204);
     expect(holder.current.releaseClaim).toHaveBeenCalledWith(IDS.scarf);
     expect(holder.current.store.allGifts().map((g) => g.id)).not.toContain(IDS.giftScarf);

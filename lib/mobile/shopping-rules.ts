@@ -12,6 +12,8 @@ export const SHOPPING_RULES = {
   firstStep: "That's already the first step.",
   pastOccasion: "That occasion has passed, so it stays at Ordered.",
   notHeld: "You no longer hold this item.",
+  itemHiddenForward: "You can't see that item any more, so it can't be marked ordered.",
+  itemHiddenBack: "You can't see that item any more, so it stays at Ordered.",
   releaseBought: "It's marked bought, so it can't be released.",
   releaseStepBack: "Step it back to Claimed before releasing it.",
   releaseInstead: "Release this claim instead.",

@@ -10,5 +10,5 @@ export const GET = mobileRoute(({ userId, params }) => giftAnswer(userId, params
 /** Save changes to one of the caller's gifts. */
 export const PUT = mobileRoute(({ userId, params, body }) => saveGiftAnswer(userId, params.id, body), { body: z.unknown() });
 
-/** Delete one of the caller's gifts (not one whose claim is still held). */
+/** Delete one of the caller's gifts: not one whose claim is still held, unless it is past Claimed and its item can no longer be seen. */
 export const DELETE = mobileRoute(({ userId, params }) => deleteGiftAnswer(userId, params.id));

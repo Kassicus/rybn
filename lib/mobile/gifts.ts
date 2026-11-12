@@ -34,7 +34,10 @@ export type StepDirection = "forward" | "back";
 export interface StepFacts {
   status: GiftStatus;
   fromList: boolean;
+  /** The gift points at an item the caller can see. */
   itemLinked: boolean;
+  /** The gift still points at an item, but the caller's own read did not return it (hidden from them, or they left the group). */
+  itemHidden: boolean;
   held: boolean;
   occasionDate: string | null;
   today: string;
@@ -53,8 +56,15 @@ export function planStep(facts: StepFacts, direction: StepDirection): StepPlan {
   if (direction === "back" && facts.status === "ordered" && facts.occasionDate !== null && facts.occasionDate < facts.today) {
     return { ok: false, message: SHOPPING_RULES.pastOccasion };
   }
-  const touchesItem = facts.fromList && facts.itemLinked
+  // Crossing between Claimed and Ordered is what marks a list item bought or not bought.
+  const crossesOrdered = facts.fromList
     && ((facts.status === "planned" && to === "ordered") || (facts.status === "ordered" && to === "planned"));
+  // An item the caller cannot see cannot be marked, so neither crossing is made: going back would leave it bought
+  // with nobody to answer for it once the claim is released (D7). A deleted item has nothing left to mark.
+  if (crossesOrdered && facts.itemHidden) {
+    return { ok: false, message: direction === "forward" ? SHOPPING_RULES.itemHiddenForward : SHOPPING_RULES.itemHiddenBack };
+  }
+  const touchesItem = crossesOrdered && facts.itemLinked;
   if (touchesItem && !facts.held) return { ok: false, message: SHOPPING_RULES.notHeld };
   return { ok: true, to, markBought: touchesItem ? direction === "forward" : null };
 }
@@ -156,6 +166,8 @@ export interface MobileGift {
 export interface GiftView {
   gift: MobileGift;
   status: GiftStatus;
+  /** From a list, still pointing at an item, and the caller's read did not return it. Not sent. */
+  itemHidden: boolean;
   personId: string | null;
   occasionId: string | null;
   recipientId: string;
@@ -189,10 +201,13 @@ export function buildGiftViews(rows: GiftRow[], ctx: GiftContext): GiftView[] {
     const occasion = row.occasion_id ? ctx.occasions.get(row.occasion_id) ?? null : null;
     const held = row.wishlist_item_id !== null && ctx.held.has(row.wishlist_item_id);
     const itemGone = row.from_list && item === null;
+    // Hidden, not deleted: deleting an item clears the gift's item id.
+    const itemHidden = itemGone && row.wishlist_item_id !== null;
     const facts: StepFacts = {
       status: row.status,
       fromList: row.from_list,
       itemLinked: row.wishlist_item_id !== null && !itemGone,
+      itemHidden,
       held,
       occasionDate: occasion?.occasionDate ?? null,
       today: ctx.today,
@@ -214,7 +229,9 @@ export function buildGiftViews(rows: GiftRow[], ctx: GiftContext): GiftView[] {
       canGoForward: planStep(facts, "forward").ok,
       canGoBack: planStep(facts, "back").ok,
       canRelease: row.from_list && held && row.status === "planned" && !(item?.purchased ?? false),
-      canRemove: !held,
+      // A hidden item's gift past Claimed can be stepped neither back nor released, so it may be removed while held;
+      // its claim stays, as the record that the item was bought.
+      canRemove: !held || (itemHidden && row.status !== "planned"),
       person: personRow ? mobilePerson(personRow) : null,
       recipientName: recipient?.name ?? "Someone",
       occasion: occasion ? mobileOccasion(occasion) : null,
@@ -225,6 +242,7 @@ export function buildGiftViews(rows: GiftRow[], ctx: GiftContext): GiftView[] {
     return {
       gift,
       status: row.status,
+      itemHidden,
       personId,
       occasionId: row.occasion_id,
       recipientId: row.recipient_id,
