@@ -115,6 +115,7 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 | `POST /wishlist` | `{ item }`, the new item (200). |
 | `PUT /wishlist/{id}` | `{ item }`, the replaced item; 404 when it is not the caller's. |
 | `DELETE /wishlist/{id}` | 204, also when the item is already gone or not the caller's. |
+| `GET /wishlist/occasions` | `{ occasions }`, what the caller may tag one of their own items for now, soonest first: their own birthday and anniversary (titled `Your birthday` and `Your anniversary`) and their groups' dates. |
 | `POST /wishlist/images` | `{ imagePath, imageUrl }` for a JPEG or PNG sent as raw bytes. |
 | `GET /groups` | `{ groups }`, the groups the caller belongs to, each with a `memberCount`. |
 | `GET /home` | `{ occasions }`, a year ahead, not the caller's own birthday, each with the people to shop for and the caller's gift count for each. |
@@ -135,6 +136,8 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 
 - A request whose path ends in an image extension (for example `/api/mobile/v1/wishlist/x.png`) is skipped by `proxy.ts`, so it answers 500 instead of 401. It exposes nothing, but it writes an error to the log. The fix belongs in the proxy's matcher.
 - `PUT` replaces the whole item, privacy included. The app must send back every field it was given.
+- An item carries `occasions`: every occasion it is tagged for, soonest first, including one whose date has passed (a tag whose date the caller can no longer see, such as one of a group they left, is not listed). `POST` and `PUT` take an optional `occasions`, a list of at most 20 keys. Sent, the item ends up tagged for exactly those: a key it is already tagged for is kept, even once its date has passed, and any other must be one of `GET /wishlist/occasions`, or the answer is 422 before anything is written. Tags are written with the website's own actions after the item; one that cannot be written then is logged, and the answer's `occasions` says what stands.
+- A body without `occasions` leaves the item's tags exactly as they are. Builds of the app that do not send it must never clear tags set on the website.
 - An item can come back with `imageUrl` null and `imagePath` set, when the picture's address could not be signed. Keep sending `imagePath` back on an edit.
 - A body larger than Vercel's own limit (about 4.5 MB) is refused by Vercel with its own error, before the route's size sentence.
 
