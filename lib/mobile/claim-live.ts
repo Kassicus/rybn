@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { NOT_SIGNED_IN } from "./action-response";
 import { createGiftStore } from "./gift-store-live";
 import { loadGiftViews } from "./gift-views-live";
-import type { MobileGift } from "./gifts";
+import { heldItemIds, type MobileGift, type StoredGift } from "./gifts";
 import { occasionKey } from "./occasions";
 import { occasionsForPerson, profiles } from "./people-live";
 import { fileClaim } from "./reconcile";
@@ -84,29 +84,10 @@ export async function claimAnswer(userId: string, itemId: string, raw: unknown):
   if (owner === userId) return mobileError("invalid", SHOPPING_RULES.ownItem);
 
   const today = todayISO();
-  let occasionId: string | null = null;
-  let occasionDate: string | null = null;
-  if (parsed.body.occasion !== null) {
-    const allowed = await occasionsForPerson(owner);
-    if (allowed instanceof Response) return allowed;
-    const resolved = await resolveOccasionId(parsed.body.occasion, allowed);
-    if (!resolved.ok) return mobileError("invalid", SHOPPING_RULES.chooseOccasion);
-    occasionId = resolved.occasionId;
-    occasionDate = resolved.occasionDate;
-  }
-
-  const supabase = await createClient();
-  const { error } = await supabase.rpc("claim_wishlist_item", { p_item_id: itemId, p_occasion_id: occasionId });
-  if (error) {
-    if (error.code === REFUSED) return mobileError("invalid", claimRefusal(error.message));
-    throw new Error(`claim_wishlist_item failed: ${error.code ?? ""} ${error.message}`);
-  }
-
-  // From here the claim stands. It must never stand without its gift.
+  // The store is made before the claim is asked for: once the claim stands, nothing may throw outside the try below.
   const store = await createGiftStore(userId);
-  let giftId: string;
-  try {
-    const gift = await fileClaim(
+  const fileFor = async (occasionId: string | null, occasionDate: string | null): Promise<StoredGift> =>
+    fileClaim(
       store,
       {
         itemId,
@@ -126,15 +107,44 @@ export async function claimAnswer(userId: string, itemId: string, raw: unknown):
       },
       today,
     );
-    giftId = gift.id;
+  const answer = async (giftId: string) => {
+    const view = (await loadGiftViews(userId, store, today)).find((v) => v.gift.id === giftId);
+    if (!view) throw new Error(`claimAnswer: gift ${giftId} is not among the caller's gifts`);
+    return { gift: view.gift };
+  };
+
+  // A retry by the claim's own holder (a lost answer, or a gift that was never filed): the claim stands as it is,
+  // with its own occasion, and only its gift is filed. The database is not asked again.
+  const mine = (await store.activeClaims()).find((c) => c.itemId === itemId && heldItemIds([c], today).has(itemId));
+  if (mine) return answer((await fileFor(mine.occasionId, mine.occasionDate)).id);
+
+  let occasionId: string | null = null;
+  let occasionDate: string | null = null;
+  if (parsed.body.occasion !== null) {
+    const allowed = await occasionsForPerson(owner);
+    if (allowed instanceof Response) return allowed;
+    const resolved = await resolveOccasionId(parsed.body.occasion, allowed);
+    if (!resolved.ok) return mobileError("invalid", SHOPPING_RULES.chooseOccasion);
+    occasionId = resolved.occasionId;
+    occasionDate = resolved.occasionDate;
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("claim_wishlist_item", { p_item_id: itemId, p_occasion_id: occasionId });
+  if (error) {
+    if (error.code === REFUSED) return mobileError("invalid", claimRefusal(error.message));
+    throw new Error(`claim_wishlist_item failed: ${error.code ?? ""} ${error.message}`);
+  }
+
+  // From here the claim stands. It must never stand without its gift.
+  let giftId: string;
+  try {
+    giftId = (await fileFor(occasionId, occasionDate)).id;
   } catch (filing) {
     await giveUpClaim(itemId);
     throw filing;
   }
-
-  const view = (await loadGiftViews(userId, store, today)).find((v) => v.gift.id === giftId);
-  if (!view) throw new Error(`claimAnswer: gift ${giftId} is not among the caller's gifts`);
-  return { gift: view.gift };
+  return answer(giftId);
 }
 
 /** Best effort, for a claim whose gift could not be made. A failure here is logged and never hides the first error. */
@@ -164,6 +174,8 @@ export async function releaseAnswer(userId: string, itemId: string): Promise<Res
     if (released.error === NOT_SIGNED_IN) return mobileError("unauthorized");
     throw new Error(`releaseClaim failed: ${released.error}`);
   }
-  if (gift) await store.deleteGift(gift.id);
+  // A step may have landed since the first read: remove the gift only while it is still at Claimed.
+  const now = (await store.gifts()).find((g) => g.wishlist_item_id === itemId);
+  if (now && now.status === "planned") await store.deleteGift(now.id);
   return null;
 }

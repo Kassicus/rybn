@@ -196,6 +196,8 @@ describe("POST /api/mobile/v1/wishlist/[id]/claim", () => {
     const res = await POST(post(fixture("claim-request")), ctx(IDS.dutchOven));
     expect([res.status, (await res.json()).error.message]).toEqual([422, "That's on your own list."]);
     expect(holder.current.rpc).not.toHaveBeenCalled();
+    expect(holder.current.getUpcomingOccasions).not.toHaveBeenCalled();
+    expect(holder.current.getSharedGroups).not.toHaveBeenCalled();
   });
 
   it("answers only the caller's own gift, naming nobody who holds a claim", async () => {   // §5.5
@@ -217,12 +219,12 @@ describe("POST /api/mobile/v1/wishlist/[id]/claim", () => {
 
   it("still answers 500, logging both errors, when the release fails too", async () => {
     const first = new Error("insert failed");
-    holder.current.store = memoryGiftStore(SAM, { failInsertGift: first });
-    claimed(IDS.dutchOven, IDS.xmas, "2026-12-25");
     for (const failing of [
       () => holder.current.releaseClaim.mockRejectedValue(new Error("release threw")),
       () => holder.current.releaseClaim.mockResolvedValue({ error: "Failed to release this claim. Please try again." }),
     ]) {
+      holder.current.store = memoryGiftStore(SAM, { failInsertGift: first });   // the claim is made afresh each time
+      claimed(IDS.dutchOven, IDS.xmas, "2026-12-25");
       failing();
       vi.mocked(console.error).mockClear();
       const res = await POST(post(fixture("claim-request")), ctx(IDS.dutchOven));
@@ -232,6 +234,57 @@ describe("POST /api/mobile/v1/wishlist/[id]/claim", () => {
       expect(logged).toContain(first);                                   // the first error is not hidden
       expect(logged.map(String).join(" ")).toMatch(/release threw|Failed to release/);
     }
+  });
+
+  it("answers the holder's retry with their gift, asking the database for no new claim", async () => {
+    const res = await POST(post(fixture("claim-request"), IDS.scarf), ctx(IDS.scarf));
+    expect(res.status).toBe(200);
+    expect((await res.json()).gift).toMatchObject({ id: IDS.giftScarf, held: true, status: "claimed" });
+    expect(holder.current.rpc).not.toHaveBeenCalled();
+    expect(holder.current.store.allGifts()).toHaveLength(world().gifts.length);
+  });
+
+  it("files the gift of a held claim that was left without one", async () => {
+    holder.current.store = memoryGiftStore(SAM, { claims: world().claims });
+    const res = await POST(post(fixture("claim-request"), IDS.scarf), ctx(IDS.scarf));
+    expect(res.status).toBe(200);
+    expect((await res.json()).gift).toMatchObject({ name: "Cashmere scarf", status: "claimed", held: true, recipientName: "Mom" });
+    expect(holder.current.store.allGifts().filter((g) => g.wishlist_item_id === IDS.scarf)).toHaveLength(1);
+    expect(holder.current.rpc).not.toHaveBeenCalled();
+  });
+
+  it("leaves the claim's occasion alone when a retry names another", async () => {
+    for (const occasion of ["birthday:user_2momABC:2027", null]) {
+      const res = await POST(post({ occasion }, IDS.scarf), ctx(IDS.scarf));
+      expect((await res.json()).gift.occasion.key).toBe(IDS.xmasKey);
+    }
+    expect(holder.current.rpc).not.toHaveBeenCalled();
+    expect(holder.current.store.allGifts().find((g) => g.id === IDS.giftScarf)?.occasion_id).toBe(IDS.xmas);
+  });
+
+  it("refuses a group date of a group the item's owner is not in, making no call", async () => {
+    priyasItem();
+    const res = await POST(post({ occasion: IDS.xmasKey }, PRIYA_ITEM), ctx(PRIYA_ITEM));
+    expect([res.status, (await res.json()).error.message]).toEqual([422, SHOPPING_RULES.chooseOccasion]);
+    expect(holder.current.rpc).not.toHaveBeenCalled();
+  });
+
+  it("answers 500 when making the birthday's row fails for any reason but a refusal", async () => {
+    priyasItem();
+    holder.current.rpc.mockResolvedValue({ data: null, error: { code: "XX000", message: "boom" } });
+    const res = await POST(post({ occasion: "birthday:user_2prySHA:2027" }, PRIYA_ITEM), ctx(PRIYA_ITEM));
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toMatch(/boom/);
+    expect(holder.current.rpc).toHaveBeenCalledTimes(1);
+    expect(holder.current.store.writes).toEqual([]);
+  });
+
+  it("files the gift with the item's stored image, never its signed address", async () => {
+    holder.current.getWishlistItem.mockResolvedValue({ data: { ...world().momItems[1], image_url: "https://signed.example/oven?token=x",
+      image_path: "https://www.example.com/oven.jpg" }, currentUserId: SAM });
+    claimed(IDS.dutchOven, IDS.xmas, "2026-12-25");
+    await POST(post(fixture("claim-request")), ctx(IDS.dutchOven));
+    expect(holder.current.store.allGifts().find((g) => g.wishlist_item_id === IDS.dutchOven)?.photo_url).toBe("https://www.example.com/oven.jpg");
   });
 
   it("claims again for a gift no longer held, keeping the gift it has", async () => {
@@ -251,7 +304,16 @@ describe("DELETE /api/mobile/v1/wishlist/[id]/claim", () => {
     expect(holder.current.store.allGifts().map((g) => g.id)).not.toContain(IDS.giftScarf);
   });
 
-  it("refuses once the item is marked bought, releasing nothing", async () => {                     // D7
+  it("leaves a gift that was stepped on while the claim was being released", async () => {
+    holder.current.releaseClaim.mockImplementation(async () => {
+      await holder.current.store.updateGift(IDS.giftScarf, { status: "ordered" });   // a step lands between the two reads
+      return { ok: true };
+    });
+    expect((await DELETE(del(), ctx(IDS.scarf))).status).toBe(204);
+    expect(holder.current.store.allGifts().find((g) => g.id === IDS.giftScarf)?.status).toBe("ordered");
+  });
+
+  it("refuses once the item is marked bought, releasing nothing", async () => {                    // D7
     holder.current.getWishlistItem.mockResolvedValue({ data: { ...world().momItems[3], purchased: true }, currentUserId: SAM });
     const res = await DELETE(del(), ctx(IDS.scarf));
     expect([res.status, (await res.json()).error.message]).toEqual([422, "It's marked bought, so it can't be released."]);
