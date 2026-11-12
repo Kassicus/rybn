@@ -1,27 +1,38 @@
 import { createWishlistItem, deleteWishlistItem, getMyWishlist, getWishlistItem, updateWishlistItem } from "@/lib/actions/wishlist";
 import { getMyGroups } from "@/lib/actions/groups";
+import { getTagsForItems, tagItemForGroupDate, tagItemForMyOccasion, untagItem } from "@/lib/actions/item-occasions";
 import type { UpcomingOccasion } from "@/lib/occasions/display";
 import { resolveStoredImageValue } from "@/lib/storage/image-value";
-import { NOT_SIGNED_IN, databaseFailure } from "./action-response";
+import { ALREADY_TAGGED, NOT_SIGNED_IN, TAG_GONE, databaseFailure } from "./action-response";
 import { pathUuid } from "./database";
-import type { MobileOccasion } from "./occasions";
-import { upcomingForCaller } from "./people-live";
+import { occasionKey, type MobileOccasion } from "./occasions";
+import { occasionRows, profiles, upcomingForCaller } from "./people-live";
 import { mobileError } from "./route";
 import {
   RULES,
+  bySoonest,
   formDataFromBody,
   isOneOfMyGroups,
+  itemTags,
   mobileGroups,
   mobileItem,
+  namesToRead,
   parseWishlistBody,
+  planTags,
+  rowsToRead,
   tagChoices,
   wishlistOccasion,
   type GroupRow,
   type MobileGroup,
   type MobileItem,
+  type Tag,
+  type TagPlan,
   type WishlistBody,
   type WishlistItemRow,
 } from "./wishlist";
+
+/** A save whose body has no occasions changes no tags. */
+const NO_TAG_CHANGES: TagPlan = { add: [], remove: [] };
 
 /** What the caller may tag one of their items for now, or the Response to send instead. */
 async function loadChoices(userId: string): Promise<Response | UpcomingOccasion[]> {
@@ -34,6 +45,63 @@ export async function wishlistChoices(userId: string): Promise<Response | { occa
   const choices = await loadChoices(userId);
   if (choices instanceof Response) return choices;
   return { occasions: choices.map((o) => wishlistOccasion(o, userId)) };
+}
+
+/**
+ * The choices, and each of these items' tags (itemTags), or the Response to send instead. A failed read fails the
+ * request: an item answered with no tags could be saved back with none.
+ */
+async function loadTags(
+  userId: string,
+  itemIds: string[],
+): Promise<Response | { choices: UpcomingOccasion[]; tags: Map<string, Tag[]> }> {
+  const [choices, result] = await Promise.all([loadChoices(userId), getTagsForItems(itemIds)]);
+  if (choices instanceof Response) return choices;
+  const failed = databaseFailure(result, "getTagsForItems");
+  if (failed) return failed;
+  const tagged = (result as { data: Record<string, string[]> }).data;
+  const rows = await occasionRows(rowsToRead(tagged, choices));
+  const names = await profiles(namesToRead(rows, userId));
+  return { choices, tags: itemTags(tagged, choices, rows, names, userId) };
+}
+
+const occasionsOf = (tags: Map<string, Tag[]>, itemId: string): MobileOccasion[] =>
+  (tags.get(itemId) ?? []).map((tag) => tag.occasion);
+
+/** One tag write: true once it is done. Any other answer, or a throw, is logged and is false. */
+async function tagWrite(what: string, write: () => Promise<object>, alreadyDone: string): Promise<boolean> {
+  try {
+    const result = await write();
+    const error: unknown = "error" in result ? result.error : undefined;
+    if (error === undefined || error === null || error === alreadyDone) return true;
+    console.error(`[mobile] wishlist: ${what} failed:`, error);
+  } catch (thrown) {
+    console.error(`[mobile] wishlist: ${what} failed:`, thrown);
+  }
+  return false;
+}
+
+/**
+ * Carries out `plan` on an item that is already written, through the website's own actions. A tag that cannot be
+ * written then (say its date was deleted in between) does not fail the request: it is logged, and the answer is the
+ * item's tags as they then stand.
+ */
+async function writeTags(userId: string, itemId: string, current: Tag[], plan: TagPlan): Promise<MobileOccasion[]> {
+  const [removed, added] = await Promise.all([
+    Promise.all(plan.remove.map((tag) =>
+      tagWrite(`untagging ${itemId} from ${tag.occasion.key}`, () => untagItem(itemId, tag.occasionId), TAG_GONE))),
+    Promise.all(plan.add.map(({ occasion, target }) =>
+      tagWrite(
+        `tagging ${itemId} for ${occasionKey(occasion)}`,
+        () => (target.via === "my" ? tagItemForMyOccasion(itemId, target.kind) : tagItemForGroupDate(itemId, target.occasionId)),
+        ALREADY_TAGGED,
+      ))),
+  ]);
+  const gone = new Set(plan.remove.filter((_, i) => removed[i]));
+  return [
+    ...current.filter((tag) => !gone.has(tag)).map((tag) => tag.occasion),
+    ...plan.add.filter((_, i) => added[i]).map(({ occasion }) => wishlistOccasion(occasion, userId)),
+  ].sort(bySoonest);
 }
 
 /** The groups the caller belongs to, or the Response to send instead. */
@@ -90,7 +158,7 @@ async function findMine(
   return { found: true, itemId };
 }
 
-export async function listWishlist(): Promise<Response | { items: MobileItem[] }> {
+export async function listWishlist(userId: string): Promise<Response | { items: MobileItem[] }> {
   const [list, groupResult] = await Promise.all([getMyWishlist(), getMyGroups()]);
   const failure = databaseFailure(list, "getMyWishlist");
   if (failure) return failure;
@@ -103,16 +171,29 @@ export async function listWishlist(): Promise<Response | { items: MobileItem[] }
     groups = mobileGroups(groupResult.data as GroupRow[]);
   }
   const rows = ("data" in list ? list.data : []) as WishlistItemRow[];
-  return { items: rows.map((row) => mobileItem(row, groups)) };
+  const loaded = await loadTags(userId, rows.map((row) => row.id));
+  if (loaded instanceof Response) return loaded;
+  return { items: rows.map((row) => mobileItem(row, groups, occasionsOf(loaded.tags, row.id))) };
 }
 
 export async function addWishlistItem(userId: string, raw: unknown): Promise<Response | { item: MobileItem }> {
   const checked = await checkedBody(userId, raw);
   if (checked instanceof Response) return checked;
+  // A new item has no tags, so every key must be one of the choices. Decided before anything is written.
+  let plan = NO_TAG_CHANGES;
+  const keys = checked.body.occasions;
+  if (keys !== null && keys.length > 0) {
+    const choices = await loadChoices(userId);
+    if (choices instanceof Response) return choices;
+    const planned = planTags(keys, [], choices);
+    if (planned === null) return mobileError("invalid", RULES.chooseDate);
+    plan = planned;
+  }
   const result = await createWishlistItem(formDataFromBody(checked.body));
   const failure = databaseFailure(result, "createWishlistItem");
   if (failure) return failure;
-  return { item: mobileItem((result as { data: WishlistItemRow }).data, checked.groups) };
+  const row = (result as { data: WishlistItemRow }).data;
+  return { item: mobileItem(row, checked.groups, await writeTags(userId, row.id, [], plan)) };
 }
 
 export async function replaceWishlistItem(
@@ -124,6 +205,14 @@ export async function replaceWishlistItem(
   if (checked instanceof Response) return checked;
   const lookup = await findMine(userId, itemId, mobileError("not_found"));
   if (!lookup.found) return lookup.response ?? mobileError("not_found");
+  // The item's tags are read before anything is written: the answer names them, and a key it is tagged for is kept.
+  const loaded = await loadTags(userId, [lookup.itemId]);
+  if (loaded instanceof Response) return loaded;
+  const current = loaded.tags.get(lookup.itemId) ?? [];
+  // A body with no occasions (an app from before they were sent) leaves the tags as they are.
+  const keys = checked.body.occasions;
+  const plan = keys === null ? NO_TAG_CHANGES : planTags(keys, current, loaded.choices);
+  if (plan === null) return mobileError("invalid", RULES.chooseDate);
   const result = await updateWishlistItem(lookup.itemId, formDataFromBody(checked.body));
   if ("error" in result && result.error && result.error !== NOT_SIGNED_IN) {
     // The update may have failed because the item was deleted since the lookup.
@@ -132,7 +221,8 @@ export async function replaceWishlistItem(
   }
   const failure = databaseFailure(result, "updateWishlistItem");
   if (failure) return failure;
-  return { item: mobileItem((result as { data: WishlistItemRow }).data, checked.groups) };
+  const row = (result as { data: WishlistItemRow }).data;
+  return { item: mobileItem(row, checked.groups, await writeTags(userId, lookup.itemId, current, plan)) };
 }
 
 /** Deleting what is not there, or not yours, answers like deleting your own: nothing to report. */

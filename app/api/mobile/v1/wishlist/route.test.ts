@@ -1,12 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { INVALID_IMAGE_ERROR } from "@/lib/storage/image-value";
 import { fixture, groupRows, rowFor } from "@/lib/mobile/test-fixtures";
+import { IDS } from "@/lib/mobile/test-shopping";
+import { KEYS, TAG_IDS, tagging, tagsFor } from "@/lib/mobile/test-wishlist";
 import { formDataFromBody } from "@/lib/mobile/wishlist";
 
 const ensureProfile = vi.fn();
 const getMyWishlist = vi.fn();
 const createWishlistItem = vi.fn();
 const getMyGroups = vi.fn();
+const getUpcomingOccasions = vi.fn();
+const getTagsForItems = vi.fn();
+const tagItemForMyOccasion = vi.fn();
+const tagItemForGroupDate = vi.fn();
+const untagItem = vi.fn();
+const occasionRows = vi.fn();
+const profiles = vi.fn();
 
 vi.mock("@/lib/auth/ensure-profile", () => ({ ensureProfile: () => ensureProfile() }));
 vi.mock("@/lib/actions/wishlist", () => ({
@@ -14,7 +23,18 @@ vi.mock("@/lib/actions/wishlist", () => ({
   createWishlistItem: (form: unknown) => createWishlistItem(form),
 }));
 vi.mock("@/lib/actions/groups", () => ({ getMyGroups: () => getMyGroups() }));
-vi.mock("@/lib/actions/occasions", () => ({ getUpcomingOccasions: () => ({ error: "not used" }) }));
+vi.mock("@/lib/actions/occasions", () => ({ getUpcomingOccasions: (...a: unknown[]) => getUpcomingOccasions(...a) }));
+vi.mock("@/lib/actions/item-occasions", () => ({
+  getTagsForItems: (...a: unknown[]) => getTagsForItems(...a),
+  tagItemForMyOccasion: (...a: unknown[]) => tagItemForMyOccasion(...a),
+  tagItemForGroupDate: (...a: unknown[]) => tagItemForGroupDate(...a),
+  untagItem: (...a: unknown[]) => untagItem(...a),
+}));
+vi.mock("@/lib/mobile/people-live", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/mobile/people-live")>()),
+  occasionRows: (...a: unknown[]) => occasionRows(...a),
+  profiles: (...a: unknown[]) => profiles(...a),
+}));
 vi.mock("@/lib/actions/profile", () => ({}));
 vi.mock("@/lib/supabase/signed-image", () => ({}));
 vi.mock("@/lib/supabase/server", () => ({
@@ -30,12 +50,21 @@ const get = () => new Request("http://localhost/api/mobile/v1/wishlist", { heade
 const post = (body: unknown) =>
   new Request("http://localhost/api/mobile/v1/wishlist", { method: "POST", headers, body: JSON.stringify(body) });
 const ctx = { params: Promise.resolve({}) };
+const tagWrites = () => [...tagItemForMyOccasion.mock.calls, ...tagItemForGroupDate.mock.calls, ...untagItem.mock.calls];
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("MOBILE_MIN_BUILD", "");
   vi.spyOn(console, "error").mockImplementation(() => {});
   ensureProfile.mockResolvedValue("user_2abcDEF");
+  const t = tagging();
+  getUpcomingOccasions.mockResolvedValue({ data: t.upcoming });
+  getTagsForItems.mockImplementation(async (ids: string[]) => tagsFor(t.tags, ids));
+  occasionRows.mockImplementation(async (ids: string[]) => t.occasionRows.filter((r) => ids.includes(r.id)));
+  profiles.mockResolvedValue(new Map());
+  tagItemForMyOccasion.mockImplementation(async () => ({ data: { occasionId: TAG_IDS.samBirthday } }));
+  tagItemForGroupDate.mockImplementation(async (_: string, occasionId: string) => ({ data: { occasionId } }));
+  untagItem.mockResolvedValue({ ok: true });
 });
 
 describe("GET /api/mobile/v1/wishlist", () => {
@@ -43,6 +72,28 @@ describe("GET /api/mobile/v1/wishlist", () => {
     getMyWishlist.mockResolvedValue({ data: fixture("wishlist").items.map(rowFor) });
     getMyGroups.mockResolvedValue({ data: groupRows() });
   };
+  it("lists each item's occasions, a passed one read from its row, and reads only that row", async () => {
+    mocks();
+    const { items } = await (await GET(get(), ctx)).json();
+    expect(items.find((i: { id: string }) => i.id === TAG_IDS.tree).occasions).toEqual([{ key: KEYS.xmas2025, kind: "group_date",
+      title: "Christmas 2025", date: "2025-12-25", group: { id: IDS.rivera, name: "Rivera Family" } }]);
+    expect(items.find((i: { id: string }) => i.id === TAG_IDS.socks).occasions).toEqual([]);
+    expect(getTagsForItems).toHaveBeenCalledWith(fixture("wishlist").items.map((i: { id: string }) => i.id));
+    expect(occasionRows).toHaveBeenCalledWith([TAG_IDS.xmas2025]);
+    expect(tagWrites()).toEqual([]);
+  });
+  it("answers 500 without the database's words when the tags cannot be read, rather than say an item has none", async () => {
+    mocks();
+    getTagsForItems.mockResolvedValue({ error: "Failed to load tags. Please try again." });
+    const res = await GET(get(), ctx);
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toMatch(/Failed to load/);
+  });
+  it("answers 500 when the dates cannot be read", async () => {
+    mocks();
+    getUpcomingOccasions.mockResolvedValue({ error: "Failed to load upcoming occasions." });
+    expect((await GET(get(), ctx)).status).toBe(500);
+  });
   it("answers the caller's list in the fixture's shape", async () => {
     mocks();
     const res = await GET(get(), ctx);
@@ -89,12 +140,56 @@ describe("GET /api/mobile/v1/wishlist", () => {
 });
 
 describe("POST /api/mobile/v1/wishlist", () => {
-  it("adds the request fixture and answers the item", async () => {
+  it("adds the request fixture, tags it for each of its dates, and answers the item", async () => {
     createWishlistItem.mockResolvedValue({ data: rowFor(fixture("wishlist-item").item) });
     const res = await POST(post(fixture("wishlist-item-request")), ctx);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(fixture("wishlist-item"));
     expect(createWishlistItem).toHaveBeenCalledWith(formDataFromBody(fixture("wishlist-item-request")));
+    expect(tagItemForMyOccasion).toHaveBeenCalledWith(TAG_IDS.tumbler, "birthday");
+    expect(tagItemForGroupDate).toHaveBeenCalledWith(TAG_IDS.tumbler, IDS.xmas);
+    expect(untagItem).not.toHaveBeenCalled();
+  });
+  it("with no occasions, tags nothing and reads no dates: the new item has none", async () => {
+    createWishlistItem.mockResolvedValue({ data: rowFor(fixture("wishlist-item").item) });
+    const { occasions: _, ...request } = fixture("wishlist-item-request");
+    const res = await POST(post(request), ctx);
+    expect(res.status).toBe(200);
+    expect((await res.json()).item.occasions).toEqual([]);
+    expect(tagWrites()).toEqual([]);
+    expect(getUpcomingOccasions).not.toHaveBeenCalled();
+    expect(getTagsForItems).not.toHaveBeenCalled();
+  });
+  it("answers 422 'Choose one of your dates.' for a date that is not one of the caller's, and writes nothing", async () => {
+    const res = await POST(post({ ...fixture("wishlist-item-request"), occasions: [KEYS.xmas, "birthday:user_2momABC:2027"] }), ctx);
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toEqual({ code: "invalid", message: "Choose one of your dates." });
+    expect(createWishlistItem).not.toHaveBeenCalled();
+    expect(tagWrites()).toEqual([]);
+  });
+  it("answers 422 for a passed date: a new item is tagged for none", async () => {
+    const res = await POST(post({ ...fixture("wishlist-item-request"), occasions: [KEYS.xmas2025] }), ctx);
+    expect(res.status).toBe(422);
+    expect(createWishlistItem).not.toHaveBeenCalled();
+  });
+  it("still answers the item when a tag cannot be written after it was added, saying what stands, and logs it", async () => {
+    createWishlistItem.mockResolvedValue({ data: rowFor(fixture("wishlist-item").item) });
+    tagItemForGroupDate.mockResolvedValue({ error: "That occasion no longer exists, or is not yours to tag" });
+    tagItemForMyOccasion.mockRejectedValue(new Error("fetch failed"));
+    const res = await POST(post(fixture("wishlist-item-request")), ctx);
+    expect(res.status).toBe(200);
+    expect((await res.json()).item.occasions).toEqual([]);
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining(`tagging ${TAG_IDS.tumbler} for ${KEYS.xmas}`),
+      "That occasion no longer exists, or is not yours to tag");
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining(`tagging ${TAG_IDS.tumbler} for ${KEYS.samBirthday}`),
+      expect.any(Error));
+  });
+  it("counts 'already tagged' as done", async () => {
+    createWishlistItem.mockResolvedValue({ data: rowFor(fixture("wishlist-item").item) });
+    tagItemForGroupDate.mockResolvedValue({ error: "You've already tagged this item for that occasion" });
+    const res = await POST(post(fixture("wishlist-item-request")), ctx);
+    expect(await res.json()).toEqual(fixture("wishlist-item"));
+    expect(console.error).not.toHaveBeenCalled();
   });
   it("answers 422 with the rule's sentence and adds nothing", async () => {
     const res = await POST(post({ ...fixture("wishlist-item-request"), title: " " }), ctx);
@@ -154,6 +249,7 @@ describe("POST /api/mobile/v1/wishlist", () => {
     createWishlistItem.mockResolvedValue({ error: 'new row violates check constraint "title_length"' });
     const res = await POST(post(fixture("wishlist-item-request")), ctx);
     expect(res.status).toBe(500);
+    expect(tagWrites()).toEqual([]);
     expect((await res.json()).error.message).toBe("Something went wrong. Please try again.");
   });
 });

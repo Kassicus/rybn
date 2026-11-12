@@ -6,5 +6,6 @@
   "imagePath": "user_2abcDEF/1794400000000-k3j2.jpg",
   "priority": "high",
   "category": null,
-  "privacy": { "kind": "groups" }
+  "privacy": { "kind": "groups" },
+  "occasions": ["birthday:user_2abcDEF:2026", "group_date:9c4b2e1a-7d3f-4e5a-8b6c-1d2e3f4a5b6c"]
 }

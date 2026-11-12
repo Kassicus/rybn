@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { isOccasionFor } from "@/lib/occasions/celebrant";
+import { isOccasionFor, occasionCelebrantIds } from "@/lib/occasions/celebrant";
 import type { UpcomingOccasion } from "@/lib/occasions/display";
-import { taggableOccasions } from "@/lib/occasions/taggable";
+import { resolveTagTarget, taggableOccasions, type TagTarget } from "@/lib/occasions/taggable";
 import {
   ALL_GROUP_TYPES,
   describeChoice,
@@ -13,7 +13,14 @@ import {
 import { priorityLevels, type Priority, type WishlistItemFormData } from "@/lib/schemas/wishlist";
 import { INVALID_IMAGE_ERROR } from "@/lib/storage/image-value";
 import type { GroupType } from "@/types/privacy";
-import { mobileOccasion, occasionKey, type MobileOccasion } from "./occasions";
+import {
+  mobileOccasion,
+  occasionFromRow,
+  occasionKey,
+  type MobileOccasion,
+  type OccasionRow,
+  type PersonRow,
+} from "./occasions";
 
 /** Every sentence the rules at the door can answer with. */
 export const RULES = {
@@ -29,6 +36,8 @@ export const RULES = {
   privacy: "Choose who can see it.",
   chooseGroup: "Choose one of your groups.",
   characters: "That has characters Rybn can't save. Try typing it again.",
+  chooseDate: "Choose one of your dates.",
+  tooManyDates: "Choose 20 dates or fewer.",
 } as const;
 
 /** Control characters: U+0000 to U+001F and U+007F. */
@@ -57,6 +66,8 @@ export interface MobileItem {
   privacy: PrivacyChoice;
   privacySummary: string;
   createdAt: string;
+  /** Every occasion the item is tagged for that the caller can see, soonest first. */
+  occasions: MobileOccasion[];
 }
 
 /** The columns mobileItem reads. Rows carry more (purchased, user_id, …); none of it is sent. */
@@ -86,6 +97,8 @@ export interface WishlistBody {
   priority: Priority;
   category: string | null;
   privacy: PrivacyChoice;
+  /** The occasion keys the item is to be tagged for, each once. Null when the body had none: its tags are left alone. */
+  occasions: string[] | null;
 }
 
 /** ISO 8601, UTC, whole seconds. The fraction is dropped, never rounded up. */
@@ -109,7 +122,7 @@ function readStoredPrivacy(value: unknown): StoredPrivacy {
   };
 }
 
-export function mobileItem(row: WishlistItemRow, groups: MobileGroup[]): MobileItem {
+export function mobileItem(row: WishlistItemRow, groups: MobileGroup[], occasions: MobileOccasion[]): MobileItem {
   const privacy = fromStored(readStoredPrivacy(row.privacy_settings));
   const groupName =
     privacy.kind === "group" ? (groups.find((g) => g.id === privacy.groupId)?.name ?? null) : null;
@@ -126,6 +139,7 @@ export function mobileItem(row: WishlistItemRow, groups: MobileGroup[]): MobileI
     privacy,
     privacySummary: describeChoice(privacy, groupName),
     createdAt: utcSeconds(row.created_at),
+    occasions,
   };
 }
 
@@ -195,6 +209,17 @@ const bodySchema = z.object(
     imagePath: z.string({ error: INVALID_IMAGE_ERROR }).nullish(),
     priority: z.enum(priorityLevels, { error: RULES.priority }),
     privacy: privacySchema,
+    occasions: z
+      .array(
+        z
+          .string({ error: RULES.chooseDate })
+          .min(1, RULES.chooseDate)
+          .max(200, RULES.chooseDate)
+          .refine((v) => !CONTROL.test(v), RULES.chooseDate),
+        { error: RULES.request },
+      )
+      .max(20, RULES.tooManyDates)
+      .nullish(),
   },
   { error: RULES.request },
 );
@@ -218,6 +243,7 @@ export function parseWishlistBody(
       priority: v.priority,
       category: v.category ?? null,
       privacy: v.privacy,
+      occasions: v.occasions == null ? null : [...new Set(v.occasions)],
     },
   };
 }
@@ -256,6 +282,78 @@ export function bySoonest(a: MobileOccasion, b: MobileOccasion): number {
 export function tagChoices(upcoming: UpcomingOccasion[], callerId: string): UpcomingOccasion[] {
   return [...taggableOccasions(upcoming, callerId)].sort(
     (a, b) => ordinal(a.occasionDate, b.occasionDate) || ordinal(occasionKey(a), occasionKey(b)));
+}
+
+/** A tag on one of the caller's items: the occasion's row, and the occasion as the app is told it. */
+export interface Tag {
+  occasionId: string;
+  occasion: MobileOccasion;
+}
+
+/** The occasions these items are tagged for that are not among the choices (they have passed): read from their rows. */
+export function rowsToRead(tagged: Record<string, string[]>, choices: UpcomingOccasion[]): string[] {
+  const offered = new Set(choices.map((o) => o.occasionId));
+  return [...new Set(Object.values(tagged).flat())].filter((id) => !offered.has(id));
+}
+
+/** The people whose names title these rows: those of a birthday or anniversary that is not the caller's own. */
+export function namesToRead(rows: OccasionRow[], callerId: string): string[] {
+  const ids = rows.flatMap((r) => {
+    const people = { celebrantId: r.celebrant_id, partnerId: r.partner_id };
+    return r.kind === "group_date" || isOccasionFor(people, callerId) ? [] : occasionCelebrantIds(people);
+  });
+  return [...new Set(ids)];
+}
+
+/**
+ * Each tagged item's tags, soonest first. An occasion among the choices is told as it is offered; any other (one that
+ * has passed) from its row. A tag whose row the caller cannot read, such as a date of a group they have left, cannot be
+ * named, so it is left out.
+ */
+export function itemTags(
+  tagged: Record<string, string[]>,
+  choices: UpcomingOccasion[],
+  rows: OccasionRow[],
+  names: ReadonlyMap<string, PersonRow>,
+  callerId: string,
+): Map<string, Tag[]> {
+  const known = new Map<string, MobileOccasion>();
+  for (const row of rows) known.set(row.id, wishlistOccasion(occasionFromRow(row, names), callerId));
+  for (const o of choices) if (o.occasionId !== null) known.set(o.occasionId, wishlistOccasion(o, callerId));
+  const tags = new Map<string, Tag[]>();
+  for (const [itemId, ids] of Object.entries(tagged)) {
+    const found = ids.flatMap((occasionId) => {
+      const occasion = known.get(occasionId);
+      return occasion ? [{ occasionId, occasion }] : [];
+    });
+    tags.set(itemId, found.sort((a, b) => bySoonest(a.occasion, b.occasion)));
+  }
+  return tags;
+}
+
+/** What a save changes: the choices to tag the item for, each with the action that tags it, and the tags to remove. */
+export interface TagPlan {
+  add: { occasion: UpcomingOccasion; target: TagTarget }[];
+  remove: Tag[];
+}
+
+/**
+ * What saving `keys` asks of an item tagged `current`. A key it is tagged for already is kept, even one that has passed;
+ * any other must be one of the choices. Null when a key is neither, and then nothing may be written. Only tags in
+ * `current`, the ones the app is shown, are ever removed.
+ */
+export function planTags(keys: string[], current: Tag[], choices: UpcomingOccasion[]): TagPlan | null {
+  const wanted = new Set(keys);
+  const tagged = new Set(current.map((t) => t.occasion.key));
+  const add: TagPlan["add"] = [];
+  for (const key of wanted) {
+    if (tagged.has(key)) continue;
+    const occasion = choices.find((o) => occasionKey(o) === key);
+    const target = occasion ? resolveTagTarget(occasion) : null;
+    if (!occasion || !target) return null;
+    add.push({ occasion, target });
+  }
+  return { add, remove: current.filter((t) => !wanted.has(t.occasion.key)) };
 }
 
 /** True unless the choice names one group and that group is not among the caller's. */
