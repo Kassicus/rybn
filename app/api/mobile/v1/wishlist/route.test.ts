@@ -89,6 +89,38 @@ describe("GET /api/mobile/v1/wishlist", () => {
     expect(res.status).toBe(500);
     expect(await res.text()).not.toMatch(/Failed to load/);
   });
+  describe("reads the dates only when a tag needs describing", () => {
+    it("an empty list reads neither tags nor dates", async () => {
+      getMyWishlist.mockResolvedValue({ data: [] });
+      getMyGroups.mockResolvedValue({ data: groupRows() });
+      const res = await GET(get(), ctx);
+      expect(await res.json()).toEqual({ items: [] });
+      expect(getTagsForItems).not.toHaveBeenCalled();
+      expect(getUpcomingOccasions).not.toHaveBeenCalled();
+    });
+    it("a list whose items carry no tag reads the tags and not the dates, even when the dates could not be read", async () => {
+      mocks();
+      getTagsForItems.mockImplementation(async (ids: string[]) => tagsFor({}, ids));
+      getUpcomingOccasions.mockResolvedValue({ error: "Failed to load upcoming occasions." });
+      const res = await GET(get(), ctx);
+      expect(res.status).toBe(200);
+      const { items } = await res.json();
+      expect(items.map((i: { occasions: unknown[] }) => i.occasions)).toEqual([[], [], [], []]);
+      expect(getTagsForItems).toHaveBeenCalled();
+      expect(getUpcomingOccasions).not.toHaveBeenCalled();
+    });
+    it("a list with a tagged item reads both, and titles its tag as the choice does, not as a stale row would", async () => {
+      mocks();
+      // The stored row of Sam's birthday still has the date from before he corrected it; the choice has the new one.
+      occasionRows.mockImplementation(async (ids: string[]) => [...tagging().occasionRows]
+        .map((r) => (r.id === TAG_IDS.samBirthday ? { ...r, occasion_date: "2026-11-28" } : r))
+        .filter((r) => ids.includes(r.id)));
+      const { items } = await (await GET(get(), ctx)).json();
+      expect(getUpcomingOccasions).toHaveBeenCalled();
+      expect(items.find((i: { id: string }) => i.id === TAG_IDS.tumbler).occasions[0]).toEqual(
+        { key: KEYS.samBirthday, kind: "birthday", title: "Your birthday", date: "2026-11-30", group: null });
+    });
+  });
   describe("a long list", () => {
     const idFor = (i: number) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
     const long = () => {
@@ -119,7 +151,7 @@ describe("GET /api/mobile/v1/wishlist", () => {
       expect(await res.text()).not.toMatch(/Failed to load/);
     });
   });
-  it("answers 500 when the dates cannot be read", async () => {
+  it("answers 500 when an item carries a tag and the dates cannot be read", async () => {
     mocks();
     getUpcomingOccasions.mockResolvedValue({ error: "Failed to load upcoming occasions." });
     expect((await GET(get(), ctx)).status).toBe(500);
@@ -180,12 +212,15 @@ describe("POST /api/mobile/v1/wishlist", () => {
     expect(tagItemForGroupDate).toHaveBeenCalledWith(TAG_IDS.tumbler, IDS.xmas);
     expect(untagItem).not.toHaveBeenCalled();
   });
-  it("with no occasions, tags nothing and reads no dates: the new item has none", async () => {
+  it("with no occasions, or null, tags nothing and reads neither tags nor dates: the new item has none", async () => {
     createWishlistItem.mockResolvedValue({ data: rowFor(fixture("wishlist-item").item) });
-    const { occasions: _, ...request } = fixture("wishlist-item-request");
-    const res = await POST(post(request), ctx);
-    expect(res.status).toBe(200);
-    expect((await res.json()).item.occasions).toEqual([]);
+    getUpcomingOccasions.mockResolvedValue({ error: "Failed to load upcoming occasions." });
+    const { occasions: _, ...without } = fixture("wishlist-item-request");
+    for (const request of [without, { ...without, occasions: null }]) {
+      const res = await POST(post(request), ctx);
+      expect(res.status).toBe(200);
+      expect((await res.json()).item.occasions).toEqual([]);
+    }
     expect(tagWrites()).toEqual([]);
     expect(getUpcomingOccasions).not.toHaveBeenCalled();
     expect(getTagsForItems).not.toHaveBeenCalled();

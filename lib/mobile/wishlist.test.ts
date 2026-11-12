@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { UpcomingOccasion } from "@/lib/occasions/display";
 import { INVALID_IMAGE_ERROR } from "@/lib/storage/image-value";
-import { occasionFromRow, occasionKey } from "./occasions";
+import { occasionKey } from "./occasions";
 import { fixture, groupRows, rowFor } from "./test-fixtures";
 import { IDS, SAM, world } from "./test-shopping";
 import { KEYS, TAG_IDS, tagging } from "./test-wishlist";
@@ -104,22 +104,6 @@ describe("an item's occasions", () => {
     expect(namesToRead([row, own, ...tagging().occasionRows], SAM)).toEqual([w.people.alex.id, w.people.mom.id]);
     const tags = itemTags({ [TAG_IDS.socks]: [row.id, own.id] }, [], [row, own], w.profiles, SAM);
     expect(tags.get(TAG_IDS.socks)!.map((tag) => tag.occasion.title)).toEqual(["Alex Rivera's Anniversary", "Your anniversary"]);
-  });
-  it("in the fixture world, read from a tagged row are told exactly as the choice with the same id is", () => {
-    // The caller's birthday and a group date from the fixtures, and the caller's anniversary as a couple's row.
-    const w = world(), t = tagging();
-    const anniversaryId = "88888888-8888-4888-8888-888888888888";
-    const anniversary: UpcomingOccasion = { occasionId: anniversaryId, kind: "anniversary", name: null, occasionDate: "2027-03-08",
-      celebrantId: SAM, celebrantUsername: "sam", celebrantDisplayName: "Sam Rivera", groupId: null, groupName: null,
-      partnerId: w.people.alex.id, partnerUsername: "alex", partnerDisplayName: "Alex Rivera" };
-    const rows = [...t.occasionRows, { id: anniversaryId, kind: "anniversary" as const, name: null, occasion_date: "2027-03-08",
-      celebrant_id: SAM, partner_id: w.people.alex.id, group_id: null, groups: null }];
-    const choices = tagChoices([...t.upcoming, anniversary], SAM);
-    expect(choices.map(occasionKey)).toEqual([KEYS.samBirthday, KEYS.xmas, "anniversary:user_2abcDEF:2027"]);
-    for (const choice of choices) {
-      const row = rows.find((r) => r.id === choice.occasionId)!;
-      expect(wishlistOccasion(occasionFromRow(row, w.profiles), SAM)).toEqual(wishlistOccasion(choice, SAM));
-    }
   });
   it("leave out a tag whose occasion the caller can no longer see", () => {
     const { t, choices } = fixtureTags();

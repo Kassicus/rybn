@@ -74,16 +74,27 @@ async function describeTags(
 }
 
 /**
- * The choices, and each of these items' tags (itemTags), or the Response to send instead. A failed read fails the
- * request: an item answered with no tags could be saved back with none.
+ * Each of these items' tags (itemTags), described as the choices describe them, and those choices; or the Response to
+ * send instead. The choices are read when `forKeys` (the body has occasions to check), and otherwise only when an item
+ * carries a tag to describe: with none, they are not read and come back empty. A failed read fails the request: an
+ * item answered with no tags could be saved back with none.
  */
 async function loadTags(
   userId: string,
   itemIds: string[],
+  forKeys: boolean,
 ): Promise<Response | { choices: UpcomingOccasion[]; tags: Map<string, Tag[]> }> {
-  const [choices, tagged] = await Promise.all([loadChoices(userId), readTagged(itemIds)]);
-  if (choices instanceof Response) return choices;
+  if (forKeys) {
+    const [choices, tagged] = await Promise.all([loadChoices(userId), readTagged(itemIds)]);
+    if (choices instanceof Response) return choices;
+    if (tagged instanceof Response) return tagged;
+    return { choices, tags: await describeTags(userId, tagged, choices) };
+  }
+  const tagged = await readTagged(itemIds);
   if (tagged instanceof Response) return tagged;
+  if (!Object.values(tagged).some((ids) => ids.length > 0)) return { choices: [], tags: new Map() };
+  const choices = await loadChoices(userId);
+  if (choices instanceof Response) return choices;
   return { choices, tags: await describeTags(userId, tagged, choices) };
 }
 
@@ -266,7 +277,7 @@ export async function listWishlist(userId: string): Promise<Response | { items: 
     groups = mobileGroups(groupResult.data as GroupRow[]);
   }
   const rows = ("data" in list ? list.data : []) as WishlistItemRow[];
-  const loaded = await loadTags(userId, rows.map((row) => row.id));
+  const loaded = await loadTags(userId, rows.map((row) => row.id), false);
   if (loaded instanceof Response) return loaded;
   return { items: rows.map((row) => mobileItem(row, groups, occasionsOf(loaded.tags, row.id))) };
 }
@@ -303,11 +314,11 @@ export async function replaceWishlistItem(
   const lookup = await findMine(userId, itemId, mobileError("not_found"));
   if (!lookup.found) return lookup.response ?? mobileError("not_found");
   // The item's tags are read before anything is written: the answer names them, and a key it is tagged for is kept.
-  const loaded = await loadTags(userId, [lookup.itemId]);
-  if (loaded instanceof Response) return loaded;
-  const current = loaded.tags.get(lookup.itemId) ?? [];
   // A body with no occasions (an app from before they were sent) leaves the tags as they are.
   const keys = checked.body.occasions;
+  const loaded = await loadTags(userId, [lookup.itemId], keys !== null);
+  if (loaded instanceof Response) return loaded;
+  const current = loaded.tags.get(lookup.itemId) ?? [];
   const planned = keys === null ? { ok: true as const, plan: NO_TAG_CHANGES } : planTags(keys, current, loaded.choices);
   if (!planned.ok) return mobileError("invalid", planned.message);
   const { plan } = planned;

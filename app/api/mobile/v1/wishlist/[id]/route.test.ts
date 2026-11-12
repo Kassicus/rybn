@@ -189,14 +189,32 @@ describe("PUT /api/mobile/v1/wishlist/[id]", () => {
     expect(await keysOf(res)).toEqual([]);
     expect(untagItem).not.toHaveBeenCalled();
   });
-  it("answers 500 and writes nothing when the dates cannot be read, also for a body without occasions", async () => {
+  it("without occasions, on an item that carries a tag, answers 500 and writes nothing when the dates cannot be read", async () => {
     getWishlistItem.mockResolvedValue(mine());
+    taggedFor([IDS.xmas]);
     getUpcomingOccasions.mockResolvedValue({ error: "Failed to load upcoming occasions." });
     const { occasions: _, ...request } = fixture("wishlist-item-request");
     const res = await PUT(put(request), ctx(ID));
     expect(res.status).toBe(500);
     expect(await res.text()).not.toMatch(/Failed to load/);
+    expect(getTagsForItems).toHaveBeenCalledWith([ID]);
     expect(updateWishlistItem).not.toHaveBeenCalled();
+    expect(tagWrites()).toEqual([]);
+  });
+  it("without occasions, or with null, on an item that carries no tag, does not read the dates, even when they could not be read", async () => {
+    getWishlistItem.mockResolvedValue(mine());
+    updateWishlistItem.mockResolvedValue({ data: rowFor(fixture("wishlist-item").item) });
+    taggedFor([]);
+    getUpcomingOccasions.mockResolvedValue({ error: "Failed to load upcoming occasions." });
+    const { occasions: _, ...without } = fixture("wishlist-item-request");
+    for (const request of [without, { ...without, occasions: null }]) {
+      const res = await PUT(put(request), ctx(ID));
+      expect(res.status).toBe(200);
+      expect(await keysOf(res)).toEqual([]);
+    }
+    expect(getTagsForItems).toHaveBeenCalledWith([ID]);
+    expect(getUpcomingOccasions).not.toHaveBeenCalled();
+    expect(updateWishlistItem).toHaveBeenCalledTimes(2);
     expect(tagWrites()).toEqual([]);
   });
   it("answers 500 without the database's words when the item's tags cannot be read, and writes nothing", async () => {
