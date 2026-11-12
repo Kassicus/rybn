@@ -249,10 +249,19 @@ snapshot_public_relations() {
     | tr '|' '\n' | grep -v '^$' | sort
 }
 
+# Says why a snapshot failed: the CLI's exit status and the start of what it
+# printed. Without it the error gives nothing to act on.
+explain_snapshot_failure() {
+  echo "      CLI exit status: $CLI_RC; its output began:"
+  head -c 400 "$OUT_FILE" 2>/dev/null | sed 's/^/      | /'
+  echo
+}
+
 leak_check=1
 if ! snapshot_public_relations > "$WORK_DIR/relations-before" 2>/dev/null; then
   echo "ERROR could not snapshot public relations before the suite"
   echo "      the rollback guarantee cannot be verified for this run"
+  explain_snapshot_failure
   leak_check=0
   failed=1
 fi
@@ -491,6 +500,7 @@ if [ "$leak_check" -eq 1 ]; then
   if ! snapshot_public_relations > "$WORK_DIR/relations-after" 2>/dev/null; then
     echo "ERROR could not snapshot public relations after the suite"
     echo "      the rollback guarantee could not be verified for this run"
+    explain_snapshot_failure
     failed=1
   else
     leaked="$(grep -vxF -f "$WORK_DIR/relations-before" "$WORK_DIR/relations-after" | grep -v '^$')"
