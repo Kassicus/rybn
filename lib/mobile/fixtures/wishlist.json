@@ -12,7 +12,23 @@
       "category": null,
       "privacy": { "kind": "groups" },
       "privacySummary": "Everyone in your groups",
-      "createdAt": "2026-11-11T18:04:13Z"
+      "createdAt": "2026-11-11T18:04:13Z",
+      "occasions": [
+        {
+          "key": "birthday:user_2abcDEF:2026",
+          "kind": "birthday",
+          "title": "Your birthday",
+          "date": "2026-11-30",
+          "group": null
+        },
+        {
+          "key": "group_date:9c4b2e1a-7d3f-4e5a-8b6c-1d2e3f4a5b6c",
+          "kind": "group_date",
+          "title": "Christmas 2026",
+          "date": "2026-12-25",
+          "group": { "id": "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e", "name": "Rivera Family" }
+        }
+      ]
     },
     {
       "id": "a3b9c1d2-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
@@ -26,7 +42,16 @@
       "category": "Kitchen",
       "privacy": { "kind": "group", "groupId": "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e" },
       "privacySummary": "Only Rivera Family",
-      "createdAt": "2026-11-10T09:30:00Z"
+      "createdAt": "2026-11-10T09:30:00Z",
+      "occasions": [
+        {
+          "key": "group_date:9c4b2e1a-7d3f-4e5a-8b6c-1d2e3f4a5b6c",
+          "kind": "group_date",
+          "title": "Christmas 2026",
+          "date": "2026-12-25",
+          "group": { "id": "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e", "name": "Rivera Family" }
+        }
+      ]
     },
     {
       "id": "c4d5e6f7-0a1b-4c2d-9e3f-4a5b6c7d8e9f",
@@ -40,7 +65,8 @@
       "category": null,
       "privacy": { "kind": "private" },
       "privacySummary": "Only you",
-      "createdAt": "2026-11-02T20:15:42Z"
+      "createdAt": "2026-11-02T20:15:42Z",
+      "occasions": []
     },
     {
       "id": "e6f7a8b9-1c2d-4e3f-a4b5-c6d7e8f9a0b1",
@@ -54,7 +80,16 @@
       "category": "Toys",
       "privacy": { "kind": "legacyTypes", "types": ["family", "friends"] },
       "privacySummary": "Only your family, friends groups",
-      "createdAt": "2025-12-01T16:00:00Z"
+      "createdAt": "2025-12-01T16:00:00Z",
+      "occasions": [
+        {
+          "key": "group_date:3a7c9e1b-2d4f-4a6b-8c0d-1e2f3a4b5c6d",
+          "kind": "group_date",
+          "title": "Christmas 2025",
+          "date": "2025-12-25",
+          "group": { "id": "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e", "name": "Rivera Family" }
+        }
+      ]
     }
   ]
 }

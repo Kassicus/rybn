@@ -18,7 +18,7 @@ const unique = (ids: string[]) => [...new Set(ids)];
 const CHUNK = 100;
 
 /** Asks `ask` for each chunk of the (de-duplicated) ids in parallel and joins the answers; any failure fails the read. */
-async function inChunks<T>(ids: string[], ask: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
+export async function inChunks<T>(ids: string[], ask: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
   const wanted = unique(ids);
   const chunks: string[][] = [];
   for (let i = 0; i < wanted.length; i += CHUNK) chunks.push(wanted.slice(i, i + CHUNK));

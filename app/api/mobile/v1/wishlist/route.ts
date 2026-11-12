@@ -5,7 +5,7 @@ import { addWishlistItem, listWishlist } from "@/lib/mobile/wishlist-live";
 export const dynamic = "force-dynamic";
 
 /** The caller's own wishlist. */
-export const GET = mobileRoute(() => listWishlist());
+export const GET = mobileRoute(({ userId }) => listWishlist(userId));
 
 /** Add an item. The handler checks the body itself so it can answer a plain sentence. */
 export const POST = mobileRoute(({ userId, body }) => addWishlistItem(userId, body), { body: z.unknown() });

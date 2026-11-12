@@ -115,6 +115,7 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 | `POST /wishlist` | `{ item }`, the new item (200). |
 | `PUT /wishlist/{id}` | `{ item }`, the replaced item; 404 when it is not the caller's. |
 | `DELETE /wishlist/{id}` | 204, also when the item is already gone or not the caller's. |
+| `GET /wishlist/occasions` | `{ occasions }`, what the caller may tag one of their own items for now, soonest first: their own birthday and anniversary (titled `Your birthday` and `Your anniversary`) and their groups' dates. |
 | `POST /wishlist/images` | `{ imagePath, imageUrl }` for a JPEG or PNG sent as raw bytes. |
 | `GET /groups` | `{ groups }`, the groups the caller belongs to, each with a `memberCount`. |
 | `GET /home` | `{ occasions }`, a year ahead, not the caller's own birthday, each with the people to shop for and the caller's gift count for each. |
@@ -135,6 +136,9 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 
 - A request whose path ends in an image extension (for example `/api/mobile/v1/wishlist/x.png`) is skipped by `proxy.ts`, so it answers 500 instead of 401. It exposes nothing, but it writes an error to the log. The fix belongs in the proxy's matcher.
 - `PUT` replaces the whole item, privacy included. The app must send back every field it was given.
+- An item carries `occasions`: every occasion it is tagged for, soonest first, including one whose date has passed (a tag whose date the caller can no longer see, such as one of a group they left, is not listed). `POST` and `PUT` take an optional `occasions`, a list of at most 200 keys, of which at most 20 may be new to the item; the tags it already has are not counted. Sent, the item ends up tagged for exactly those, plus any tag it does not list, which a save never removes; the owner can remove it on the website. A key it is already tagged for is kept, even once its date has passed, and any other must be one of `GET /wishlist/occasions`, or the answer is 422 before anything is written. Tags are written with the website's own actions after the item; one that cannot be written then is logged, and the answer's `occasions` says what stands.
+- A body without `occasions`, or with `occasions: null`, leaves the item's tags exactly as they are. Builds of the app that do not send it must never clear tags set on the website.
+- `GET /wishlist` and `PUT` answer 500 when their items' tags cannot be read, and `GET /wishlist`, `PUT` and `POST` answer 500 when the dates cannot be read but are needed, which is only when an item carries a tag, a `PUT` body has `occasions`, or a `POST` body's `occasions` is not empty; a save that answers 500 writes nothing.
 - An item can come back with `imageUrl` null and `imagePath` set, when the picture's address could not be signed. Keep sending `imagePath` back on an edit.
 - A body larger than Vercel's own limit (about 4.5 MB) is refused by Vercel with its own error, before the route's size sentence.
 
@@ -147,7 +151,7 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 - The migration `20261111000000_shopping_links.sql` must be applied before these routes are merged (`npx supabase db push`).
 - Adding a value to an enumerated field (a priority, a privacy kind, a gift's step) is a breaking change for v1, because the app decodes strictly.
 
-`lib/mobile/fixtures/*.json` are the contract, including `wishlist.json`, `wishlist-item.json`, `groups.json`, `wishlist-item-request.json`, `home.json`, `group-list.json`, `group.json`, `person-wishlist.json`, `gift.json`, `gifts.json`, `claim-request.json`, `gift-request.json` and `step-request.json`. They are copied into `rybn-mobile/Packages/RybnKit/Tests/RybnKitTests/Fixtures/`, so change both together.
+`lib/mobile/fixtures/*.json` are the contract, including `wishlist.json`, `wishlist-item.json`, `wishlist-occasions.json`, `groups.json`, `wishlist-item-request.json`, `home.json`, `group-list.json`, `group.json`, `person-wishlist.json`, `gift.json`, `gifts.json`, `claim-request.json`, `gift-request.json` and `step-request.json`. They are copied into `rybn-mobile/Packages/RybnKit/Tests/RybnKitTests/Fixtures/`, so change both together.
 
 ## Tech Stack
 

@@ -10,6 +10,12 @@ export const NOT_THE_CLAIMER = "Only the person who claimed this item can mark i
 export const GROUP_NOT_FOUND = "Group not found";
 export const NOT_A_MEMBER = "You are not a member of this group";
 
+/** What tagItemForMyOccasion and tagItemForGroupDate return for a tag that is already there (lib/actions/item-occasions.ts). */
+export const ALREADY_TAGGED = "You've already tagged this item for that occasion";
+
+/** What untagItem returns when the tag is not there; asked only about the caller's own item, it is already gone. */
+export const TAG_GONE = "That tag no longer exists, or is not yours to remove";
+
 export const ACTION_FALLBACK = "That didn't work. Please try again.";
 
 /**
