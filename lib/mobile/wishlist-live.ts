@@ -6,7 +6,7 @@ import { resolveStoredImageValue } from "@/lib/storage/image-value";
 import { ALREADY_TAGGED, NOT_SIGNED_IN, TAG_GONE, databaseFailure } from "./action-response";
 import { pathUuid } from "./database";
 import { occasionKey, type MobileOccasion } from "./occasions";
-import { occasionRows, profiles, upcomingForCaller } from "./people-live";
+import { inChunks, occasionRows, profiles, upcomingForCaller } from "./people-live";
 import { mobileError } from "./route";
 import {
   RULES,
@@ -47,12 +47,19 @@ export async function wishlistChoices(userId: string): Promise<Response | { occa
   return { occasions: choices.map((o) => wishlistOccasion(o, userId)) };
 }
 
-/** The occasion ids each of these items is tagged for, or the Response to send instead. A database fault throws. */
+/**
+ * The occasion ids each of these items is tagged for, or the Response to send instead. A long list is asked about in
+ * chunks (inChunks), so no one request outgrows an address; any chunk that fails fails the read. A database fault throws.
+ */
 async function readTagged(itemIds: string[]): Promise<Response | Record<string, string[]>> {
-  const result = await getTagsForItems(itemIds);
-  const failed = databaseFailure(result, "getTagsForItems");
-  if (failed) return failed;
-  return (result as { data: Record<string, string[]> }).data;
+  const results = await inChunks(itemIds, async (chunk) => [await getTagsForItems(chunk)]);
+  const tagged: Record<string, string[]> = {};
+  for (const result of results) {
+    const failed = databaseFailure(result, "getTagsForItems");
+    if (failed) return failed;
+    Object.assign(tagged, (result as { data: Record<string, string[]> }).data);
+  }
+  return tagged;
 }
 
 /** Each item's tags (itemTags), a date that is not among the choices described from its row. A database fault throws. */

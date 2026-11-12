@@ -89,6 +89,36 @@ describe("GET /api/mobile/v1/wishlist", () => {
     expect(res.status).toBe(500);
     expect(await res.text()).not.toMatch(/Failed to load/);
   });
+  describe("a long list", () => {
+    const idFor = (i: number) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
+    const long = () => {
+      const socks = fixture("wishlist").items.find((i: { id: string }) => i.id === TAG_IDS.socks);
+      getMyWishlist.mockResolvedValue({ data: Array.from({ length: 250 }, (_, i) => ({ ...rowFor(socks), id: idFor(i) })) });
+      getMyGroups.mockResolvedValue({ data: groupRows() });
+      const tags = { [idFor(0)]: [IDS.xmas], [idFor(150)]: [IDS.xmas], [idFor(249)]: [IDS.xmas] };
+      getTagsForItems.mockImplementation(async (ids: string[]) => tagsFor(tags, ids));
+    };
+    it("reads its tags in chunks of at most 100 items, and lists them all", async () => {
+      long();
+      const res = await GET(get(), ctx);
+      expect(res.status).toBe(200);
+      expect(getTagsForItems.mock.calls.map(([ids]) => ids.length)).toEqual([100, 100, 50]);
+      expect(getTagsForItems.mock.calls.flatMap(([ids]) => ids)).toEqual(Array.from({ length: 250 }, (_, i) => idFor(i)));
+      const { items } = await res.json();
+      const tagged = items.filter((i: { occasions: unknown[] }) => i.occasions.length > 0).map((i: { id: string }) => i.id);
+      expect(tagged).toEqual([idFor(0), idFor(150), idFor(249)]);
+    });
+    it("answers 500 when any one chunk cannot be read", async () => {
+      long();
+      const read = getTagsForItems.getMockImplementation()!;
+      // Only the chunk that starts at the 101st item fails.
+      getTagsForItems.mockImplementation(async (ids: string[]) =>
+        (ids[0] === idFor(100) ? { error: "Failed to load tags. Please try again." } : read(ids)));
+      const res = await GET(get(), ctx);
+      expect(res.status).toBe(500);
+      expect(await res.text()).not.toMatch(/Failed to load/);
+    });
+  });
   it("answers 500 when the dates cannot be read", async () => {
     mocks();
     getUpcomingOccasions.mockResolvedValue({ error: "Failed to load upcoming occasions." });
