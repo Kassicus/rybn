@@ -122,9 +122,13 @@ export async function updateEmailPreferences(preferences: EmailPreferences) {
 }
 
 /**
- * Update user's privacy settings: store the choice (profile_visibility), then
- * write it onto every profile_info field the person has, with one update that
- * names only privacy_settings (a field's value is never written here).
+ * Update user's privacy settings: write the choice onto every profile_info
+ * field the person has, with one update that names only privacy_settings (a
+ * field's value is never written here), then store it (profile_visibility).
+ *
+ * The stored choice is what the Settings page shows. It is stored only after
+ * the fields took it, so a failure at either step leaves the page showing the
+ * choice from before, and choosing the new one again is a change it saves.
  */
 export async function updatePrivacySettings(settings: PrivacySettings) {
   const supabase = await createClient();
@@ -142,15 +146,6 @@ export async function updatePrivacySettings(settings: PrivacySettings) {
   }
   const kinds = parsed.data;
 
-  const { error: choiceError } = await supabase
-    .from("profile_visibility")
-    .upsert({ user_id: userId, visible_to_group_types: kinds }, { onConflict: "user_id" });
-
-  if (choiceError) {
-    console.error("Error storing profile visibility:", choiceError);
-    return { data: null, error: "Failed to update privacy settings" };
-  }
-
   // Every field of the caller's, a field tied to one group included, takes
   // the choice, so none differs from it afterwards.
   const { error: updateError } = await supabase
@@ -160,6 +155,15 @@ export async function updatePrivacySettings(settings: PrivacySettings) {
 
   if (updateError) {
     console.error("Error updating privacy settings:", updateError);
+    return { data: null, error: "Failed to update privacy settings" };
+  }
+
+  const { error: choiceError } = await supabase
+    .from("profile_visibility")
+    .upsert({ user_id: userId, visible_to_group_types: kinds }, { onConflict: "user_id" });
+
+  if (choiceError) {
+    console.error("Error storing profile visibility:", choiceError);
     return { data: null, error: "Failed to update privacy settings" };
   }
 

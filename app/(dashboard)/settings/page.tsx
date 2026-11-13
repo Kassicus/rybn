@@ -34,7 +34,9 @@ export default function SettingsPage() {
   const [success, setSuccess] = useState(false);
   const [settings, setSettings] = useState<UserSettings | null>(null);
   // The choice as last loaded or saved. Saving writes it onto every profile
-  // field, so it is saved only when the person changed it.
+  // field, so it is saved only when the person changed it. It moves only when
+  // a save succeeds, so after a failed one the same selection is still a
+  // change, and a reload shows the stored choice from before.
   const [savedChoice, setSavedChoice] = useState<string[]>([]);
 
   // Load settings

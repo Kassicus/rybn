@@ -251,6 +251,8 @@ describe("updatePrivacySettings", () => {
     const result = await updatePrivacySettings({ visible_to_group_types: ["friends"] });
 
     expect(result).toEqual({ data: true, error: null });
+    // The fields are written first, then the choice is stored.
+    expect(supabase.queries.map((q) => q.table)).toEqual(["profile_info", "profile_visibility"]);
     const [stored] = queriesWith("profile_visibility", "upsert");
     expect(argsOf(stored, "upsert")[0]).toEqual({
       user_id: "user_123",
@@ -329,32 +331,39 @@ describe("updatePrivacySettings", () => {
     expect(supabase.queries).toEqual([]);
   });
 
-  it("touches no field when the choice cannot be stored", async () => {
-    supabase = createSupabaseMock({
-      profile_visibility: [
-        { data: null, error: { code: "42501", message: "permission denied for table profile_visibility" } },
-      ],
-      profile_info: [{ data: FIELDS, error: null }, OK],
-    });
-
-    const result = await updatePrivacySettings({ visible_to_group_types: ["family"] });
-
-    expect(result).toEqual({ data: null, error: "Failed to update privacy settings" });
-    expect(supabase.queries.map((q) => q.table)).not.toContain("profile_info");
-  });
-
-  it("answers Failed to update privacy settings when the fields cannot be written", async () => {
+  // The stored choice is what the Settings page shows. Storing it only after
+  // the fields took it means a failure never leaves the page showing a choice
+  // the fields do not have, so choosing it again is a change and is saved.
+  it("stores no choice when the fields cannot be written", async () => {
     supabase = createSupabaseMock({
       profile_visibility: [OK],
       profile_info: [
         { data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } },
-        OK,
       ],
     });
 
     const result = await updatePrivacySettings({ visible_to_group_types: ["family"] });
 
     expect(result).toEqual({ data: null, error: "Failed to update privacy settings" });
+    expect(supabase.queries.map((q) => q.table)).not.toContain("profile_visibility");
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("answers Failed to update privacy settings when the choice cannot be stored after the fields were written", async () => {
+    supabase = createSupabaseMock({
+      profile_visibility: [
+        { data: null, error: { code: "42501", message: "permission denied for table profile_visibility" } },
+      ],
+      profile_info: [OK],
+    });
+
+    const result = await updatePrivacySettings({ visible_to_group_types: ["family"] });
+
+    expect(result).toEqual({ data: null, error: "Failed to update privacy settings" });
+    // The fields already have the new setting.
+    expect(theFieldWrite().payload).toEqual({
+      privacy_settings: { visibleToGroupTypes: ["family"], restrictToGroup: null },
+    });
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
