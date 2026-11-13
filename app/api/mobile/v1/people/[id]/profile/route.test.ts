@@ -21,8 +21,10 @@ vi.mock("@/lib/mobile/profile-reads", () => ({
 const { GET } = await import("./route");
 const { bearer } = await import("@/lib/mobile/test-shopping-mocks");
 const { MOM_ROW, momVisible, profileMocks } = await import("@/lib/mobile/test-profile");
+const { IDS, SAM } = await import("@/lib/mobile/test-shopping");
 
 const MOM = "user_2momABC";
+const DAD = "user_2dadABC";
 /** Nobody Sam's client can see has this id. */
 const STRANGER = "user_2zzzZZZ";
 
@@ -75,6 +77,39 @@ describe("GET /api/mobile/v1/people/[id]/profile", () => {
     holder.current.getSharedGroups.mockResolvedValue({ data: [] });
     const apart = await get();
     expect([apart.status, (await apart.json()).error]).toEqual([404, { code: "not_found", message: "That isn't there any more." }]);
+  });
+
+  it("answers a group-mate who lets the caller see none of their fields with no sections, never 404", async () => {
+    // Dad shares Rivera Family with Sam and has nothing Sam may see.
+    const res = await get(DAD);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      person: { id: DAD, name: "Dad", username: "luis", avatarUrl: null },
+      bio: null,
+      sections: [],
+      sharedGroups: [{ id: IDS.rivera, name: "Rivera Family" }],
+    });
+  });
+
+  it("leaves a shared group stored with no name out of the list, deciding the 404 before that", async () => {
+    holder.current.getSharedGroups.mockResolvedValue({
+      data: [{ id: IDS.rivera, name: "Rivera Family", type: "family" }, { id: IDS.bookClub, name: "", type: "friends" }],
+    });
+    expect((await (await get()).json()).sharedGroups).toEqual([{ id: IDS.rivera, name: "Rivera Family" }]);
+
+    // Sharing only a group with no name is still sharing a group.
+    holder.current.getSharedGroups.mockResolvedValue({ data: [{ id: IDS.bookClub, name: "", type: "friends" }] });
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect((await res.json()).sharedGroups).toEqual([]);
+  });
+
+  it("answers 404 for the caller's own id, asking nothing", async () => {
+    // Their own profile is GET /profile, with every field and who sees it.
+    const res = await get(SAM);
+    expect([res.status, (await res.json()).error]).toEqual([404, { code: "not_found", message: "That isn't there any more." }]);
+    expect(holder.current.personProfileRows).not.toHaveBeenCalled();
+    expect(holder.current.getSharedGroups).not.toHaveBeenCalled();
   });
 
   it("answers 404 for an id that cannot be a person, asking nothing", async () => {

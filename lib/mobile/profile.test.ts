@@ -35,6 +35,14 @@ describe("your own profile", () => {
     expect(buildMyProfile(SAM_ROW, info, SAM_CHOICE).mixed).toBe(true);
   });
 
+  it("says mixed when a field the catalog does not hold has another setting, as saving the choice sets it too", () => {
+    const info: InfoRow[] = [
+      ...samInfo(),
+      { category: "personal", field_name: "favorite_movie", field_value: "Paddington 2", privacy_settings: { visibleToGroupTypes: ["family"], restrictToGroup: null } },
+    ];
+    expect(buildMyProfile(SAM_ROW, info, SAM_CHOICE).mixed).toBe(true);
+  });
+
   it("answers every field empty, and the stored choice, for a person with no fields", () => {   // Review Focus 4
     const profile = buildMyProfile(SAM_ROW, [], SAM_CHOICE);
     expect(values(profile)).toEqual(Array(23).fill(null));

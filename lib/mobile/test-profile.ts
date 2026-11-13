@@ -144,10 +144,10 @@ export function profileMocks(): ProfileMocks {
       for (const r of saved.info) r.privacy_settings = newFieldPrivacy(saved.choice);
       return { data: true, error: null };
     }),
-    // The groups Sam shares with the person, as the action answers them.
+    // The groups Sam shares with the person, as the action answers them: groups both of them are in.
     getSharedGroups: vi.fn(async (id: string) => ({
       data: [...w.members]
-        .filter(([, people]) => people.some((p) => p.id === id))
+        .filter(([, people]) => people.some((p) => p.id === id) && people.some((p) => p.id === SAM))
         .map(([gid]) => ({ ...(groups.get(gid) as { id: string; name: string; type: string }), description: null })),
     })),
     // Mom's columns and visible fields; anyone else in the world with no fields; nobody for an id Sam cannot see.

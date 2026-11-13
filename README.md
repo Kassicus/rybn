@@ -111,9 +111,9 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 | Route | Answers |
 | --- | --- |
 | `GET /me` | The signed-in person's profile. |
-| `GET /profile` | `{ profile }`: `username`, `displayName`, `bio`, `avatarUrl`, `limits`, `sections` (every field the website knows, each with what the caller saved in it, `value` null where empty), `visibleTo` and `mixed`. |
-| `PUT /profile` | `{ profile }`, read again after the save; body `{ username, displayName, bio, fields }`. 422 with the plain sentence for a body of another shape, the website form's sentence for anything the form refuses, and `Username is already taken`. |
-| `PUT /profile/visibility` | `{ visibleTo }`; body `{ visibleTo }`, any of `family`, `friends`, `work` and `custom`, none for only the caller. 422 `Choose which kinds of group can see your details.` for anything else. |
+| `GET /profile` | `{ profile }`: `username`, `displayName`, `bio`, `avatarUrl`, `limits`, `sections` (every field the website knows, each with what the caller saved in it, `value` null where empty), `visibleTo` and `mixed`. A field's `max` and the `limits` count UTF-16 code units of the trimmed text, as JavaScript counts a string's length, not characters as a person sees them. |
+| `PUT /profile` | `{ profile }`, read again after the save; body `{ username, displayName, bio, fields }`. 422 with the plain sentence for a JSON body of another shape, the website form's sentence for anything the form refuses, and `Username is already taken`; a body that is not JSON answers `body: must be JSON`, as on every route. A control character answers `That has characters Rybn can't save. Try typing it again.`; the bio, `hobbies`, `interests` and `dislikes` may hold a tab, a line feed and a carriage return. |
+| `PUT /profile/visibility` | `{ visibleTo }`; body `{ visibleTo }`, any of `family`, `friends`, `work` and `custom`, none for only the caller. 422 `Choose which kinds of group can see your details.` for any other JSON body; a body that is not JSON answers `body: must be JSON`, as on every route. |
 | `GET /wishlist` | `{ items }`, the caller's own wishlist. |
 | `POST /wishlist` | `{ item }`, the new item (200). |
 | `PUT /wishlist/{id}` | `{ item }`, the replaced item; 404 when it is not the caller's. |
@@ -133,7 +133,7 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 | `PUT /groups/{id}/dates/{dateId}` | `{ occasion }`; body `{ name, date }`. 404 for a date that is not there, not in that group, or not the caller's to change; 422 as for `POST`. |
 | `DELETE /groups/{id}/dates/{dateId}` | 204; 404 for a date that is not there, not in that group, or not the caller's to change. It also removes every item's tag for that date, and claims and gifts filed under it are left with no occasion, as the website's delete does. |
 | `GET /people/{id}/wishlist?occasion=<key>` | `{ person, occasion, occasions, gifts, items }`; the caller's own list answers items alone. |
-| `GET /people/{id}/profile` | `{ person, bio, sections, sharedGroups }`: only the fields the caller may see that hold something (a section with none is left out), and the groups the two share. 404 with no group in common, as for someone who is not there. |
+| `GET /people/{id}/profile` | `{ person, bio, sections, sharedGroups }`: only the fields the caller may see that hold something (a section with none is left out), and the groups the two share. 404 with no group in common, as for someone who is not there. The caller's own id answers 404 too: their own profile is `GET /profile`. |
 | `POST /wishlist/{id}/claim` | `{ gift }`, body `{ occasion }` (a key or null). A second POST by the person who already holds the item answers their gift again (it does not claim twice). |
 | `DELETE /wishlist/{id}/claim` | 204; 422 once the item is bought or its gift is past Claimed. |
 | `GET /gifts?season=<year>` | `{ season, seasons, counts, groups, choices }`. |
@@ -165,7 +165,7 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 - An invitation's group name is read on the server, never taken from the request; the answer never holds the invitation's token.
 - A group date: name 1 to 200 characters; date `YYYY-MM-DD` and a real day. A date that is not there, or not the caller's to change, answers 404. Who may change or delete one is the database's rule (its maker, or an owner or admin of the group, while still in it); the routes ask the website's actions and never rely on the page's `change`, which follows the same rule.
 - The migration `20261111000000_shopping_links.sql` must be applied before these routes are merged (`npx supabase db push`).
-- The profile form is described by the website (`lib/profile/fields.ts`): every field it knows, in order, with its label, its kind (`text` or `date`) and the most characters it takes. A field added there needs no new build of the app.
+- The profile form is described by the website (`lib/profile/fields.ts`): every field it knows, in order, with its label, its kind (`text` or `date`) and the most it takes, counted in UTF-16 code units of the trimmed text (what JavaScript's `length` counts; an emoji can be two or more). A field added there needs no new build of the app.
 - `PUT /profile` sets every field named in `fields` and clears one sent as null or empty; a field not named is left alone, so the app sends only what the person changed. The username, display name and bio are always sent. The rules are the website form's (`profileEditSchema`), checked at the door and again by `updateProfile`.
 - `visibleTo` is the person's stored choice (`profile_visibility`): none means only them, and a person who never chose has all four. `mixed` says some field has another setting. Only `PUT /profile/visibility` changes who sees a field: it stores the choice and writes it onto every field, as the Settings page does.
 - Another person's profile is built field by field from what row-level security returns, with named columns: never a row, never an email.

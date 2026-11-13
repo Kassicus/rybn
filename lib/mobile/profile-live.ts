@@ -79,10 +79,11 @@ export async function saveVisibilityAnswer(raw: unknown): Promise<Response | { v
 
 /**
  * Another person's profile, as far as the caller may see it. Someone the caller cannot see, and someone they share no
- * group with, are both told the person is not there, as for an id that cannot be a person.
+ * group with, are both told the person is not there, as for an id that cannot be a person. So is the caller asking for
+ * their own id: their profile is `GET /profile`, and this answer is only ever what another person sees.
  */
-export async function personProfileAnswer(personId: string): Promise<Response | PersonProfileAnswer> {
-  if (!PERSON_ID.test(personId)) return mobileError("not_found");
+export async function personProfileAnswer(userId: string, personId: string): Promise<Response | PersonProfileAnswer> {
+  if (!PERSON_ID.test(personId) || personId === userId) return mobileError("not_found");
   const { row, info } = await personProfileRows(personId);
   if (row === null) return mobileError("not_found");
 
