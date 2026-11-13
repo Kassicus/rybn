@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { GARCIA } from "./test-groups";
+import { GARCIA, GRAN_80TH } from "./test-groups";
+import { IDS, SAM } from "./test-shopping";
 
 const fromSpy = vi.fn();
 const selectSpy = vi.fn();
 const eqSpy = vi.fn();
+const inSpy = vi.fn();
 const maybeSingleSpy = vi.fn();
+/** What a query awaited without maybeSingle (a list) answers. */
+const listSpy = vi.fn();
 const memberCountsSpy = vi.fn();
+const inChunksSpy = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
@@ -20,21 +25,72 @@ vi.mock("@/lib/supabase/server", () => ({
           eqSpy(...a);
           return chain;
         },
+        in: (...a: unknown[]) => {
+          inSpy(...a);
+          return chain;
+        },
         maybeSingle: () => maybeSingleSpy(),
+        then: (resolve: (r: unknown) => unknown, reject: (e: unknown) => unknown) =>
+          Promise.resolve(listSpy()).then(resolve, reject),
       };
       return chain;
     },
   }),
 }));
-vi.mock("./people-live", () => ({ memberCounts: (...a: unknown[]) => memberCountsSpy(...a) }));
+vi.mock("./people-live", () => ({
+  memberCounts: (...a: unknown[]) => memberCountsSpy(...a),
+  // One chunk: people-live's own tests cover the chunking.
+  inChunks: (ids: string[], ask: (chunk: string[]) => Promise<unknown[]>) => {
+    inChunksSpy(ids);
+    return ask([...new Set(ids)]);
+  },
+}));
 
-const { callerRole, groupNameOf, groupSummary, inviteCodeOf } = await import("./group-reads");
+const { callerRole, groupDateMakers, groupDateRow, groupNameOf, groupSummary, inviteCodeOf } = await import("./group-reads");
 
 const found = (data: unknown) => maybeSingleSpy.mockResolvedValue({ data, error: null });
 
 beforeEach(() => {
   vi.clearAllMocks();
   memberCountsSpy.mockResolvedValue(new Map([[GARCIA, 1]]));
+});
+
+describe("a group's dates", () => {
+  it("reads a group date's id and group, and only a group date", async () => {
+    found({ id: GRAN_80TH, group_id: IDS.rivera });
+    expect(await groupDateRow(GRAN_80TH)).toEqual({ id: GRAN_80TH, groupId: IDS.rivera });
+    expect(fromSpy.mock.calls).toEqual([["occasions"]]);
+    expect(selectSpy.mock.calls).toEqual([["id, group_id"]]);
+    expect(eqSpy.mock.calls).toEqual([["id", GRAN_80TH], ["kind", "group_date"]]);
+  });
+
+  it("answers null for a date the caller cannot see, or one in no group", async () => {
+    found(null);
+    expect(await groupDateRow(GRAN_80TH)).toBeNull();
+    found({ id: GRAN_80TH, group_id: null });
+    expect(await groupDateRow(GRAN_80TH)).toBeNull();
+  });
+
+  it("reads who made each group date, asking only about group dates, never another column", async () => {
+    listSpy.mockReturnValue({ data: [{ id: IDS.xmas, created_by: SAM }, { id: GRAN_80TH, created_by: null }], error: null });
+    expect(await groupDateMakers([IDS.xmas, GRAN_80TH, IDS.xmas])).toEqual(new Map([[IDS.xmas, SAM], [GRAN_80TH, null]]));
+    expect(fromSpy.mock.calls).toEqual([["occasions"]]);
+    expect(selectSpy.mock.calls).toEqual([["id, created_by"]]);
+    expect(inSpy.mock.calls).toEqual([["id", [IDS.xmas, GRAN_80TH]]]);
+    expect(eqSpy.mock.calls).toEqual([["kind", "group_date"]]);
+    expect(inChunksSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks nothing for no dates", async () => {
+    expect(await groupDateMakers([])).toEqual(new Map());
+    expect(fromSpy).not.toHaveBeenCalled();
+  });
+
+  it("throws on a database error naming the read: groupDateMakers", async () => {
+    listSpy.mockReturnValue({ data: null, error: { code: "XX000", message: "boom" } });
+    await expect(groupDateMakers([IDS.xmas])).rejects.toThrow(/^groupDateMakers failed: boom$/);
+    await expect(groupDateMakers([IDS.xmas])).rejects.toMatchObject({ code: "XX000" });
+  });
 });
 
 it("reads a group's summary with named columns and counts its members", async () => {
@@ -89,6 +145,7 @@ describe("a group the caller cannot see, and a failed read", () => {
     ["callerRole", () => callerRole(GARCIA, "user_2abcDEF")],
     ["inviteCodeOf", () => inviteCodeOf(GARCIA)],
     ["groupNameOf", () => groupNameOf(GARCIA)],
+    ["groupDateRow", () => groupDateRow(GRAN_80TH)],
   ])("throws on a database error naming the read: %s", async (name, read) => {
     maybeSingleSpy.mockResolvedValue({ data: null, error: { code: "XX000", message: "boom" } });
     await expect(read()).rejects.toThrow(new RegExp(`^${name} failed: boom$`));

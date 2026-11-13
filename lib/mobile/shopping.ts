@@ -87,13 +87,21 @@ export interface GroupMember {
   isYou: boolean;
   role: GroupRole;
 }
+/** An occasion on a group page, with the row id to change it by when it is a group date the caller may change. */
+export interface GroupOccasion extends ShoppingOccasion {
+  change: { id: string } | null;
+}
 export interface GroupPage {
   group: GroupPageGroup;
   members: GroupMember[];
-  occasions: ShoppingOccasion[];
+  occasions: GroupOccasion[];
 }
 
-/** A person the roles do not name is read as a member, the role that can do the least. */
+/**
+ * A person the roles do not name is read as a member, the role that can do the least. A group date carries `change`
+ * as the database decides who may change it: someone in the group who made it, or is an owner or admin of it. `makers`
+ * holds who made each of the group's dates; one it does not name is changed by an owner or admin alone.
+ */
 export function buildGroupPage(input: {
   callerId: string;
   group: MobileGroup & { description: string | null };
@@ -103,6 +111,7 @@ export function buildGroupPage(input: {
   upcoming: UpcomingOccasion[];
   profiles: ReadonlyMap<string, PersonRow>;
   views: GiftView[];
+  makers: ReadonlyMap<string, string | null>;
 }): GroupPage {
   const { callerId, group, members, roles, views } = input;
   const memberIds = new Set(members.map((m) => m.id));
@@ -110,6 +119,13 @@ export function buildGroupPage(input: {
     .map((m) => ({ row: m, person: mobilePerson(m) }))
     .sort((a, b) => byPersonName(a.person, b.person));
   const byGroup = new Map<string, PersonRow[]>([[group.id, members]]);
+  // undefined when the caller is not one of the group's members, who may change nothing
+  const callerRole = roles.get(callerId);
+  const change = (o: UpcomingOccasion): { id: string } | null => {
+    if (o.kind !== "group_date" || o.occasionId === null || callerRole === undefined) return null;
+    const allowed = callerRole === "owner" || callerRole === "admin" || input.makers.get(o.occasionId) === callerId;
+    return allowed ? { id: o.occasionId } : null;
+  };
   return {
     group: {
       id: group.id,
@@ -127,7 +143,10 @@ export function buildGroupPage(input: {
     })),
     occasions: homeOccasions(input.upcoming, callerId)
       .filter((o) => (o.kind === "group_date" ? o.groupId === group.id : occasionInvolvesAny(o, memberIds)))
-      .map((o) => shoppingOccasion(o, shoppingPeople(o, callerId, byGroup, input.profiles), views)),
+      .map((o) => ({
+        ...shoppingOccasion(o, shoppingPeople(o, callerId, byGroup, input.profiles), views),
+        change: change(o),
+      })),
   };
 }
 

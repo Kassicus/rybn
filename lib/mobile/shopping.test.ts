@@ -5,6 +5,7 @@ import { IDS, SAM, world } from "./test-shopping";
 import { RULES } from "./wishlist";
 import { SHOPPING_RULES } from "./shopping-rules";
 import { buildGiftViews } from "./gifts";
+import type { GroupRole } from "./groups";
 import { mobileOccasion, occasionsInvolving, sharedGroupIds } from "./occasions";
 import {
   buildChoices,
@@ -58,8 +59,38 @@ describe("buildGroupPage", () => {
   const rivera = w.members.get(IDS.rivera)!;
   const input = { callerId: SAM, group: { id: IDS.rivera, name: "Rivera Family", type: "family" as const, description: RIVERA_DESCRIPTION },
     members: rivera, roles: new Map(rivera.map((p) => [p.id, roleIn(IDS.rivera, p.id)])),
-    itemCounts: w.itemCounts, upcoming: w.upcoming, profiles: w.profiles, views };
+    itemCounts: w.itemCounts, upcoming: w.upcoming, profiles: w.profiles, views,
+    makers: new Map<string, string | null>([[IDS.xmas, SAM]]) };
   it("matches the group fixture", () => expect(buildGroupPage(input)).toEqual(fixture("group")));
+  it("offers a change only on a date the caller made, or to an owner or admin", () => {
+    const changes = (role: GroupRole, maker: string | null) => buildGroupPage({ ...input,
+      roles: new Map([...input.roles, [SAM, role]]), makers: new Map([[IDS.xmas, maker]]) }).occasions.map((o) => o.change);
+    const xmas = { id: IDS.xmas };
+    // Christmas 2026 first, then Mom's Birthday, which is nobody's to change
+    expect(changes("member", SAM)).toEqual([xmas, null]);
+    expect(changes("member", w.people.dad.id)).toEqual([null, null]);
+    expect(changes("admin", w.people.dad.id)).toEqual([xmas, null]);
+    expect(changes("owner", w.people.dad.id)).toEqual([xmas, null]);
+    // A maker whose account is gone, or a date whose maker was not read
+    expect(changes("member", null)).toEqual([null, null]);
+    expect(changes("admin", null)).toEqual([xmas, null]);
+    expect(buildGroupPage({ ...input, makers: new Map() }).occasions.map((o) => o.change)).toEqual([null, null]);
+  });
+  it("offers no change to a caller the roles do not name, as the database lets only a member change a date", () => {
+    const roles = new Map([...input.roles].filter(([id]) => id !== SAM));
+    expect(buildGroupPage({ ...input, roles }).occasions.map((o) => o.change)).toEqual([null, null]);
+  });
+  it("sends a date's row id and nothing else about who made it", () => {
+    const page = buildGroupPage({ ...input, roles: new Map([...input.roles, [SAM, "admin" as const]]),
+      makers: new Map([[IDS.xmas, "user_2gonABC"]]) });
+    expect(page.occasions.map((o) => o.change && Object.keys(o.change))).toEqual([["id"], null]);
+    expect(JSON.stringify(page)).not.toContain("user_2gonABC");
+  });
+  it("offers no change on a birthday, whoever made its row", () => {
+    const makers = new Map<string, string | null>([[IDS.xmas, SAM], [IDS.momBirthday, SAM]]);
+    expect(buildGroupPage({ ...input, makers, roles: new Map([...input.roles, [SAM, "owner" as const]]) })
+      .occasions.map((o) => [o.occasion.kind, o.change])).toEqual([["group_date", { id: IDS.xmas }], ["birthday", null]]);
+  });
   it("reads anyone the roles do not name as a member, the caller included", () => {
     const page = buildGroupPage({ ...input, roles: new Map([[w.people.mom.id, "owner" as const]]) });
     expect([page.group.role, page.members.map((m) => m.role)]).toEqual(["member", ["member", "member", "member", "member", "owner", "member"]]);

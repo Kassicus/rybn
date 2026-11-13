@@ -9,7 +9,8 @@ import { IDS, SAM, TODAY, world } from "./test-shopping";
 export type WorldMocks = { store: MemoryGiftStore; rpc: Mock; todayISO: Mock } & Record<
   | "getUpcomingOccasions" | "getMyGroups" | "getGroupById" | "getUserWishlist" | "getActiveClaims" | "getTagsForItems"
   | "getSharedGroups" | "getWishlistItem" | "releaseClaim" | "markAsPurchased" | "profiles" | "groupMembers"
-  | "memberCounts" | "visibleItemCounts" | "occasionRows" | "linkedItems" | "withSignedGiftPhotos" | "withSignedGiftPhoto",
+  | "memberCounts" | "visibleItemCounts" | "occasionRows" | "linkedItems" | "withSignedGiftPhotos" | "withSignedGiftPhoto"
+  | "groupDateMakers",
   Mock
 >;
 
@@ -95,6 +96,8 @@ export function worldMocks(): WorldMocks {
       photo_url: g.photo_url === null ? null : w.signedGiftPhoto(g.photo_url),
       photo_path: g.photo_url,
     })),
+    // Sam made Christmas 2026.
+    groupDateMakers: vi.fn(async (ids: string[]) => only(new Map([[IDS.xmas, SAM]]), ids)),
   };
 }
 

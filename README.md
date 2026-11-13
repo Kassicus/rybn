@@ -121,11 +121,14 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 | `POST /groups` | `{ group }` with `memberCount`; body `{ name, description, type }` (`description` may be null or left out). Name 1 to 50 characters after trimming, description at most 200, type one of the four (`lib/schemas/groups.ts`). |
 | `POST /groups/join` | `{ group }`; body `{ code }`, tidied as the website's form tidies it. 422 with the website's sentence for a bad code (one longer than 64 characters included), a second join, or an account still being set up. |
 | `GET /home` | `{ occasions }`, a year ahead, not the caller's own birthday, each with the people to shop for and the caller's gift count for each. |
-| `GET /groups/{id}` | `{ group, members, occasions }`, with `group.description`, `group.role` (the caller's) and each member's `role` (`owner`, `admin` or `member`); 404 when the caller is not in it. |
+| `GET /groups/{id}` | `{ group, members, occasions }`, with `group.description`, `group.role` (the caller's) and each member's `role` (`owner`, `admin` or `member`); each occasion's `change` is `{ id }` for a group date the caller may change (its maker, or an owner or admin), else null; 404 when the caller is not in it. |
 | `DELETE /groups/{id}` | 204; 422 for anyone but the owner; 404 when the caller is not in it. |
 | `GET /groups/{id}/invite` | `{ code }`, to members only; 404 when the caller is not in it. |
 | `POST /groups/{id}/invitations` | `{ sent, resent, message }`; body `{ email }`. 404 when the caller is not in it; 422 with the website's sentence for a bad address (one longer than 254 characters once trimmed included), the hourly limit, or someone already in the group. |
 | `DELETE /groups/{id}/membership` | 204; 422 for the owner; 404 when the caller is not in it. |
+| `POST /groups/{id}/dates` | `{ occasion }`, the new date as `GET /groups/{id}` sends it; body `{ name, date }`. 404 when the caller is not in the group; 422 with the website's sentence for a name or a date it refuses. |
+| `PUT /groups/{id}/dates/{dateId}` | `{ occasion }`; body `{ name, date }`. 404 for a date that is not there, not in that group, or not the caller's to change; 422 as for `POST`. |
+| `DELETE /groups/{id}/dates/{dateId}` | 204; 404 for a date that is not there, not in that group, or not the caller's to change. |
 | `GET /people/{id}/wishlist?occasion=<key>` | `{ person, occasion, occasions, gifts, items }`; the caller's own list answers items alone. |
 | `POST /wishlist/{id}/claim` | `{ gift }`, body `{ occasion }` (a key or null). A second POST by the person who already holds the item answers their gift again (it does not claim twice). |
 | `DELETE /wishlist/{id}/claim` | 204; 422 once the item is bought or its gift is past Claimed. |
@@ -156,10 +159,11 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 - Owner-blindness: Home, groups and a person's list never read claims on the caller's own items; the caller's own list answers with no claim state. Never send `claimedBy`, `out_of_stock_marked_by` or an email.
 - A group's invite code lets anyone holding it join. It is answered by `GET /groups/{id}/invite` to the group's members, and is never part of a list or a page.
 - An invitation's group name is read on the server, never taken from the request; the answer never holds the invitation's token.
+- A group date: name 1 to 200 characters; date `YYYY-MM-DD` and a real day. A date that is not there, or not the caller's to change, answers 404. Who may change or delete one is the database's rule (its maker, or an owner or admin of the group, while still in it); the routes ask the website's actions and never rely on the page's `change`, which follows the same rule.
 - The migration `20261111000000_shopping_links.sql` must be applied before these routes are merged (`npx supabase db push`).
 - Adding a value to an enumerated field (a priority, a privacy kind, a gift's step) is a breaking change for v1, because the app decodes strictly.
 
-`lib/mobile/fixtures/*.json` are the contract, including `wishlist.json`, `wishlist-item.json`, `wishlist-occasions.json`, `groups.json`, `wishlist-item-request.json`, `home.json`, `group-list.json`, `group.json`, `person-wishlist.json`, `gift.json`, `gifts.json`, `claim-request.json`, `gift-request.json`, `step-request.json`, `group-request.json`, `group-created.json`, `join-request.json`, `invite.json`, `invitation-request.json` and `invitation.json`. They are copied into `rybn-mobile/Packages/RybnKit/Tests/RybnKitTests/Fixtures/`, so change both together.
+`lib/mobile/fixtures/*.json` are the contract, including `wishlist.json`, `wishlist-item.json`, `wishlist-occasions.json`, `groups.json`, `wishlist-item-request.json`, `home.json`, `group-list.json`, `group.json`, `person-wishlist.json`, `gift.json`, `gifts.json`, `claim-request.json`, `gift-request.json`, `step-request.json`, `group-request.json`, `group-created.json`, `join-request.json`, `invite.json`, `invitation-request.json`, `invitation.json`, `group-date-request.json` and `group-date.json`. They are copied into `rybn-mobile/Packages/RybnKit/Tests/RybnKitTests/Fixtures/`, so change both together.
 
 ## Tech Stack
 

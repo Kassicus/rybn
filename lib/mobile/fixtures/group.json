@@ -140,7 +140,10 @@
         }
       ],
       "started": 2,
-      "total": 5
+      "total": 5,
+      "change": {
+        "id": "9c4b2e1a-7d3f-4e5a-8b6c-1d2e3f4a5b6c"
+      }
     },
     {
       "occasion": {
@@ -162,7 +165,8 @@
         }
       ],
       "started": 0,
-      "total": 1
+      "total": 1,
+      "change": null
     }
   ]
 }

@@ -23,6 +23,7 @@ vi.mock("@/lib/mobile/group-reads", () => ({
   callerRole: (...a: unknown[]) => holder.current.callerRole(...a),
   inviteCodeOf: (...a: unknown[]) => holder.current.inviteCodeOf(...a),
   groupNameOf: (...a: unknown[]) => holder.current.groupNameOf(...a),
+  groupDateMakers: (...a: unknown[]) => holder.current.groupDateMakers(...a),
 }));
 vi.mock("@/lib/actions/wishlist", () => ({
   getUserWishlist: (...a: unknown[]) => holder.current.getUserWishlist(...a),
@@ -110,7 +111,33 @@ describe("GET /api/mobile/v1/groups/[id]", () => {
     for (const o of body.occasions) {
       expect(o).toMatchObject({ occasion: expect.any(Object), people: expect.any(Array), started: expect.any(Number), total: expect.any(Number) });
       expect(Object.keys(o.occasion)).toEqual(["key", "kind", "title", "date", "group"]);
+      // The one field added to an occasion: which date the caller may change
+      expect(Object.keys(o)).toEqual(["occasion", "people", "started", "total", "change"]);
     }
+  });
+
+  it("marks the dates the caller may change, from who made this group's dates on the page", async () => {
+    const changes = async () =>
+      (await (await GET(get(IDS.rivera), ctx(IDS.rivera))).json()).occasions.map((o: { change: unknown }) => o.change);
+    expect(await changes()).toEqual([{ id: IDS.xmas }, null]);
+    expect(holder.current.groupDateMakers.mock.calls).toEqual([[[IDS.xmas]]]);
+    // Dad made it: Sam, a member, may not change it; as an admin he may
+    holder.current.groupDateMakers.mockResolvedValue(new Map([[IDS.xmas, world().people.dad.id]]));
+    expect(await changes()).toEqual([null, null]);
+    const read = holder.current.getGroupById.getMockImplementation()!;
+    holder.current.getGroupById.mockImplementation(async (id: string) => {
+      const found = await read(id);
+      return { data: { ...found.data, group_members: found.data.group_members.map(
+        (m: { user_id: string }) => (m.user_id === SAM ? { ...m, role: "admin" } : m)) } };
+    });
+    expect(await changes()).toEqual([{ id: IDS.xmas }, null]);
+  });
+
+  it("answers 500 when who made the dates cannot be read", async () => {
+    holder.current.groupDateMakers.mockRejectedValue(new Error("groupDateMakers failed: boom"));
+    const res = await GET(get(IDS.rivera), ctx(IDS.rivera));
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toMatch(/boom/);
   });
 
   it("answers the group's description and each member's role as getGroupById reads them", async () => {

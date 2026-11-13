@@ -1,16 +1,22 @@
 import { describe, it, expect } from "vitest";
 import { GROUP_RULES, GROUP_SENTENCES } from "@/lib/groups/sentences";
+import { GROUP_DATE_RULES, GROUP_DATE_SENTENCES } from "@/lib/occasions/sentences";
 import { GROUP_NOT_FOUND, NOT_A_MEMBER } from "./action-response";
 import {
+  GROUP_DATE_ROUTE_ANSWERS,
   GROUP_ROUTE_ANSWERS,
   INVITATION_WORDS,
+  groupDateOccasion,
   groupRole,
   invitationAnswer,
+  parseGroupDateBody,
   parseInvitationBody,
   parseJoinBody,
   parseNewGroupBody,
 } from "./groups";
 import { fixture } from "./test-fixtures";
+import { GRAN_80TH } from "./test-groups";
+import { IDS } from "./test-shopping";
 import { RULES } from "./wishlist";
 
 describe("groupRole", () => {
@@ -105,4 +111,51 @@ describe("the sentences the group routes match", () => {
     leave: { notFound: ["You are not a member of this group"], refusals: ["Owners cannot leave the group. Transfer ownership or delete the group."] },
     delete: { refusals: ["Only the owner can delete this group"] },
   }));
+});
+
+describe("a group date at the door", () => {
+  const rivera = { id: IDS.rivera, name: "Rivera Family" };
+
+  it("reads a date's body, and builds the date fixture's occasion", () => {
+    expect(parseGroupDateBody(fixture("group-date-request"))).toEqual({ ok: true, name: "Gran's 80th", date: "2027-03-14" });
+    expect({ occasion: groupDateOccasion(GRAN_80TH, "Gran's 80th", "2027-03-14", rivera) }).toEqual(fixture("group-date"));
+  });
+
+  it("passes the name and the date on as sent, for the action to check, and titles the date as the action stores it", () => {
+    expect(parseGroupDateBody({ name: "  Gran's 80th ", date: "2026-02-30", createdBy: "user_2momABC", groupId: IDS.bookClub }))
+      .toEqual({ ok: true, name: "  Gran's 80th ", date: "2026-02-30" });
+    expect(parseGroupDateBody({ name: "", date: "" })).toEqual({ ok: true, name: "", date: "" });
+    expect(groupDateOccasion(GRAN_80TH, "  Gran's 80th\n", "2027-03-14", rivera).title).toBe("Gran's 80th");
+  });
+
+  it.each([
+    [{ date: "2027-03-14" }, "Give this occasion a name"],
+    [{ name: "x" }, "Please enter a valid date (YYYY-MM-DD)"],
+    ["x", "That request wasn't valid."],
+    [{ name: 7, date: "2027-03-14" }, "Give this occasion a name"],
+    [{ name: null, date: "2027-03-14" }, "Give this occasion a name"],
+    [{ name: "x", date: 20270314 }, "Please enter a valid date (YYYY-MM-DD)"],
+    [{ name: "x", date: null }, "Please enter a valid date (YYYY-MM-DD)"],
+    [[], RULES.request], [null, RULES.request], [undefined, RULES.request],
+  ])("refuses %j", (raw, message) => expect(parseGroupDateBody(raw)).toEqual({ ok: false, message }));
+});
+
+describe("the sentences the group date routes match", () => {
+  it("are each one the date actions answer from a shared module", () => {
+    const exported: string[] = [
+      ...Object.values(GROUP_DATE_SENTENCES), ...Object.values(GROUP_DATE_RULES), ...Object.values(GROUP_SENTENCES)];
+    const matched = Object.values(GROUP_DATE_ROUTE_ANSWERS).flatMap((answers): readonly string[] => [
+      ...answers.notFound, ...("refusals" in answers ? answers.refusals : [])]);
+    expect(matched.length).toBeGreaterThan(0);
+    for (const sentence of matched) expect(exported).toContain(sentence);
+  });
+
+  it("are the ones each route passes on", () => {
+    const refusals = ["Give this occasion a name", "Keep the name to 200 characters or fewer.", "Please enter a valid date (YYYY-MM-DD)"];
+    expect(GROUP_DATE_ROUTE_ANSWERS).toEqual({
+      add: { notFound: ["You are not a member of this group"], refusals },
+      save: { notFound: ["That occasion no longer exists, or is not yours to edit"], refusals },
+      delete: { notFound: ["That occasion no longer exists, or is not yours to delete"] },
+    });
+  });
 });

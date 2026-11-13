@@ -9,6 +9,7 @@ import { GROUP_NOT_FOUND, NOT_A_MEMBER, NOT_SIGNED_IN, databaseFailure } from ".
 import { PERSON_ID, pathUuid } from "./database";
 import { createGiftStore } from "./gift-store-live";
 import { loadGiftViews } from "./gift-views-live";
+import { groupDateMakers } from "./group-reads";
 import { groupRole } from "./groups";
 import type { PersonRow } from "./occasions";
 import {
@@ -98,7 +99,14 @@ export async function groupAnswer(userId: string, rawGroupId: string): Promise<R
   const itemCounts = await visibleItemCounts(members.map((m) => m.id));
   const upcoming = await upcomingForCaller();
   if (upcoming instanceof Response) return upcoming;
-  const [people, views] = await Promise.all([profiles(celebrantIds(upcoming)), loadGiftViews(userId, store, today)]);
+  // This group's dates on the page, whose makers say which of them the caller may change.
+  const dateIds = upcoming.flatMap((o) =>
+    o.kind === "group_date" && o.groupId === group.id && o.occasionId !== null ? [o.occasionId] : []);
+  const [people, views, makers] = await Promise.all([
+    profiles(celebrantIds(upcoming)),
+    loadGiftViews(userId, store, today),
+    groupDateMakers(dateIds),
+  ]);
   return buildGroupPage({
     callerId: userId,
     group: { id: group.id, name: group.name, type: group.type ?? "custom", description: group.description ?? null },
@@ -108,6 +116,7 @@ export async function groupAnswer(userId: string, rawGroupId: string): Promise<R
     upcoming,
     profiles: people,
     views,
+    makers,
   });
 }
 

@@ -344,6 +344,35 @@ describe("createGroupDate", () => {
     expect(insertSpy).not.toHaveBeenCalled();
   });
 
+  it("refuses a date that is not a real day, before reaching the database", async () => {
+    for (const occasionDate of ["2026-02-30", "2026-02-29", "2026-04-31", "2026-13-01", "0000-01-01"]) {
+      const result = await createGroupDate({ groupId: GROUP_ID, name: "Christmas 2026", occasionDate });
+      expect(result).toEqual({ error: "Please enter a valid date (YYYY-MM-DD)" });
+    }
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it("refuses a 201-character name with a sentence", async () => {
+    const result = await createGroupDate({ groupId: GROUP_ID, name: "n".repeat(201), occasionDate: "2026-12-25" });
+
+    expect(result).toEqual({ error: "Keep the name to 200 characters or fewer." });
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it("takes what the website's form sends: a leap day, and a 200-character name with spaces around it, stored trimmed", async () => {
+    supabase = createSupabaseMock({
+      occasions: [{ data: { id: "occasion-1" }, error: null }],
+    });
+
+    const result = await createGroupDate({ groupId: GROUP_ID, name: ` ${"n".repeat(200)} `, occasionDate: "2028-02-29" });
+
+    expect(result).toEqual({ data: { id: "occasion-1" } });
+    expect(insertSpy).toHaveBeenCalledWith(
+      "occasions",
+      expect.objectContaining({ name: "n".repeat(200), occasion_date: "2028-02-29" })
+    );
+  });
+
   it('reports "You are not a member of this group" on a 42501, not the raw policy error', async () => {
     supabase = createSupabaseMock({
       occasions: [
@@ -404,6 +433,14 @@ describe("updateGroupDate", () => {
     });
 
     expect(result.error).toBeTruthy();
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("refuses a date that is not a real day, and a 201-character name, with a sentence, before reaching the database", async () => {
+    expect(await updateGroupDate("occasion-1", { name: "Christmas Party", occasionDate: "2026-02-30" }))
+      .toEqual({ error: "Please enter a valid date (YYYY-MM-DD)" });
+    expect(await updateGroupDate("occasion-1", { name: "n".repeat(201), occasionDate: "2026-12-24" }))
+      .toEqual({ error: "Keep the name to 200 characters or fewer." });
     expect(updateSpy).not.toHaveBeenCalled();
   });
 

@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { GROUP_RULES, GROUP_SENTENCES } from "@/lib/groups/sentences";
+import { GROUP_DATE_RULES, GROUP_DATE_SENTENCES } from "@/lib/occasions/sentences";
 import { createGroupSchema } from "@/lib/schemas/groups";
 import type { GroupType } from "@/types/privacy";
 import type { ActionAnswers } from "./action-response";
+import { mobileOccasion, type MobileOccasion } from "./occasions";
 import { RULES } from "./wishlist";
 
 /** A person's place in a group, as group_members stores it. */
@@ -34,6 +36,19 @@ export const GROUP_ROUTE_ANSWERS = {
   },
   leave: { notFound: [GROUP_SENTENCES.notAMember], refusals: [GROUP_SENTENCES.ownerCannotLeave] },
   delete: { refusals: [GROUP_SENTENCES.onlyOwnerDeletes] },
+} as const satisfies Record<string, ActionAnswers>;
+
+const DATE_REFUSALS = [GROUP_DATE_RULES.name, GROUP_DATE_RULES.nameTooLong, GROUP_DATE_RULES.date] as const;
+
+/**
+ * As GROUP_ROUTE_ANSWERS, for the group date routes and the actions they call (lib/actions/occasions.ts), whose
+ * sentences are in lib/occasions/sentences.ts. A date the caller may not change answers 404, as one that is not there
+ * does: the actions answer both with one sentence, on purpose.
+ */
+export const GROUP_DATE_ROUTE_ANSWERS = {
+  add: { notFound: [GROUP_SENTENCES.notAMember], refusals: DATE_REFUSALS },
+  save: { notFound: [GROUP_DATE_SENTENCES.notYoursToEdit], refusals: DATE_REFUSALS },
+  delete: { notFound: [GROUP_DATE_SENTENCES.notYoursToDelete] },
 } as const satisfies Record<string, ActionAnswers>;
 
 export interface NewGroupBody {
@@ -107,4 +122,34 @@ export function invitationAnswer(result: { emailSent: boolean; isResend: boolean
     resent: result.isResend === true,
     message: typeof result.warning === "string" && result.warning !== "" ? result.warning : words,
   };
+}
+
+/**
+ * A group date's name and date as the app sent them: createGroupDate and updateGroupDate trim the name and check both
+ * (GROUP_DATE_RULES). A body that is not an object is refused with the plain sentence, and one whose name or date is
+ * not text with the action's sentence for it, before the action. Nothing else in the body is read.
+ */
+export function parseGroupDateBody(raw: unknown): { ok: true; name: string; date: string } | { ok: false; message: string } {
+  if (!isRecord(raw)) return { ok: false, message: RULES.request };
+  if (typeof raw.name !== "string") return { ok: false, message: GROUP_DATE_RULES.name };
+  if (typeof raw.date !== "string") return { ok: false, message: GROUP_DATE_RULES.date };
+  return { ok: true, name: raw.name, date: raw.date };
+}
+
+/** The occasion a group date the action has just saved is, as GET /groups/{id} sends it: its name trimmed, as stored. */
+export function groupDateOccasion(id: string, name: string, date: string, group: { id: string; name: string }): MobileOccasion {
+  return mobileOccasion({
+    occasionId: id,
+    kind: "group_date",
+    name: name.trim(),
+    occasionDate: date,
+    celebrantId: null,
+    celebrantUsername: null,
+    celebrantDisplayName: null,
+    groupId: group.id,
+    groupName: group.name,
+    partnerId: null,
+    partnerUsername: null,
+    partnerDisplayName: null,
+  });
 }

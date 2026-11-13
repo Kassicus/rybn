@@ -10,6 +10,8 @@ export const CODE = "K7P-MXR-4TQ";
 /** The group group-request.json makes. */
 export const GARCIA = "5a6b7c8d-1e2f-4a3b-9c4d-5e6f7a8b9c0d";
 export const RIVERA_DESCRIPTION = "Everyone on Mom's side.";
+/** The date group-date-request.json adds to Rivera Family. */
+export const GRAN_80TH = "3f9e8d7c-6b5a-4c3d-8e2f-1a0b9c8d7e6f";
 
 const PEOPLE = world().people;
 
@@ -23,13 +25,15 @@ export function roleIn(groupId: string, personId: string): GroupRole {
 
 export type GroupMocks = Record<
   | "createGroup" | "joinGroupByCode" | "sendGroupInvitation" | "leaveGroup" | "deleteGroup"
-  | "groupSummary" | "callerRole" | "inviteCodeOf" | "groupNameOf",
+  | "createGroupDate" | "updateGroupDate" | "deleteGroupDate"
+  | "groupSummary" | "callerRole" | "inviteCodeOf" | "groupNameOf" | "groupDateRow",
   Mock
 >;
 
 /**
- * The group and invitation actions, each succeeding as the website's does, and the reads of lib/mobile/group-reads as
- * Sam's own client would answer them: the world's two groups, and Garcia Cousins once it is made.
+ * The group, invitation and group date actions, each succeeding as the website's does, and the reads of
+ * lib/mobile/group-reads as Sam's own client would answer them: the world's two groups, Garcia Cousins once it is made,
+ * and Rivera Family's two dates, Christmas 2026 and Gran's 80th once it is added.
  */
 export function groupMocks(): GroupMocks {
   const w = world();
@@ -38,6 +42,7 @@ export function groupMocks(): GroupMocks {
   );
   const isIn = (groupId: string, personId: string) =>
     groupId === GARCIA ? personId === SAM : (w.members.get(groupId) ?? []).some((p) => p.id === personId);
+  const dateGroups = new Map([[IDS.xmas, IDS.rivera], [GRAN_80TH, IDS.rivera]]);
 
   return {
     // The whole row, as the action answers it.
@@ -59,9 +64,17 @@ export function groupMocks(): GroupMocks {
     sendGroupInvitation: vi.fn(async () => ({ emailSent: true, isResend: false })),
     leaveGroup: vi.fn(async () => ({ success: true })),
     deleteGroup: vi.fn(async () => ({ success: true })),
+    createGroupDate: vi.fn(async () => ({ data: { id: GRAN_80TH } })),
+    updateGroupDate: vi.fn(async (id: string) => ({ data: { id } })),
+    deleteGroupDate: vi.fn(async () => ({ ok: true })),
     groupSummary: vi.fn(async (groupId: string) => (isIn(groupId, SAM) ? summaries.get(groupId) ?? null : null)),
     callerRole: vi.fn(async (groupId: string, userId: string) => (isIn(groupId, userId) ? roleIn(groupId, userId) : null)),
     inviteCodeOf: vi.fn(async (groupId: string) => (groupId === IDS.rivera ? CODE : isIn(groupId, SAM) ? "BKC-LUB-234" : null)),
     groupNameOf: vi.fn(async (groupId: string) => (isIn(groupId, SAM) ? summaries.get(groupId)?.name ?? null : null)),
+    // A group's dates are seen only by its members.
+    groupDateRow: vi.fn(async (dateId: string) => {
+      const groupId = dateGroups.get(dateId);
+      return groupId !== undefined && isIn(groupId, SAM) ? { id: dateId, groupId } : null;
+    }),
   };
 }
