@@ -1,10 +1,8 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
-import { GROUP_RULES } from "@/lib/schemas/groups";
-import { NOT_A_MEMBER } from "./action-response";
+import { GROUP_RULES, GROUP_SENTENCES } from "@/lib/groups/sentences";
+import { GROUP_NOT_FOUND, NOT_A_MEMBER } from "./action-response";
 import {
-  GROUP_REFUSALS,
+  GROUP_ROUTE_ANSWERS,
   INVITATION_WORDS,
   groupRole,
   invitationAnswer,
@@ -68,37 +66,28 @@ it("answers the invitation fixture for a first send, and says so for a resend an
   expect(INVITATION_WORDS).toEqual({ sent: "Invitation sent successfully!", resent: "Invitation resent successfully!" });
 });
 
-/** The source of one exported function of a server action module. */
-function actionSource(file: string, name: string): string {
-  const text = readFileSync(fileURLToPath(new URL(`../actions/${file}`, import.meta.url)), "utf8");
-  const start = text.indexOf(`export async function ${name}(`);
-  expect(start).toBeGreaterThanOrEqual(0);
-  const end = text.indexOf("\nexport ", start + 1);
-  return text.slice(start, end === -1 ? undefined : end);
-}
+describe("the sentences the group routes match", () => {
+  const exported: string[] = [...Object.values(GROUP_SENTENCES), ...Object.values(GROUP_RULES)];
+  const matched = [
+    ...Object.values(GROUP_ROUTE_ANSWERS).flatMap((answers): readonly string[] => [
+      ...("notFound" in answers ? answers.notFound : []), ...answers.refusals]),
+    GROUP_NOT_FOUND, NOT_A_MEMBER,   // GET /groups/{id}
+  ];
 
-describe("the site's sentences the group routes match", () => {
-  const says = (file: string, name: string, sentence: string) =>
-    expect(actionSource(file, name)).toContain(`error: ${JSON.stringify(sentence)}`);
-
-  it("joinGroupByCode answers each refusal the join route passes on", () => {
-    expect(readFileSync(fileURLToPath(new URL("../actions/invitations.ts", import.meta.url)), "utf8"))
-      .toContain(`const INVALID_INVITE_CODE = ${JSON.stringify(GROUP_REFUSALS.invalidCode)};`);
-    expect(actionSource("invitations.ts", "joinGroupByCode")).toContain("error: INVALID_INVITE_CODE");
-    says("invitations.ts", "joinGroupByCode", GROUP_REFUSALS.alreadyMember);
-    says("invitations.ts", "joinGroupByCode", GROUP_REFUSALS.stillSettingUp);
+  it("are each one that lib/groups/sentences exports, the module the actions answer from", () => {
+    expect(matched.length).toBeGreaterThan(0);
+    for (const sentence of matched) expect(exported).toContain(sentence);
   });
 
-  it("sendGroupInvitation answers each refusal the invitation route passes on", () => {
-    expect(actionSource("invitations.ts", "sendGroupInvitation")).toContain("error: GROUP_RULES.email");
-    says("invitations.ts", "sendGroupInvitation", NOT_A_MEMBER);
-    says("invitations.ts", "sendGroupInvitation", GROUP_REFUSALS.hourlyLimit);
-    says("invitations.ts", "sendGroupInvitation", GROUP_REFUSALS.alreadyInGroup);
-  });
-
-  it("leaveGroup and deleteGroup answer the refusals the membership and group routes pass on", () => {
-    says("groups.ts", "leaveGroup", NOT_A_MEMBER);
-    says("groups.ts", "leaveGroup", GROUP_REFUSALS.ownerCannotLeave);
-    says("groups.ts", "deleteGroup", GROUP_REFUSALS.onlyOwnerDeletes);
-  });
+  it("are the ones each route passes on", () => expect(GROUP_ROUTE_ANSWERS).toEqual({
+    join: { refusals: ["Invalid invite code", "You are already a member of this group", "Your account is still being set up. Please try again."] },
+    invitation: {
+      notFound: ["You are not a member of this group"],
+      refusals: ["Please enter a valid email address",
+        "Rate limit exceeded. You can send up to 10 invitations per hour. Please try again later.",
+        "This user is already a member of the group"],
+    },
+    leave: { notFound: ["You are not a member of this group"], refusals: ["Owners cannot leave the group. Transfer ownership or delete the group."] },
+    delete: { refusals: ["Only the owner can delete this group"] },
+  }));
 });

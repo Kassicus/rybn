@@ -18,9 +18,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  */
 
 /**
- * Mirrors EMAIL_SEND_FAILED_MESSAGE in ./invitations. It cannot be imported:
- * that module is "use server", where every export must be an async function.
- * If the wording there changes, these assertions fail -- which is the intent.
+ * The warning the action answers (GROUP_SENTENCES.emailNotSent in
+ * lib/groups/sentences.ts), written out rather than imported: if the wording
+ * there changes, these assertions fail -- which is the intent.
  */
 const EMAIL_SEND_FAILED_MESSAGE =
   "The invitation is saved, but we couldn't send the email just now. " +

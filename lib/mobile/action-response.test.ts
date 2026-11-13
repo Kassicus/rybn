@@ -3,10 +3,9 @@ import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import {
   ACTION_FALLBACK,
-  GROUP_NOT_FOUND,
-  NOT_A_MEMBER,
   NOT_SIGNED_IN,
   NOT_THE_CLAIMER,
+  actionAnswer,
   actionFailure,
   databaseFailure,
 } from "./action-response";
@@ -71,10 +70,36 @@ function actionSource(file: string, name: string): string {
 describe("the site's sentences the routes match", () => {                                          // Minor 6
   it("NOT_THE_CLAIMER is the refusal markAsPurchased answers", () =>
     expect(actionSource("wishlist.ts", "markAsPurchased")).toContain(`error: ${JSON.stringify(NOT_THE_CLAIMER)}`));
-  it("GROUP_NOT_FOUND and NOT_A_MEMBER are the two refusals getGroupById answers", () => {
-    const source = actionSource("groups.ts", "getGroupById");
-    expect(source).toContain(`error: ${JSON.stringify(GROUP_NOT_FOUND)}`);
-    expect(source).toContain(`error: ${JSON.stringify(NOT_A_MEMBER)}`);
+});
+
+describe("actionAnswer", () => {
+  const answers = { notFound: ["You are not a member of this group"], refusals: ["Only the owner can delete this group"] };
+
+  it("answers 404, saying nothing more, for a sentence the route says is not there", async () => {
+    const res = actionAnswer(fail("You are not a member of this group"), "leaveGroup", answers);
+    expect([res?.status, await res!.json()]).toEqual([404, { error: { code: "not_found", message: "That isn't there any more." } }]);
+  });
+
+  it("answers 422 with the website's words for a sentence the route passes on", async () => {
+    const res = actionAnswer(fail("Only the owner can delete this group"), "deleteGroup", answers);
+    expect([res?.status, (await res!.json()).error]).toEqual([422, { code: "invalid", message: "Only the owner can delete this group" }]);
+  });
+
+  it("answers 401 when signed out, whatever the lists say", () => {
+    expect(actionAnswer(fail(NOT_SIGNED_IN), "x", answers)?.status).toBe(401);
+    expect(actionAnswer(fail(NOT_SIGNED_IN), "x", { refusals: [NOT_SIGNED_IN] })?.status).toBe(401);
+  });
+
+  it("throws, naming the action and its words, for any other error", () => {
+    expect(() => actionAnswer(fail("Failed to leave the group. Please try again."), "leaveGroup", answers))
+      .toThrow(/^leaveGroup failed: Failed to leave the group\. Please try again\.$/);
+    expect(() => actionAnswer({ error: 5 }, "leaveGroup", answers)).toThrow(/leaveGroup failed: 5/);
+    expect(() => actionAnswer(fail("Only the owner can delete this group"), "deleteGroup")).toThrow(/deleteGroup failed/);
+  });
+
+  it("is null on success", () => {
+    expect(actionAnswer(okTrue(), "x", answers)).toBeNull();
+    expect(actionAnswer({ data: {}, error: null }, "x", answers)).toBeNull();
   });
 });
 

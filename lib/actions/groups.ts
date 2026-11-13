@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateInviteCode } from "@/lib/utils/groups";
 import { createGroupSchema, type CreateGroupInput } from "@/lib/schemas/groups";
+import { GROUP_SENTENCES } from "@/lib/groups/sentences";
 import { revalidatePath } from "next/cache";
 
 import { getUserId } from "@/lib/auth/require-auth";
@@ -80,7 +81,7 @@ async function rotateInviteCode(
   const inviteCode = await findUnusedInviteCode(supabase, context);
 
   if (!inviteCode) {
-    return { error: "Failed to generate a new invite code. Please try again." };
+    return { error: GROUP_SENTENCES.newCodeFailed };
   }
 
   const adminClient = createAdminClient();
@@ -94,12 +95,12 @@ async function rotateInviteCode(
 
   if (updateError) {
     console.error(`${context}: invite code rotation failed`, updateError);
-    return { error: "Failed to rotate the group's invite code. Please try again." };
+    return { error: GROUP_SENTENCES.rotateFailed };
   }
 
   if (!updated) {
     console.error(`${context}: invite code rotation matched no group`, groupId);
-    return { error: "Failed to rotate the group's invite code. Please try again." };
+    return { error: GROUP_SENTENCES.rotateFailed };
   }
 
   return { inviteCode: updated.invite_code };
@@ -139,7 +140,7 @@ export async function createGroup(formData: CreateGroupInput) {
   const inviteCode = await findUnusedInviteCode(supabase, "createGroup");
 
   if (!inviteCode) {
-    return { error: "Failed to generate unique invite code. Please try again." };
+    return { error: GROUP_SENTENCES.uniqueCodeFailed };
   }
 
   // Use admin client to create the group (bypasses RLS)
@@ -160,12 +161,12 @@ export async function createGroup(formData: CreateGroupInput) {
 
   if (groupError) {
     console.error("Error creating group:", groupError);
-    return { error: "Failed to create group. Please try again." };
+    return { error: GROUP_SENTENCES.createFailed };
   }
 
   if (!group) {
     console.error("No group returned after insert");
-    return { error: "Failed to create group. Please try again." };
+    return { error: GROUP_SENTENCES.createFailed };
   }
 
   // Revalidate the groups page
@@ -234,11 +235,11 @@ export async function getGroupById(groupId: string) {
 
   if (groupError) {
     console.error("Error fetching group:", groupError);
-    return { error: "Failed to load group. Please try again." };
+    return { error: GROUP_SENTENCES.loadFailed };
   }
 
   if (!group) {
-    return { error: "Group not found" };
+    return { error: GROUP_SENTENCES.groupNotFound };
   }
 
   // Get group members
@@ -255,7 +256,7 @@ export async function getGroupById(groupId: string) {
   const isMember = members.some((member) => member.user_id === userId);
 
   if (!isMember) {
-    return { error: "You are not a member of this group" };
+    return { error: GROUP_SENTENCES.notAMember };
   }
 
   // Get user profiles for all members
@@ -323,7 +324,7 @@ export async function leaveGroup(groupId: string) {
 
   if (membershipError) {
     console.error("leaveGroup: membership lookup failed", membershipError);
-    return { error: "Failed to verify group membership. Please try again." };
+    return { error: GROUP_SENTENCES.verifyFailed };
   }
 
   // Non-membership is now a REJECTION, not a no-op.
@@ -335,11 +336,11 @@ export async function leaveGroup(groupId: string) {
   // URL. This check is what keeps rotation reachable only by a member acting
   // on their own membership.
   if (!membership) {
-    return { error: "You are not a member of this group" };
+    return { error: GROUP_SENTENCES.notAMember };
   }
 
   if (membership.role === "owner") {
-    return { error: "Owners cannot leave the group. Transfer ownership or delete the group." };
+    return { error: GROUP_SENTENCES.ownerCannotLeave };
   }
 
   const rotation = await rotateInviteCode(groupId, supabase, "leaveGroup");
@@ -363,7 +364,7 @@ export async function leaveGroup(groupId: string) {
         "the caller is still a member and the group's code has changed",
       { groupId, userId, error }
     );
-    return { error: "Failed to leave the group. Please try again." };
+    return { error: GROUP_SENTENCES.leaveFailed };
   }
 
   revalidatePath("/groups");
@@ -395,11 +396,11 @@ export async function deleteGroup(groupId: string) {
   // A role that could not be read is not a refusal: say so, and delete nothing.
   if (membershipError) {
     console.error("deleteGroup: membership lookup failed", membershipError);
-    return { error: "Failed to verify group membership. Please try again." };
+    return { error: GROUP_SENTENCES.verifyFailed };
   }
 
   if (membership?.role !== "owner") {
-    return { error: "Only the owner can delete this group" };
+    return { error: GROUP_SENTENCES.onlyOwnerDeletes };
   }
 
   // Delete the group (cascade will handle members)

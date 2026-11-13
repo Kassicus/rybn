@@ -9,11 +9,12 @@ import {
   tidyInviteCode,
 } from "@/lib/utils/groups";
 import { GROUP_RULES, invitationEmailSchema } from "@/lib/schemas/groups";
+import { GROUP_SENTENCES } from "@/lib/groups/sentences";
 import { sendGroupInviteEmail } from "@/lib/resend/send";
 import { revalidatePath } from "next/cache";
 
 /**
- * What an inviter sees when the send fails.
+ * What an inviter sees when the send fails (GROUP_SENTENCES.emailNotSent).
  *
  * Deliberately generic, and the genericness is the point. `emailError` holds
  * the provider's own words, which for the failure that prompted this read
@@ -26,18 +27,14 @@ import { revalidatePath } from "next/cache";
  * "Try resending" is honest advice for every failure shape reaching here: the
  * invitation row is committed before the send is attempted, so a failed email
  * never costs the user the invitation, and resending picks up the same row.
- *
- * Not exported -- see the "use server" constraint above.
  */
-const EMAIL_SEND_FAILED_MESSAGE =
-  "The invitation is saved, but we couldn't send the email just now. " +
-  "Try resending it in a moment.";
+const EMAIL_SEND_FAILED_MESSAGE = GROUP_SENTENCES.emailNotSent;
 
 /** A group's id: anything else names no group, so it is never sent to the database. */
 const GROUP_ID = z.guid();
 
 /** What joinGroupByCode answers for any code that opens no group. */
-const INVALID_INVITE_CODE = "Invalid invite code";
+const INVALID_INVITE_CODE = GROUP_SENTENCES.invalidCode;
 
 /** A tidied invite code's only shape; tidyInviteCode puts the dashes back. */
 const INVITE_CODE_SHAPE = /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/;
@@ -81,7 +78,7 @@ export async function sendGroupInvitation(data: {
   const email = parsedEmail.data;
 
   if (!GROUP_ID.safeParse(data.groupId).success) {
-    return { error: "You are not a member of this group" };
+    return { error: GROUP_SENTENCES.notAMember };
   }
 
   // Clerk's auth() only returns ids, so the inviter's display details come
@@ -106,9 +103,7 @@ export async function sendGroupInvitation(data: {
   if (rateLimitError) {
     console.error("Rate limit check failed:", rateLimitError);
   } else if (recentInvites && recentInvites.length >= 10) {
-    return {
-      error: "Rate limit exceeded. You can send up to 10 invitations per hour. Please try again later."
-    };
+    return { error: GROUP_SENTENCES.hourlyLimit };
   }
 
   // Check if user is a member of the group, reading the group's name with it
@@ -121,13 +116,13 @@ export async function sendGroupInvitation(data: {
 
   if (membershipError) {
     console.error("Membership check failed:", membershipError);
-    return { error: "Failed to verify group membership. Please try again." };
+    return { error: GROUP_SENTENCES.verifyFailed };
   }
 
   // A row with no group is no membership. The name itself may be any string
   // the group was stored with, the empty one included.
   if (!membership || !membership.groups) {
-    return { error: "You are not a member of this group" };
+    return { error: GROUP_SENTENCES.notAMember };
   }
   const groupName = membership.groups.name;
 
@@ -147,7 +142,7 @@ export async function sendGroupInvitation(data: {
       .maybeSingle();
 
     if (alreadyMember) {
-      return { error: "This user is already a member of the group" };
+      return { error: GROUP_SENTENCES.alreadyInGroup };
     }
   }
 
@@ -188,12 +183,12 @@ export async function sendGroupInvitation(data: {
       console.error("Error updating invitation:", updateError);
       console.error("Update error details:", JSON.stringify(updateError, null, 2));
       console.error("Attempted to update invitation ID:", existingInvite.id);
-      return { error: "Failed to update invitation. Please try again." };
+      return { error: GROUP_SENTENCES.updateInvitationFailed };
     }
 
     if (!updatedInvite) {
       console.error("No invitation returned after update for ID:", existingInvite.id);
-      return { error: "Failed to update invitation. Please try again." };
+      return { error: GROUP_SENTENCES.updateInvitationFailed };
     }
 
     console.log("Successfully updated invitation:", updatedInvite.id);
@@ -213,12 +208,12 @@ export async function sendGroupInvitation(data: {
 
     if (inviteError) {
       console.error("Error creating invitation:", inviteError);
-      return { error: "Failed to create invitation. Please try again." };
+      return { error: GROUP_SENTENCES.createInvitationFailed };
     }
 
     if (!newInvite) {
       console.error("No invitation returned after insert");
-      return { error: "Failed to create invitation. Please try again." };
+      return { error: GROUP_SENTENCES.createInvitationFailed };
     }
   }
 
@@ -334,7 +329,7 @@ export async function acceptInvitation(token: string): Promise<
       // apart here: distinguishing them would turn this action into an oracle
       // for which tokens exist. One message covers all three.
       case "22023":
-        return { error: "This invitation is invalid or has expired" };
+        return { error: GROUP_SENTENCES.invitationInvalid };
       case "28000":
         return { error: "Not authenticated" };
       case "23503":
@@ -345,18 +340,16 @@ export async function acceptInvitation(token: string): Promise<
           userId,
           error
         );
-        return {
-          error: "Your account is still being set up. Please try again.",
-        };
+        return { error: GROUP_SENTENCES.stillSettingUp };
       default:
         console.error("acceptInvitation: RPC failed", error);
-        return { error: "Failed to accept invitation. Please try again." };
+        return { error: GROUP_SENTENCES.acceptFailed };
     }
   }
 
   if (!groupId) {
     console.error("acceptInvitation: RPC returned no group id");
-    return { error: "Failed to accept invitation. Please try again." };
+    return { error: GROUP_SENTENCES.acceptFailed };
   }
 
   revalidatePath("/groups");
@@ -417,7 +410,7 @@ export async function joinGroupByCode(inviteCode: string): Promise<
       case "22023":
         return { error: INVALID_INVITE_CODE };
       case "23505":
-        return { error: "You are already a member of this group" };
+        return { error: GROUP_SENTENCES.alreadyMember };
       case "28000":
         return { error: "Not authenticated" };
       case "23503":
@@ -426,18 +419,16 @@ export async function joinGroupByCode(inviteCode: string): Promise<
           userId,
           error
         );
-        return {
-          error: "Your account is still being set up. Please try again.",
-        };
+        return { error: GROUP_SENTENCES.stillSettingUp };
       default:
         console.error("joinGroupByCode: RPC failed", error);
-        return { error: "Failed to join group. Please try again." };
+        return { error: GROUP_SENTENCES.joinFailed };
     }
   }
 
   if (!groupId) {
     console.error("joinGroupByCode: RPC returned no group id");
-    return { error: "Failed to join group. Please try again." };
+    return { error: GROUP_SENTENCES.joinFailed };
   }
 
   revalidatePath("/groups");

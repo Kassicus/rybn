@@ -1,6 +1,8 @@
 import { z } from "zod";
-import { GROUP_RULES, createGroupSchema } from "@/lib/schemas/groups";
+import { GROUP_RULES, GROUP_SENTENCES } from "@/lib/groups/sentences";
+import { createGroupSchema } from "@/lib/schemas/groups";
 import type { GroupType } from "@/types/privacy";
+import type { ActionAnswers } from "./action-response";
 import { RULES } from "./wishlist";
 
 /** A person's place in a group, as group_members stores it. */
@@ -18,18 +20,21 @@ export const INVITATION_WORDS = {
 } as const;
 
 /**
- * The refusals of the group and invitation actions that the person can act on, as the actions answer them
- * (lib/actions/groups.ts, lib/actions/invitations.ts). The routes pass these on as 422 with the same words.
+ * For each group route, the sentences of the action it calls that it passes on (actionAnswer): `notFound` as 404, as
+ * for a group the caller cannot see, and `refusals` as 422 with the website's words. Each is the action's own sentence,
+ * from lib/groups/sentences.ts. Any other answer is a fault.
  */
-export const GROUP_REFUSALS = {
-  invalidCode: "Invalid invite code",
-  alreadyMember: "You are already a member of this group",
-  stillSettingUp: "Your account is still being set up. Please try again.",
-  hourlyLimit: "Rate limit exceeded. You can send up to 10 invitations per hour. Please try again later.",
-  alreadyInGroup: "This user is already a member of the group",
-  ownerCannotLeave: "Owners cannot leave the group. Transfer ownership or delete the group.",
-  onlyOwnerDeletes: "Only the owner can delete this group",
-} as const;
+export const GROUP_ROUTE_ANSWERS = {
+  join: {
+    refusals: [GROUP_SENTENCES.invalidCode, GROUP_SENTENCES.alreadyMember, GROUP_SENTENCES.stillSettingUp],
+  },
+  invitation: {
+    notFound: [GROUP_SENTENCES.notAMember],
+    refusals: [GROUP_RULES.email, GROUP_SENTENCES.hourlyLimit, GROUP_SENTENCES.alreadyInGroup],
+  },
+  leave: { notFound: [GROUP_SENTENCES.notAMember], refusals: [GROUP_SENTENCES.ownerCannotLeave] },
+  delete: { refusals: [GROUP_SENTENCES.onlyOwnerDeletes] },
+} as const satisfies Record<string, ActionAnswers>;
 
 export interface NewGroupBody {
   name: string;
@@ -62,7 +67,7 @@ const joinBodySchema = z.object({ code: z.string() });
 /** The code as the app sent it: joinGroupByCode tidies it. A body without a code is refused as a bad code is. */
 export function parseJoinBody(raw: unknown): { ok: true; code: string } | { ok: false; message: string } {
   const result = joinBodySchema.safeParse(raw);
-  return result.success ? { ok: true, code: result.data.code } : { ok: false, message: GROUP_REFUSALS.invalidCode };
+  return result.success ? { ok: true, code: result.data.code } : { ok: false, message: GROUP_SENTENCES.invalidCode };
 }
 
 const invitationBodySchema = z.object({ email: z.string() });
