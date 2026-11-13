@@ -8,8 +8,9 @@
 --      before insert for each row, and runs its function, which is SECURITY
 --      INVOKER with search_path pinned and executable by no API role. Its
 --      definition has no block comment, assigns no column of the new row
---      but privacy_settings (in any form of assignment) and never the row
---      itself, leaves a tied row alone, and reads the stored row for share.
+--      but privacy_settings (in any form of assignment, in upper or lower
+--      case) and never the row itself, leaves a tied row alone, and reads
+--      the stored row for share.
 --   2. What it does, live (assertions 6-13). p's stored choice is written as
 --      {work,friends,work}, so each field p inserts must come out naming
 --      ["friends", "work"]: once each, in the enum's order. A field carrying
@@ -161,22 +162,23 @@ begin
   ---------------------------------------------------------------------------
   -- Assertion 5: its definition has no block comment (the floor beneath the
   -- line-anchored patterns); assigns no column of the new row but
-  -- privacy_settings, whether with := or =, never selects into the new row
-  -- and never assigns the row itself (so it can never change whose row it
-  -- is); leaves a tied row alone; and reads the stored row for share.
+  -- privacy_settings, whether with := or =, in upper or lower case and
+  -- anywhere on a line; never selects into the new row and never assigns
+  -- the row itself (so it can never change whose row it is); leaves a tied
+  -- row alone; and reads the stored row for share.
   ---------------------------------------------------------------------------
   v_fn_def := pg_get_functiondef('public.profile_field_takes_stored_choice()'::regprocedure);
 
   select count(*) into v_count
-    from regexp_matches(v_fn_def, '(?n)^\s*new\.[a-z_]+\s*:?=', 'g') m;
+    from regexp_matches(v_fn_def, '\mnew\.[a-z_]+\s*:?=', 'gi') m;
 
   select count(*) into v_count2
-    from regexp_matches(v_fn_def, '(?n)^\s*new\.privacy_settings\s*:?=', 'g') m;
+    from regexp_matches(v_fn_def, '\mnew\.privacy_settings\s*:?=', 'gi') m;
 
   if position(v_block_open in v_fn_def) <> 0
      or v_count <> 1 or v_count2 <> 1
      or v_fn_def ~* '\minto\s+new\M'
-     or v_fn_def ~ '(?n)^\s*new\s*:?='
+     or v_fn_def ~* '\mnew\s*:?='
      or not v_fn_def ~
        '(?n)^\s*if coalesce\(new\.privacy_settings->''restrictToGroup'', ''null''::jsonb\) <> ''null''::jsonb then$'
      or not v_fn_def ~ '(?n)^\s*return new;$'

@@ -20,6 +20,10 @@
 --
 -- So confirm_anniversary_link's new anniversary rows, and a profile save's
 -- new rows, carry the choice stored when the row is written.
+-- 20260912000012's header and the comment above confirm_anniversary_link's
+-- insert (20261014000000) say a new anniversary row takes the column's
+-- default, all four kinds; from here on that holds only for a partner with no
+-- stored choice.
 --
 -- WHEN IT IS APPLIED. After the website code that saves a choice with
 -- set_profile_visibility (20261112000000) is live. That code writes a choice
@@ -31,6 +35,13 @@
 -- saved a choice by upserting every existing field with the new setting; with
 -- that code live, this trigger would replace the new setting with the one
 -- already stored.
+--
+-- Should the site ever run that earlier code again (a rollback), take the
+-- trigger off first, and put it back once the newer code is live again:
+--   drop trigger if exists profile_field_takes_stored_choice on public.profile_info;
+--   create trigger profile_field_takes_stored_choice
+--     before insert on public.profile_info
+--     for each row execute function public.profile_field_takes_stored_choice();
 --
 -- SECURITY INVOKER. The function reads profile_visibility as the role doing
 -- the insert, so it can never read a row that role could not read itself.
