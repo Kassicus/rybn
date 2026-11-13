@@ -64,7 +64,6 @@ export default function ProfileEditPage() {
     reset,
     resetField,
   } = useForm<ProfileEditFormData>({
-    // @ts-expect-error - Zod resolver type inference mismatch with React Hook Form
     resolver: zodResolver(profileEditSchema),
   });
 
@@ -135,7 +134,6 @@ export default function ProfileEditPage() {
       display_name: data.display_name,
       bio: data.bio,
       avatar_url: data.avatar_url,
-      visible_to_group_types: data.visible_to_group_types,
       ...changedFields(loaded, data),
     });
 
@@ -174,7 +172,6 @@ export default function ProfileEditPage() {
         </Text>
       </div>
 
-      {/* @ts-expect-error - Form submit handler type inference */}
       <form id="profile-edit-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Error banner */}
         {error && (

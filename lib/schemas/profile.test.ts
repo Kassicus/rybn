@@ -62,3 +62,12 @@ describe("profile text's characters", () => {
     expect(parsed.error?.issues.map((issue) => [issue.path, issue.message])).toEqual([[["shirt_size"], SENTENCE]]);
   });
 });
+
+describe("what a profile save carries", () => {
+  // Who sees a field is not the profile form's: a saved field keeps its own setting, and a new one takes the stored
+  // choice (updateProfile), so the form's data never names one, given one or not.
+  it("names no choice of who sees a field", () => {
+    expect(Object.keys(profileEditSchema.parse({ username: "sam", shirt_size: "M" }))).toEqual(["username", "shirt_size"]);
+    expect(profileEditSchema.parse({ username: "sam", visible_to_group_types: ["family"] })).toEqual({ username: "sam" });
+  });
+});

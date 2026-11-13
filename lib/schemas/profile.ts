@@ -49,32 +49,6 @@ function profileText(name: ProfileFieldName) {
 const DATE_MESSAGE = 'Please enter a valid date (YYYY-MM-DD)';
 
 /**
- * Basic profile information schema
- */
-export const basicProfileSchema = z.object({
-  username: z.string()
-    .min(3, 'Username must be at least 3 characters')
-    .max(30, 'Username must be at most 30 characters')
-    .regex(/^[a-zA-Z0-9_-]+$/, 'Username can only contain letters, numbers, underscores, and hyphens'),
-
-  display_name: z.string()
-    .max(50, 'Display name must be less than 50 characters')
-    .optional()
-    .nullable(),
-
-  bio: z.string()
-    .max(500, 'Bio must be less than 500 characters')
-    .optional()
-    .nullable(),
-
-  avatar_url: z.string()
-    .url('Please enter a valid URL')
-    .optional()
-    .nullable()
-    .or(z.literal('')),
-});
-
-/**
  * Profile info field schema (for categorized fields)
  */
 export const profileInfoFieldSchema = z.object({
@@ -148,9 +122,8 @@ export const profileEditSchema = z.object({
   birthday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, DATE_MESSAGE).refine(isCalendarDay, DATE_MESSAGE).optional().nullable().or(z.literal('')),
   anniversary: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, DATE_MESSAGE).refine(isCalendarDay, DATE_MESSAGE).optional().nullable().or(z.literal('')),
 
-  // Not read by updateProfile: a field keeps its own setting, and a new one
-  // takes the person's stored choice (lib/profile/visibility.ts).
-  visible_to_group_types: z.array(z.enum(['family', 'friends', 'work', 'custom'])).default([]),
+  // Who sees a field is not part of the form: a saved field keeps its own
+  // setting, and a new one takes the person's stored choice (updateProfile).
 
   // Per-field privacy overrides (optional for future use)
   privacy_overrides: z.object({
@@ -201,7 +174,6 @@ export const profileEditSchema = z.object({
   ).optional(),
 });
 
-export type BasicProfileFormData = z.infer<typeof basicProfileSchema>;
 export type ProfileInfoFieldData = z.infer<typeof profileInfoFieldSchema>;
 export type ProfileEditFormData = z.infer<typeof profileEditSchema>;
 

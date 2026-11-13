@@ -6,7 +6,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
-import type { BasicProfileFormData, ProfileEditFormData } from "@/lib/schemas/profile";
+import type { ProfileEditFormData } from "@/lib/schemas/profile";
 import { planProfileFields, profileEditSchema } from "@/lib/schemas/profile";
 import { newFieldPrivacy, readStoredChoice } from "@/lib/profile/visibility";
 import { PROFILE_SENTENCES } from "@/lib/profile/sentences";
@@ -106,48 +106,6 @@ export async function getUserProfile(profileUserId: string) {
       profile_info: profileInfo || [],
     },
   };
-}
-
-/**
- * Update basic profile information
- */
-export async function updateBasicProfile(formData: BasicProfileFormData) {
-  const supabase = await createClient();
-
-  const userId = await getUserId();
-
-  if (!userId) {
-    return { error: "Not authenticated" };
-  }
-
-  // Provision before writing: this updates the caller's own row, and layout
-  // provisioning races with page render (see getMyProfile above).
-  await ensureProfile();
-
-  // Update profile
-  const { data: profile, error: profileError } = await supabase
-    .from("user_profiles")
-    .update({
-      username: formData.username,
-      display_name: formData.display_name,
-      bio: formData.bio,
-      avatar_url: formData.avatar_url || null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", userId)
-    .select()
-    .single();
-
-  if (profileError) {
-    // Check for unique constraint violation
-    if (profileError.code === '23505' && profileError.message.includes('username')) {
-      return { error: PROFILE_SENTENCES.usernameTaken };
-    }
-    return { error: profileError.message };
-  }
-
-  revalidatePath("/profile");
-  return { data: profile };
 }
 
 /**

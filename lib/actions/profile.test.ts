@@ -534,7 +534,6 @@ describe("updateProfile", () => {
     });
     const input = {
       ...BROWSER_FORM,
-      visible_to_group_types: [],
       ...over,
     } as ProfileEditFormData;
 

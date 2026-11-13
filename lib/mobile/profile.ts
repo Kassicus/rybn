@@ -6,8 +6,7 @@ import {
   type ProfileFieldName,
 } from "@/lib/profile/fields";
 import { PROFILE_SENTENCES, VISIBILITY_INVALID } from "@/lib/profile/sentences";
-import { ALL_KINDS, isMixed, visibleToSchema } from "@/lib/profile/visibility";
-import type { ProfileEditFormData } from "@/lib/schemas/profile";
+import { isMixed, visibleToSchema } from "@/lib/profile/visibility";
 import type { GroupType } from "@/types/privacy";
 import type { ActionAnswers } from "./action-response";
 import { mobilePerson, type MobilePerson, type PersonRow } from "./occasions";
@@ -70,8 +69,8 @@ function catalogValues(info: readonly InfoRow[]): Map<ProfileFieldName, string> 
 
 /**
  * The caller's own profile, as the app's profile form draws it: every catalog field in the catalog's order with what
- * they saved in it, the four named columns of their row, and their stored choice of who sees their fields. Nothing
- * else of the row is read.
+ * they saved in it, the four named columns of their row, and their stored choice of who sees their fields, as
+ * getMySettings answers it (readStoredChoice puts it in order). Nothing else of the row is read.
  */
 export function buildMyProfile(
   row: { username: string | null; display_name: string | null; bio: string | null; avatar_url: string | null },
@@ -96,7 +95,7 @@ export function buildMyProfile(
         value: values.get(field.name) ?? null,
       })),
     })),
-    visibleTo: ALL_KINDS.filter((kind) => choice.includes(kind)),
+    visibleTo: [...choice],
     mixed: isMixed(choice, info.map((r) => r.privacy_settings)),
   };
 }
@@ -150,20 +149,10 @@ export function parseProfileBody(raw: unknown): { ok: true; body: ProfileBody } 
 
 /**
  * The profile form's data for a save: the three basic columns and the fields the body names. Never avatar_url, so the
- * save leaves the picture as it is, and never visible_to_group_types.
+ * save leaves the picture as it is.
  */
 export function profileFormData(body: ProfileBody): Record<string, unknown> {
   return { username: body.username, display_name: body.displayName, bio: body.bio, ...body.fields };
-}
-
-/**
- * The checked form data updateProfile is given: everything the form's schema passed except the visible_to_group_types
- * default it adds, so a save from the app never names who can see a field. The action checks its input with the same
- * schema, which gives that default back, and never reads it.
- */
-export function updateProfileInput(checked: ProfileEditFormData): ProfileEditFormData {
-  const { visible_to_group_types: _default, ...input } = checked;
-  return input as ProfileEditFormData;
 }
 
 /**

@@ -4,7 +4,6 @@
  */
 import { getMyProfile, getSharedGroups, updateProfile } from "@/lib/actions/profile";
 import { getMySettings, updatePrivacySettings, type UserSettings } from "@/lib/actions/settings";
-import { ALL_KINDS } from "@/lib/profile/visibility";
 import { profileEditSchema } from "@/lib/schemas/profile";
 import { actionAnswer, databaseFailure } from "./action-response";
 import { PERSON_ID } from "./database";
@@ -15,7 +14,6 @@ import {
   parseProfileBody,
   parseVisibilityBody,
   profileFormData,
-  updateProfileInput,
   type InfoRow,
   type MyProfileAnswer,
   type PersonProfileAnswer,
@@ -42,8 +40,8 @@ export async function myProfileAnswer(): Promise<Response | { profile: MyProfile
   if (failedSettings) return failedSettings;
 
   const data = (mine as { data: MyProfileData }).data;
-  const stored = (settings as { data: UserSettings }).data.privacy_settings.visible_to_group_types;
-  const choice: GroupType[] = ALL_KINDS.filter((kind) => stored.includes(kind));
+  // The stored choice in the order family, friends, work, other, as getMySettings reads it.
+  const choice = (settings as { data: UserSettings }).data.privacy_settings.visible_to_group_types as GroupType[];
   // The row's four named columns; its email and every other column stay here.
   const row = { username: data.username, display_name: data.display_name, bio: data.bio, avatar_url: data.avatar_url };
   return { profile: buildMyProfile(row, data.profile_info ?? [], choice) };
@@ -60,7 +58,8 @@ export async function saveProfileAnswer(raw: unknown): Promise<Response | { prof
   const checked = profileEditSchema.safeParse(profileFormData(parsed.body));
   if (!checked.success) return mobileError("invalid", checked.error.issues[0]?.message ?? RULES.request);
 
-  const result = await updateProfile(updateProfileInput(checked.data));
+  // What parseProfileBody gave, as the form's schema passed it.
+  const result = await updateProfile(checked.data);
   const failed = actionAnswer(result, "updateProfile", PROFILE_ROUTE_ANSWERS.save);
   if (failed) return failed;
   return myProfileAnswer();

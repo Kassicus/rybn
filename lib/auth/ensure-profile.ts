@@ -79,7 +79,7 @@ export async function ensureProfile(): Promise<string | null> {
   // Two reasons, both load-bearing:
   //
   //   1. username and display_name are edited IN THIS APP (see updateProfile
-  //      and updateBasicProfile in lib/actions/profile.ts). Clerk does not
+  //      in lib/actions/profile.ts). Clerk does not
   //      know about those edits, so a `do update` running on every request
   //      would overwrite a chosen username with a generated one.
   //   2. `.select()` on a do-nothing insert returns ONLY the rows actually

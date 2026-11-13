@@ -1,12 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { profileEditSchema } from "@/lib/schemas/profile";
 import {
   buildMyProfile,
   buildPersonProfile,
   parseProfileBody,
   parseVisibilityBody,
   profileFormData,
-  updateProfileInput,
   type InfoRow,
 } from "./profile";
 import { fixture } from "./test-fixtures";
@@ -52,8 +50,12 @@ describe("your own profile", () => {
     expect([onlyMe.visibleTo, onlyMe.mixed]).toEqual([[], false]);
   });
 
-  it("answers the choice in the order family, friends, work, other, once each", () =>
-    expect(buildMyProfile(SAM_ROW, [], ["custom", "family", "custom"]).visibleTo).toEqual(["family", "custom"]));
+  it("answers the stored choice as it is given, already in order (readStoredChoice), as a list of its own", () => {
+    const choice = Object.freeze(["family", "custom"] as const);
+    const profile = buildMyProfile(SAM_ROW, [], choice);
+    expect(profile.visibleTo).toEqual(["family", "custom"]);
+    expect(profile.visibleTo).not.toBe(choice);
+  });
 
   it("ignores a field it does not know and an empty value", () => {
     const info: InfoRow[] = [
@@ -140,13 +142,6 @@ describe("the body of a profile save", () => {
       shirt_size: "L",
       hobbies: null,
     });
-  });
-
-  it("gives updateProfile the checked fields without the schema's visibility default", () => {
-    const checked = profileEditSchema.parse({ username: "sam", display_name: null, bio: null, shirt_size: "L" });
-    expect(checked.visible_to_group_types).toEqual([]);
-    const input = updateProfileInput(checked);
-    expect(Object.keys(input)).toEqual(["username", "display_name", "bio", "shirt_size"]);
   });
 });
 
