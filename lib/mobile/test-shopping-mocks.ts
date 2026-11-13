@@ -3,7 +3,7 @@ import { vi, type Mock } from "vitest";
 import type { ClaimRow, ClaimedItem } from "./gifts";
 import { memoryGiftStore, type MemoryGiftStore } from "./test-gift-store";
 import { fixture, groupRows } from "./test-fixtures";
-import { RIVERA_DESCRIPTION, roleIn } from "./test-groups";
+import { BOOK_SWAP, RIVERA_DESCRIPTION, roleIn } from "./test-groups";
 import { IDS, SAM, TODAY, world } from "./test-shopping";
 
 export type WorldMocks = { store: MemoryGiftStore; rpc: Mock; todayISO: Mock } & Record<
@@ -96,8 +96,8 @@ export function worldMocks(): WorldMocks {
       photo_url: g.photo_url === null ? null : w.signedGiftPhoto(g.photo_url),
       photo_path: g.photo_url,
     })),
-    // Sam made Christmas 2026.
-    groupDateMakers: vi.fn(async (ids: string[]) => only(new Map([[IDS.xmas, SAM]]), ids)),
+    // Sam made Christmas 2026, and Priya Book Club's book swap.
+    groupDateMakers: vi.fn(async (ids: string[]) => only(new Map([[IDS.xmas, SAM], [BOOK_SWAP, w.people.priya.id]]), ids)),
   };
 }
 

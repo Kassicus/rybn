@@ -59,7 +59,7 @@ const { GET, DELETE } = await import("./route");
 const { bearer, oven, worldMocks } = await import("@/lib/mobile/test-shopping-mocks");
 const { memoryGiftStore } = await import("@/lib/mobile/test-gift-store");
 const { IDS, SAM, world } = await import("@/lib/mobile/test-shopping");
-const { CODE, groupMocks } = await import("@/lib/mobile/test-groups");
+const { BOOK_SWAP, CODE, bookSwap, groupMocks } = await import("@/lib/mobile/test-groups");
 
 const get = (id: string) => bearer(`http://localhost/api/mobile/v1/groups/${id}`);
 const del = (id: string) => bearer(`http://localhost/api/mobile/v1/groups/${id}`, { method: "DELETE" });
@@ -131,6 +131,21 @@ describe("GET /api/mobile/v1/groups/[id]", () => {
         (m: { user_id: string }) => (m.user_id === SAM ? { ...m, role: "admin" } : m)) } };
     });
     expect(await changes()).toEqual([{ id: IDS.xmas }, null]);
+  });
+
+  it("lists only the group's own dates, and asks who made only those", async () => {
+    // Sam is in both groups, so his occasions hold Book Club's book swap too
+    holder.current.getUpcomingOccasions.mockResolvedValue({ data: [...world().upcoming, bookSwap()] });
+    expect(await (await GET(get(IDS.rivera), ctx(IDS.rivera))).json()).toEqual(fixture("group"));
+    expect(holder.current.groupDateMakers.mock.calls).toEqual([[[IDS.xmas]]]);
+
+    holder.current.groupDateMakers.mockClear();
+    const club = await (await GET(get(IDS.bookClub), ctx(IDS.bookClub))).json();
+    const dates = club.occasions.filter((o: { occasion: { kind: string } }) => o.occasion.kind === "group_date");
+    // Priya, the owner, made it; Sam, a member, may not change it
+    expect(dates.map((o: { occasion: { key: string; group: unknown }; change: unknown }) => [o.occasion.key, o.occasion.group, o.change]))
+      .toEqual([[`group_date:${BOOK_SWAP}`, { id: IDS.bookClub, name: "Book Club" }, null]]);
+    expect(holder.current.groupDateMakers.mock.calls).toEqual([[[BOOK_SWAP]]]);
   });
 
   it("answers 500 when who made the dates cannot be read", async () => {

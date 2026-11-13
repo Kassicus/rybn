@@ -20,11 +20,8 @@ vi.mock("@/lib/mobile/group-reads", () => ({
 
 const { POST } = await import("./route");
 const { bearer } = await import("@/lib/mobile/test-shopping-mocks");
-const { groupMocks } = await import("@/lib/mobile/test-groups");
+const { ELSEWHERE, groupMocks } = await import("@/lib/mobile/test-groups");
 const { IDS } = await import("@/lib/mobile/test-shopping");
-
-/** A group Sam is not in. */
-const ELSEWHERE = "6c5d4e3f-2a1b-4c0d-9e8f-7a6b5c4d3e2f";
 
 const url = (id: string) => `http://localhost/api/mobile/v1/groups/${id}/dates`;
 const post = (body: unknown, id: string = IDS.rivera) =>
@@ -67,6 +64,12 @@ describe("POST /api/mobile/v1/groups/[id]/dates", () => {
     const res = await POST(post({ name: "  Gran's 80th ", date: "2027-03-14" }), ctx());
     expect((await res.json()).occasion.title).toBe("Gran's 80th");
     expect(holder.current.createGroupDate.mock.calls[0][0].name).toBe("  Gran's 80th ");
+  });
+
+  it("answers a name with hidden characters or a line break as the action stores it, on one line", async () => {
+    const res = await POST(post({ name: "Gran's\n80th\u{200B}\u{202E}party", date: "2027-03-14" }), ctx());
+    expect((await res.json()).occasion.title).toBe("Gran's 80th party");
+    expect(holder.current.createGroupDate.mock.calls[0][0].name).toBe("Gran's\n80th\u{200B}\u{202E}party");
   });
 
   it.each(["Give this occasion a name", "Keep the name to 200 characters or fewer.", "Please enter a valid date (YYYY-MM-DD)"])(

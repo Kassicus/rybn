@@ -126,6 +126,7 @@ describe("a group date at the door", () => {
       .toEqual({ ok: true, name: "  Gran's 80th ", date: "2026-02-30" });
     expect(parseGroupDateBody({ name: "", date: "" })).toEqual({ ok: true, name: "", date: "" });
     expect(groupDateOccasion(GRAN_80TH, "  Gran's 80th\n", "2027-03-14", rivera).title).toBe("Gran's 80th");
+    expect(groupDateOccasion(GRAN_80TH, "Gran's\n80th\u{200B}party", "2027-03-14", rivera).title).toBe("Gran's 80th party");
   });
 
   it.each([

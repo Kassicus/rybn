@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isCalendarDay } from "@/lib/utils/dates";
+import { tidyGroupText } from "@/lib/utils/groups";
 
 /** The sentences the group date actions answer for a name or a date they refuse. */
 export const GROUP_DATE_RULES = {
@@ -10,11 +11,19 @@ export const GROUP_DATE_RULES = {
 
 export const groupDateSchema = z.object({
   groupId: z.string().uuid(),
-  // Counted after trimming; the occasions table holds at most 200 (occasion_name_length).
-  name: z.string().trim().min(1, GROUP_DATE_RULES.name).max(200, GROUP_DATE_RULES.nameTooLong),
+  // Made one line and trimmed first, as a group's own name is (tidyGroupText:
+  // line breaks, control characters and invisible characters become spaces),
+  // so a name of only hidden characters is no name. Then counted; the
+  // occasions table holds at most 200 (occasion_name_length).
+  name: z
+    .string()
+    .overwrite(tidyGroupText)
+    .min(1, GROUP_DATE_RULES.name)
+    .max(200, GROUP_DATE_RULES.nameTooLong),
   // Matches the occasions.occasion_date column's 'YYYY-MM-DD' shape, and must
-  // name a day on the calendar (2026-02-30 is refused here, not by the
-  // database's own cast). occasion_date is a plain `date` column.
+  // name a day on the calendar: a date that is not a real day (2026-02-30) is
+  // refused here with a sentence, before the database's own cast would refuse
+  // it as an error. occasion_date is a plain `date` column.
   // celebration_date_in_year() never sees a group date at all; it only ever
   // runs over derived birthday/anniversary values from profile_info.
   occasionDate: z

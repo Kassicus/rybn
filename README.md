@@ -129,9 +129,9 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 | `GET /groups/{id}/invite` | `{ code }`, to members only; 404 when the caller is not in it. |
 | `POST /groups/{id}/invitations` | `{ sent, resent, message }`; body `{ email }`. 404 when the caller is not in it; 422 with the website's sentence for a bad address (one longer than 254 characters once trimmed included), the hourly limit, or someone already in the group. |
 | `DELETE /groups/{id}/membership` | 204; 422 for the owner; 404 when the caller is not in it. |
-| `POST /groups/{id}/dates` | `{ occasion }`, the new date as `GET /groups/{id}` sends it; body `{ name, date }`. 404 when the caller is not in the group; 422 with the website's sentence for a name or a date it refuses. |
+| `POST /groups/{id}/dates` | `{ occasion }`, the new date's `occasion` as each entry of `GET /groups/{id}` carries it; body `{ name, date }`. 404 when the caller is not in the group; 422 with the website's sentence for a name or a date it refuses. |
 | `PUT /groups/{id}/dates/{dateId}` | `{ occasion }`; body `{ name, date }`. 404 for a date that is not there, not in that group, or not the caller's to change; 422 as for `POST`. |
-| `DELETE /groups/{id}/dates/{dateId}` | 204; 404 for a date that is not there, not in that group, or not the caller's to change. |
+| `DELETE /groups/{id}/dates/{dateId}` | 204; 404 for a date that is not there, not in that group, or not the caller's to change. It also removes every item's tag for that date, and claims and gifts filed under it are left with no occasion, as the website's delete does. |
 | `GET /people/{id}/wishlist?occasion=<key>` | `{ person, occasion, occasions, gifts, items }`; the caller's own list answers items alone. |
 | `GET /people/{id}/profile` | `{ person, bio, sections, sharedGroups }`: only the fields the caller may see that hold something (a section with none is left out), and the groups the two share. 404 with no group in common, as for someone who is not there. |
 | `POST /wishlist/{id}/claim` | `{ gift }`, body `{ occasion }` (a key or null). A second POST by the person who already holds the item answers their gift again (it does not claim twice). |

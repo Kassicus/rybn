@@ -20,11 +20,10 @@ vi.mock("@/lib/mobile/group-reads", () => ({
 
 const { PUT, DELETE } = await import("./route");
 const { bearer } = await import("@/lib/mobile/test-shopping-mocks");
-const { GRAN_80TH, groupMocks } = await import("@/lib/mobile/test-groups");
+const { ELSEWHERE, ELSEWHERE_DATE, GRAN_80TH, groupMocks } = await import("@/lib/mobile/test-groups");
 const { IDS } = await import("@/lib/mobile/test-shopping");
 
-/** A group Sam is not in, and a date nobody can see. */
-const ELSEWHERE = "6c5d4e3f-2a1b-4c0d-9e8f-7a6b5c4d3e2f";
+/** A date that is not there. */
 const GONE = "8b7a6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d";
 
 const url = (id: string, dateId: string) => `http://localhost/api/mobile/v1/groups/${id}/dates/${dateId}`;
@@ -163,5 +162,26 @@ describe("DELETE /api/mobile/v1/groups/[id]/dates/[dateId]", () => {
     holder.current.deleteGroupDate.mockResolvedValueOnce({ error: "Failed to delete the occasion. Please try again." });
     const res = await DELETE(del(), ctx());
     expect([res.status, (await res.json()).error]).toEqual([500, { code: "server_error", message: "Something went wrong. Please try again." }]);
+  });
+});
+
+describe("PUT and DELETE of what is not one of the caller's groups' dates", () => {
+  it("answer 404 for a date of a group the caller is not in, under its own group or one they are in, writing nothing", async () => {
+    for (const id of [ELSEWHERE, IDS.rivera]) {
+      expect((await PUT(put(SAVE, id, ELSEWHERE_DATE), ctx(id, ELSEWHERE_DATE))).status).toBe(404);
+      expect((await DELETE(del(id, ELSEWHERE_DATE), ctx(id, ELSEWHERE_DATE))).status).toBe(404);
+    }
+    // Under Rivera Family the date is looked for, and Sam's client cannot see it
+    expect(await holder.current.groupDateRow.mock.results.at(-1)!.value).toBeNull();
+    expect(holder.current.updateGroupDate).not.toHaveBeenCalled();
+    expect(holder.current.deleteGroupDate).not.toHaveBeenCalled();
+  });
+
+  it("answer 404 for a birthday's occasion id sent as a date, writing nothing", async () => {
+    expect((await PUT(put(SAVE, IDS.rivera, IDS.momBirthday), ctx(IDS.rivera, IDS.momBirthday))).status).toBe(404);
+    expect((await DELETE(del(IDS.rivera, IDS.momBirthday), ctx(IDS.rivera, IDS.momBirthday))).status).toBe(404);
+    expect(holder.current.groupDateRow.mock.calls).toEqual([[IDS.momBirthday], [IDS.momBirthday]]);
+    expect(holder.current.updateGroupDate).not.toHaveBeenCalled();
+    expect(holder.current.deleteGroupDate).not.toHaveBeenCalled();
   });
 });

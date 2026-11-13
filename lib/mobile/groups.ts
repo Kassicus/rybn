@@ -2,6 +2,7 @@ import { z } from "zod";
 import { GROUP_RULES, GROUP_SENTENCES } from "@/lib/groups/sentences";
 import { GROUP_DATE_RULES, GROUP_DATE_SENTENCES } from "@/lib/occasions/sentences";
 import { createGroupSchema } from "@/lib/schemas/groups";
+import { tidyGroupText } from "@/lib/utils/groups";
 import type { GroupType } from "@/types/privacy";
 import type { ActionAnswers } from "./action-response";
 import { mobileOccasion, type MobileOccasion } from "./occasions";
@@ -125,8 +126,8 @@ export function invitationAnswer(result: { emailSent: boolean; isResend: boolean
 }
 
 /**
- * A group date's name and date as the app sent them: createGroupDate and updateGroupDate trim the name and check both
- * (GROUP_DATE_RULES). A body that is not an object is refused with the plain sentence, and one whose name or date is
+ * A group date's name and date as the app sent them: createGroupDate and updateGroupDate tidy the name (tidyGroupText)
+ * and check both (GROUP_DATE_RULES). A body that is not an object is refused with the plain sentence, and one whose name or date is
  * not text with the action's sentence for it, before the action. Nothing else in the body is read.
  */
 export function parseGroupDateBody(raw: unknown): { ok: true; name: string; date: string } | { ok: false; message: string } {
@@ -136,12 +137,15 @@ export function parseGroupDateBody(raw: unknown): { ok: true; name: string; date
   return { ok: true, name: raw.name, date: raw.date };
 }
 
-/** The occasion a group date the action has just saved is, as GET /groups/{id} sends it: its name trimmed, as stored. */
+/**
+ * The occasion a group date the action has just saved is, as GET /groups/{id} sends it: its name on one line and
+ * trimmed (tidyGroupText), as the action stores it.
+ */
 export function groupDateOccasion(id: string, name: string, date: string, group: { id: string; name: string }): MobileOccasion {
   return mobileOccasion({
     occasionId: id,
     kind: "group_date",
-    name: name.trim(),
+    name: tidyGroupText(name),
     occasionDate: date,
     celebrantId: null,
     celebrantUsername: null,
