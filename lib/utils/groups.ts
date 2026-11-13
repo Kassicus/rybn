@@ -54,31 +54,76 @@ export function tidyInviteCode(raw: string): string {
   return stripped;
 }
 
-/** Line breaks and other control characters, and invisible (format) characters. */
-const NOT_SHOWN_ON_ONE_LINE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu;
+/**
+ * One pass over a group's text. The first branch is a whole subdivision flag:
+ * the black flag, three to seven tag letters or digits (a subdivision code,
+ * as gbeng, gbsct and gbwls are), and the cancel tag. The second is a run of
+ * what does not show on one line: line breaks and other control characters,
+ * invisible (format) characters, tag characters among them, and the
+ * blank-looking characters that show nothing (the combining grapheme joiner,
+ * the Hangul fillers, two Khmer inherent vowels and the braille blank).
+ *
+ * Linear: the flag branch starts with one fixed character and has a bounded
+ * middle, and the run branch is a single character class with nothing after
+ * it, so neither has anything to backtrack into.
+ */
+const ONE_LINE =
+  /(\u{1F3F4}[\u{E0030}-\u{E0039}\u{E0061}-\u{E007A}]{3,7}\u{E007F})|[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\u{034F}\u{115F}\u{1160}\u{17B4}\u{17B5}\u{2800}\u{3164}\u{FFA0}]+/gu;
+
 /** A zero-width non-joiner or joiner, on its own. */
 const JOINER = /^[\u{200C}\u{200D}]$/u;
-/** The tag characters that follow a flag to name the country it is. */
-const TAGS = /^[\u{E0020}-\u{E007F}]+$/u;
-const VISIBLE = /\S/;
+
+/** An emoji just before a joiner, with its variation selector or skin tone if it has one. */
+const EMOJI_BEFORE = /\p{Extended_Pictographic}[\u{FE0F}\p{Emoji_Modifier}]?$/u;
+/** An emoji just after a joiner. */
+const EMOJI_AFTER = /^\p{Extended_Pictographic}/u;
+
+/** The scripts whose words use a joiner or non-joiner: Arabic, and the Indic scripts. */
+const JOINING_SCRIPTS = [
+  'Arabic',
+  'Bengali',
+  'Devanagari',
+  'Gujarati',
+  'Gurmukhi',
+  'Kannada',
+  'Malayalam',
+  'Oriya',
+  'Sinhala',
+  'Tamil',
+  'Telugu',
+].map((script) => ({
+  ends: new RegExp(`\\p{Script_Extensions=${script}}$`, 'u'),
+  starts: new RegExp(`^\\p{Script_Extensions=${script}}`, 'u'),
+}));
+
+/**
+ * Whether the joiner at `at` joins what is on each side: two emoji, or two
+ * characters of one joining script. Only the four code units before it and
+ * the two after it are looked at, enough for an emoji and its skin tone.
+ */
+function joins(text: string, at: number): boolean {
+  const before = text.slice(Math.max(0, at - 4), at);
+  const after = text.slice(at + 1, at + 3);
+  if (EMOJI_BEFORE.test(before) && EMOJI_AFTER.test(after)) return true;
+  return JOINING_SCRIPTS.some(({ ends, starts }) => ends.test(before) && starts.test(after));
+}
 
 /**
  * A group's name or description as one line of text, trimmed: each run of
- * line breaks, control characters and invisible characters becomes one
- * space. Two runs stay as they are, because they are part of an emoji or a
- * word: a lone zero-width joiner or non-joiner between two visible
- * characters (a family emoji, a word in Persian), and the tag characters
- * straight after a visible one (the flags of England, Scotland and Wales).
- * The group schema stores names and descriptions this way, and the
- * invitation email builds its subject from a name tidied the same way.
+ * line breaks, control characters, invisible characters and blank-looking
+ * characters becomes one space. Two things stay as they are, because they are
+ * part of an emoji or a word: a whole subdivision flag (England, Scotland,
+ * Wales), and a lone zero-width joiner or non-joiner between two emoji (a
+ * family) or between two characters of a script that joins (Arabic and the
+ * Indic scripts). A joiner anywhere else, between two Latin letters for one,
+ * becomes a space. The group schema stores names and descriptions this way,
+ * and the invitation email builds its subject from a name tidied the same way.
  */
 export function tidyGroupText(text: string): string {
   return text
-    .replace(NOT_SHOWN_ON_ONE_LINE, (run: string, at: number, whole: string) => {
-      const before = whole.charAt(at - 1);
-      const after = whole.charAt(at + run.length);
-      if (JOINER.test(run) && VISIBLE.test(before) && VISIBLE.test(after)) return run;
-      if (TAGS.test(run) && VISIBLE.test(before)) return run;
+    .replace(ONE_LINE, (run: string, flag: string | undefined, at: number, whole: string) => {
+      if (flag !== undefined) return flag;
+      if (JOINER.test(run) && joins(whole, at)) return run;
       return ' ';
     })
     .trim();

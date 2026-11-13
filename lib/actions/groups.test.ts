@@ -55,8 +55,10 @@ const GROUP_ID = "5a6b7c8d-1e2f-4a3b-9c4d-5e6f7a8b9c0d";
 
 /** Invisible characters, written as escapes, never typed. */
 const ZWSP = "\u{200B}"; // zero-width space
+const ZWNJ = "\u{200C}"; // zero-width non-joiner
 const ZWJ = "\u{200D}"; // zero-width joiner
 const RLO = "\u{202E}"; // right-to-left override
+const HANGUL_FILLER = "\u{3164}"; // shows as a blank
 const LS = "\u{2028}"; // line separator
 const FAMILY = `\u{1F468}${ZWJ}\u{1F469}${ZWJ}\u{1F467}`; // man, woman, girl
 
@@ -102,6 +104,7 @@ describe("createGroup", () => {
 
     expect(result).toEqual({ error: sentence });
     expect(rpc).not.toHaveBeenCalled();
+    expect(from).not.toHaveBeenCalled();
     expect(insertSpy).not.toHaveBeenCalled();
   });
 
@@ -209,6 +212,32 @@ describe("createGroup", () => {
       expect(insertSpy).not.toHaveBeenCalled();
     }
   );
+
+  it.each([[HANGUL_FILLER], [HANGUL_FILLER.repeat(3)], [`${HANGUL_FILLER} ${HANGUL_FILLER}`]])(
+    "refuses the name %j, made of blank-looking characters, with the name's sentence",
+    async (name) => {
+      const result = await createGroup({ name, type: "family" });
+
+      expect(result).toEqual({ error: "Group name is required" });
+      expect(insertSpy).not.toHaveBeenCalled();
+    }
+  );
+
+  it("tidies a 5,000-character name of joiners and letters without delay, then refuses its length", async () => {
+    // Letters, joiners in each script and between emoji, and a lone joiner:
+    // every branch of the tidying, 834 times over.
+    const unit = `a${ZWJ}\u{0628}${ZWNJ}\u{1F468}`;
+    const name = unit.repeat(834).slice(0, 5_000);
+    expect(name).toHaveLength(5_000);
+
+    const started = performance.now();
+    const result = await createGroup({ name, type: "family" });
+    const elapsed = performance.now() - started;
+
+    expect(result).toEqual({ error: "Group name must be less than 50 characters" });
+    expect(insertSpy).not.toHaveBeenCalled();
+    expect(elapsed).toBeLessThan(250);
+  });
 
   it("keeps an emoji built with a zero-width joiner as it is", async () => {
     await createGroup({ name: `${FAMILY} Riveras`, type: "family" });

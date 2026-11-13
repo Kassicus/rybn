@@ -294,6 +294,20 @@ describe("sendGroupInvitation checks what it is given", () => {
     );
   });
 
+  it("answers Not authenticated when signed out, before checking anything", async () => {
+    getUserId.mockResolvedValue(null);
+
+    const result = await sendGroupInvitation({
+      groupId: GROUP_ID,
+      email: "not-an-email",
+    });
+
+    expect(result).toEqual({ error: "Not authenticated" });
+    expect(query).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+    expect(sendGroupInviteEmail).not.toHaveBeenCalled();
+  });
+
   it("refuses an address that is not an email, before any query", async () => {
     const result = await sendGroupInvitation({
       groupId: GROUP_ID,
