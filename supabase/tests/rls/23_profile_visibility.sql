@@ -209,11 +209,8 @@ begin
            (v_saver,  'sizes',       'ring_size',  '5',
             v_ring_settings);
 
-  -- a's and b's stored rows go in after the fields, and nobody has a stored
-  -- row when their fields go in. Each field then holds exactly what the
-  -- fixture wrote, including once a new field takes its owner's stored row
-  -- on insert (20261112000001_profile_fields_take_the_stored_choice.sql,
-  -- applied after this file's migration). a's field must still name no kind:
+  -- a's and b's stored rows go in after the fields, so each field holds
+  -- exactly what the fixture wrote. a's field must still name no kind:
   -- assertion 23 shows that a, not passed to the function, keeps it as
   -- written.
   insert into profile_visibility (user_id, visible_to_group_types)

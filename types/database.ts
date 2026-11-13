@@ -923,8 +923,9 @@ export type Database = {
       // fields (20261112000000_profile_visibility.sql): one row per person,
       // keyed on user_id. No row means all four kinds, a new field's
       // default. The Settings page writes the choice onto every
-      // profile_info field, and a field added later takes it; who can see a
-      // field is still decided by the field's own privacy_settings. Read
+      // profile_info field, and the website's profile save gives a new field
+      // the choice; who can see a field is still decided by the field's own
+      // privacy_settings. Read
       // and written by its person only (RLS); authenticated holds no
       // DELETE, so a row goes only with its user_profiles row (on delete
       // cascade). The migration's one-time start_profile_visibility() is

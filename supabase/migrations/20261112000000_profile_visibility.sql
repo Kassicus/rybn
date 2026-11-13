@@ -9,8 +9,9 @@
 --   1. profile_visibility: one row per person, holding the kinds of group they
 --      chose. The Settings page reads it, and saves it with
 --      set_profile_visibility() (3. below), which writes it onto every field;
---      a field added later takes it. No row means all four kinds, a new
---      field's default. A person reads and writes their own row only.
+--      the website's profile save gives a new field the choice. No row means
+--      all four kinds, a new field's default. A person reads and writes their
+--      own row only.
 --   2. start_profile_visibility(): for the people given, sets every field that
 --      names no kind of group and is not tied to one group to all four kinds
 --      (D10), then gives each of them who has a field not tied to one group a
@@ -28,11 +29,7 @@
 --      element is not a kind and is not stored. Executable by authenticated.
 --
 --      Lock order: a person's profile_visibility row, then their profile_info
---      rows. set_profile_visibility writes them in that order. Code that
---      writes or locks both for one person in one transaction takes the
---      profile_visibility row first, before any of that person's profile_info
---      rows:
---        perform 1 from profile_visibility where user_id = <them> for share;
+--      rows. set_profile_visibility writes them in that order.
 --
 -- can_view_field() and every existing policy are unchanged: who can see a
 -- field is still decided by the field alone.
@@ -45,7 +42,7 @@ create table public.profile_visibility (
 );
 
 comment on table public.profile_visibility is
-  'Each person''s choice of which kinds of group may see their profile fields. Written onto every field by the Settings page; a new field takes it. No row means all four kinds. Read and written by its person only. Added by 20261112000000_profile_visibility.sql.';
+  'Each person''s choice of which kinds of group may see their profile fields. Written onto every field by the Settings page; the website''s profile save gives a new field the choice. No row means all four kinds. Read and written by its person only. Added by 20261112000000_profile_visibility.sql.';
 
 alter table public.profile_visibility enable row level security;
 
