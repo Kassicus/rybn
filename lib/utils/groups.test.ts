@@ -223,6 +223,23 @@ describe("tidyGroupText", () => {
     });
   });
 
+  /**
+   * Unicode reserves code points in its emoji blocks for emoji still to come
+   * (Extended_Pictographic). Until a runtime's Unicode data has them they are
+   * unassigned to it, and a person whose phone is newer can still type one.
+   * U+1FA54 (in the chess symbols block) and U+1FFFD are both reserved, and
+   * unassigned in this runtime's Unicode 16.
+   */
+  describe("emoji newer than this runtime's Unicode data", () => {
+    it.each([
+      ["U+1FA54", "\u{1FA54}"],
+      ["U+1FFFD", "\u{1FFFD}"],
+    ])("keeps %s, reserved for an emoji, inside a name", (_name, emoji) => {
+      expect(/^\p{Extended_Pictographic}$/u.test(emoji)).toBe(true);
+      expect(tidyGroupText(`Garcia ${emoji} Cousins`)).toBe(`Garcia ${emoji} Cousins`);
+    });
+  });
+
   describe("private-use, unassigned and lone surrogate characters", () => {
     it.each([
       ["a private-use character", "\u{E000}"],

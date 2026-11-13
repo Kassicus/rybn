@@ -61,8 +61,14 @@ export function tidyInviteCode(raw: string): string {
  * line and paragraph separators, the braille blank, and every space separator
  * other than the ordinary space. Its two alternatives never match the same
  * character.
+ *
+ * Except a code point Unicode reserves for emoji (Extended_Pictographic):
+ * one newer than this runtime's Unicode data counts as unassigned here, but
+ * it shows as an emoji on the phone that typed it, so it is kept. Every
+ * Extended_Pictographic character that is assigned is outside this set
+ * anyway; the look ahead only ever spares a reserved one.
  */
-const HIDDEN = String.raw`(?:[\p{Default_Ignorable_Code_Point}\p{C}\p{Zl}\p{Zp}\u{2800}]|(?! )\p{Zs})`;
+const HIDDEN = String.raw`(?:(?!\p{Extended_Pictographic})[\p{Default_Ignorable_Code_Point}\p{C}\p{Zl}\p{Zp}\u{2800}]|(?! )\p{Zs})`;
 
 /** The flags of England, Scotland and Wales: the black flag, gbeng, gbsct or gbwls in tag letters, the cancel tag. */
 const SUBDIVISION_FLAG = String.raw`\u{1F3F4}\u{E0067}\u{E0062}(?:\u{E0065}\u{E006E}\u{E0067}|\u{E0073}\u{E0063}\u{E0074}|\u{E0077}\u{E006C}\u{E0073})\u{E007F}`;
