@@ -1421,6 +1421,24 @@ export type Database = {
         }
         Returns: undefined
       }
+      // Saves the CALLER's choice of which kinds of group may see their
+      // profile fields, in one step (20261112000001_profile_fields_take_
+      // the_stored_choice.sql): stores the kinds, once each in the enum's
+      // order, in profile_visibility, and sets every one of the caller's
+      // profile_info rows to exactly those kinds and no group. Both writes
+      // happen in the one call, so they succeed or fail together. SECURITY
+      // INVOKER: row-level security confines both writes to the caller's
+      // own rows. An empty list means only the caller.
+      //
+      // Error codes, verified against the migration:
+      //   28000 NOT AUTHENTICATED -- no Clerk JWT
+      //   22023 a null p_kinds    -- nothing is written
+      set_profile_visibility: {
+        Args: {
+          p_kinds: ("family" | "friends" | "work" | "custom")[]
+        }
+        Returns: undefined
+      }
       // Requests sharing one anniversary with p_partner_id, at p_date
       // (Task 3, 20260912000003_anniversary_link_rpcs.sql). SECURITY
       // DEFINER, pinned to requesting_user_id() as the caller. Requires a

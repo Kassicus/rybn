@@ -21,11 +21,12 @@
 --   3. The function (assertions 15-16). Not SECURITY DEFINER, search_path
 --      pinned, executable by none of anon, authenticated and service_role.
 --   4. The repair and the start, on this file's own people (assertions
---      17-23). hidden's five fields name no kind of group (an empty list, no
---      list, an empty object, a list naming only an unknown kind, and
---      settings that are an array rather than an object): each becomes an
---      object naming all four kinds, a key other than the two it sets is
---      kept, and hidden's row holds all four. mixed's fields each name a
+--      17-23). hidden's five fields name no kind of group (an empty list, an
+--      empty list with no restrictToGroup key, an empty object, a list
+--      naming only an unknown kind, and settings that are an array rather
+--      than an object): each becomes an object naming all four kinds, a key
+--      other than the two it sets is kept, and hidden's row holds all four.
+--      mixed's fields each name a
 --      kind (one of them beside an unknown kind) or are tied to the group:
 --      none is touched. mixed's row holds the setting two of its three
 --      untied fields have (a list's order does not matter, and an unknown
@@ -127,10 +128,6 @@ begin
     values (v_group, v_b, 'member')
     on conflict do nothing;
 
-  insert into profile_visibility (user_id, visible_to_group_types)
-    values (v_a, '{family}'::public.group_type[]),
-           (v_b, '{friends}'::public.group_type[]);
-
   -- mixed's ring, pants and dress sizes are tied to the group, so none of
   -- them is repaired or votes. The pants and dress sizes name work: if tied
   -- fields voted, work would win assertion 21.
@@ -173,6 +170,15 @@ begin
             '{"visibleToGroupTypes": ["family", "friends"], "restrictToGroup": null}'::jsonb),
            (v_tie,    'sizes',       'ring_size',  '7',
             '{"visibleToGroupTypes": ["custom"], "restrictToGroup": null}'::jsonb);
+
+  -- a's and b's stored rows go in after the fields. A field inserted for a
+  -- person who already has a stored row takes that row's kinds
+  -- (20261112000001_profile_fields_take_the_stored_choice.sql), and a's field
+  -- must still name no kind: assertion 23 shows that a, not passed to the
+  -- function, keeps it as written.
+  insert into profile_visibility (user_id, visible_to_group_types)
+    values (v_a, '{family}'::public.group_type[]),
+           (v_b, '{friends}'::public.group_type[]);
 
   ---------------------------------------------------------------------------
   -- Assertions 1-2: the columns.
@@ -296,9 +302,9 @@ begin
   -- prints for `(select public.requesting_user_id()) = user_id`, compared
   -- whole as 14_tag_visibility.sql compares its policy, so a changed
   -- operator or an added condition fails it. The INSERT policy's with check
-  -- is what refuses a row written for someone else, and the UPDATE policy's
-  -- check what refuses moving a row to another person; neither is attempted
-  -- live (see the header), so this is what holds them.
+  -- is what refuses a row written for someone else (see the header), and the
+  -- UPDATE policy's check what refuses moving a row to another person;
+  -- neither is attempted live, so this is what holds them.
   ---------------------------------------------------------------------------
   select qual into v_select_qual
     from pg_policies

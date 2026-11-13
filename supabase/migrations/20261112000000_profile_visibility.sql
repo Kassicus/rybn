@@ -13,10 +13,10 @@
 --   2. start_profile_visibility(): for the people given, sets every field that
 --      names no kind of group and is not tied to one group to all four kinds
 --      (D10), then gives each of them who has a field not tied to one group a
---      row holding the setting most of their fields have (D11; a tie goes to
---      the one naming fewer kinds). Called once below for everyone with
---      fields; 23_profile_visibility.sql calls it on its own people. No API
---      role may execute it.
+--      row holding the setting most of those fields have (D11; a tie goes to
+--      the one naming fewer kinds, then to the kinds in the enum's order).
+--      Called once below for everyone with fields; 23_profile_visibility.sql
+--      calls it on its own people. No API role may execute it.
 --
 -- can_view_field() and every existing policy are unchanged: who can see a
 -- field is still decided by the field alone.
