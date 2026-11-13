@@ -1,0 +1,36 @@
+{
+  "person": {
+    "id": "user_2momABC",
+    "name": "Mom",
+    "username": "maria",
+    "avatarUrl": "https://img.clerk.com/mom"
+  },
+  "bio": "Gardening, mysteries and good olive oil.",
+  "sections": [
+    {
+      "id": "sizes",
+      "title": "Sizes",
+      "fields": [
+        { "name": "ring_size", "label": "Ring size", "kind": "text", "value": "7" }
+      ]
+    },
+    {
+      "id": "preferences",
+      "title": "Preferences",
+      "fields": [
+        { "name": "favorite_colors", "label": "Favorite colors", "kind": "text", "value": "Sage green" },
+        { "name": "dislikes", "label": "Dislikes", "kind": "text", "value": "Scented candles" }
+      ]
+    },
+    {
+      "id": "dates",
+      "title": "Important dates",
+      "fields": [
+        { "name": "birthday", "label": "Birthday", "kind": "date", "value": "1962-01-14" }
+      ]
+    }
+  ],
+  "sharedGroups": [
+    { "id": "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e", "name": "Rivera Family" }
+  ]
+}

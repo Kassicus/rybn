@@ -3,11 +3,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateInviteCode } from "@/lib/utils/groups";
+import { createGroupSchema, type CreateGroupInput } from "@/lib/schemas/groups";
+import { GROUP_SENTENCES } from "@/lib/groups/sentences";
 import { revalidatePath } from "next/cache";
-import type { Database } from "@/types/database";
 
 import { getUserId } from "@/lib/auth/require-auth";
-type GroupType = Database['public']['Enums']['group_type'];
 
 type UserClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -81,7 +81,7 @@ async function rotateInviteCode(
   const inviteCode = await findUnusedInviteCode(supabase, context);
 
   if (!inviteCode) {
-    return { error: "Failed to generate a new invite code. Please try again." };
+    return { error: GROUP_SENTENCES.newCodeFailed };
   }
 
   const adminClient = createAdminClient();
@@ -95,22 +95,27 @@ async function rotateInviteCode(
 
   if (updateError) {
     console.error(`${context}: invite code rotation failed`, updateError);
-    return { error: "Failed to rotate the group's invite code. Please try again." };
+    return { error: GROUP_SENTENCES.rotateFailed };
   }
 
   if (!updated) {
     console.error(`${context}: invite code rotation matched no group`, groupId);
-    return { error: "Failed to rotate the group's invite code. Please try again." };
+    return { error: GROUP_SENTENCES.rotateFailed };
   }
 
   return { inviteCode: updated.invite_code };
 }
 
-export async function createGroup(formData: {
-  name: string;
-  description?: string;
-  type: GroupType;
-}) {
+/**
+ * Makes a group with the caller as its owner. After the sign-in check, the
+ * input is checked with the create form's own schema before anything reaches
+ * the database. Whatever a caller other than the form sends, an argument that
+ * is not an object included, a refusal is one of the form's sentences
+ * (GROUP_RULES). The name and description are stored as the schema leaves
+ * them: on one line and trimmed. Only the checked name, description and kind
+ * are written, with the caller as creator and a generated invite code.
+ */
+export async function createGroup(formData: CreateGroupInput) {
   // Use regular client for auth check
   const supabase = await createClient();
 
@@ -121,13 +126,21 @@ export async function createGroup(formData: {
     return { error: "Not authenticated" };
   }
 
+  // A refused parse always carries at least one issue; the first is the
+  // sentence the form would show.
+  const parsed = createGroupSchema.safeParse(formData);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0].message };
+  }
+  const { name, description, type } = parsed.data;
+
   // Debug: Log user ID to help diagnose RLS issues
   console.log("Creating group with user ID:", userId);
 
   const inviteCode = await findUnusedInviteCode(supabase, "createGroup");
 
   if (!inviteCode) {
-    return { error: "Failed to generate unique invite code. Please try again." };
+    return { error: GROUP_SENTENCES.uniqueCodeFailed };
   }
 
   // Use admin client to create the group (bypasses RLS)
@@ -137,9 +150,9 @@ export async function createGroup(formData: {
   const { data: group, error: groupError } = await adminClient
     .from("groups")
     .insert({
-      name: formData.name,
-      description: formData.description || null,
-      type: formData.type,
+      name,
+      description: description || null,
+      type,
       invite_code: inviteCode,
       created_by: userId,
     })
@@ -148,12 +161,12 @@ export async function createGroup(formData: {
 
   if (groupError) {
     console.error("Error creating group:", groupError);
-    return { error: "Failed to create group. Please try again." };
+    return { error: GROUP_SENTENCES.createFailed };
   }
 
   if (!group) {
     console.error("No group returned after insert");
-    return { error: "Failed to create group. Please try again." };
+    return { error: GROUP_SENTENCES.createFailed };
   }
 
   // Revalidate the groups page
@@ -222,11 +235,11 @@ export async function getGroupById(groupId: string) {
 
   if (groupError) {
     console.error("Error fetching group:", groupError);
-    return { error: "Failed to load group. Please try again." };
+    return { error: GROUP_SENTENCES.loadFailed };
   }
 
   if (!group) {
-    return { error: "Group not found" };
+    return { error: GROUP_SENTENCES.groupNotFound };
   }
 
   // Get group members
@@ -243,7 +256,7 @@ export async function getGroupById(groupId: string) {
   const isMember = members.some((member) => member.user_id === userId);
 
   if (!isMember) {
-    return { error: "You are not a member of this group" };
+    return { error: GROUP_SENTENCES.notAMember };
   }
 
   // Get user profiles for all members
@@ -311,7 +324,7 @@ export async function leaveGroup(groupId: string) {
 
   if (membershipError) {
     console.error("leaveGroup: membership lookup failed", membershipError);
-    return { error: "Failed to verify group membership. Please try again." };
+    return { error: GROUP_SENTENCES.verifyFailed };
   }
 
   // Non-membership is now a REJECTION, not a no-op.
@@ -323,11 +336,11 @@ export async function leaveGroup(groupId: string) {
   // URL. This check is what keeps rotation reachable only by a member acting
   // on their own membership.
   if (!membership) {
-    return { error: "You are not a member of this group" };
+    return { error: GROUP_SENTENCES.notAMember };
   }
 
   if (membership.role === "owner") {
-    return { error: "Owners cannot leave the group. Transfer ownership or delete the group." };
+    return { error: GROUP_SENTENCES.ownerCannotLeave };
   }
 
   const rotation = await rotateInviteCode(groupId, supabase, "leaveGroup");
@@ -351,7 +364,7 @@ export async function leaveGroup(groupId: string) {
         "the caller is still a member and the group's code has changed",
       { groupId, userId, error }
     );
-    return { error: "Failed to leave the group. Please try again." };
+    return { error: GROUP_SENTENCES.leaveFailed };
   }
 
   revalidatePath("/groups");
@@ -373,15 +386,21 @@ export async function deleteGroup(groupId: string) {
   }
 
   // Check if user is the owner
-  const { data: membership } = await supabase
+  const { data: membership, error: membershipError } = await supabase
     .from("group_members")
     .select("role")
     .eq("group_id", groupId)
     .eq("user_id", userId)
     .maybeSingle();
 
+  // A role that could not be read is not a refusal: say so, and delete nothing.
+  if (membershipError) {
+    console.error("deleteGroup: membership lookup failed", membershipError);
+    return { error: GROUP_SENTENCES.verifyFailed };
+  }
+
   if (membership?.role !== "owner") {
-    return { error: "Only the owner can delete this group" };
+    return { error: GROUP_SENTENCES.onlyOwnerDeletes };
   }
 
   // Delete the group (cascade will handle members)
@@ -390,8 +409,10 @@ export async function deleteGroup(groupId: string) {
     .delete()
     .eq("id", groupId);
 
+  // The database's own words go only to the server log.
   if (error) {
-    return { error: error.message };
+    console.error("deleteGroup: delete failed", error);
+    return { error: GROUP_SENTENCES.deleteFailed };
   }
 
   revalidatePath("/groups");

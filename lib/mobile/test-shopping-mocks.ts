@@ -3,12 +3,14 @@ import { vi, type Mock } from "vitest";
 import type { ClaimRow, ClaimedItem } from "./gifts";
 import { memoryGiftStore, type MemoryGiftStore } from "./test-gift-store";
 import { fixture, groupRows } from "./test-fixtures";
+import { BOOK_SWAP, RIVERA_DESCRIPTION, roleIn } from "./test-groups";
 import { IDS, SAM, TODAY, world } from "./test-shopping";
 
 export type WorldMocks = { store: MemoryGiftStore; rpc: Mock; todayISO: Mock } & Record<
   | "getUpcomingOccasions" | "getMyGroups" | "getGroupById" | "getUserWishlist" | "getActiveClaims" | "getTagsForItems"
   | "getSharedGroups" | "getWishlistItem" | "releaseClaim" | "markAsPurchased" | "profiles" | "groupMembers"
-  | "memberCounts" | "visibleItemCounts" | "occasionRows" | "linkedItems" | "withSignedGiftPhotos" | "withSignedGiftPhoto",
+  | "memberCounts" | "visibleItemCounts" | "occasionRows" | "linkedItems" | "withSignedGiftPhotos" | "withSignedGiftPhoto"
+  | "groupDateMakers",
   Mock
 >;
 
@@ -49,7 +51,7 @@ export function worldMocks(): WorldMocks {
       return {
         data: {
           ...group,
-          description: null,
+          description: id === IDS.rivera ? RIVERA_DESCRIPTION : null,
           invite_code: "SECRET12",
           settings: {},
           created_at: "2026-01-01T00:00:00.000000+00:00",
@@ -57,7 +59,7 @@ export function worldMocks(): WorldMocks {
           group_members: (w.members.get(id) ?? []).map((p, i) => ({
             id: `member-${i}`,
             user_id: p.id,
-            role: "member",
+            role: roleIn(id, p.id),
             joined_at: "2026-01-02T00:00:00+00:00",
             user_profiles: { id: p.id, username: p.username, display_name: p.display_name, avatar_url: p.avatar_url },
           })),
@@ -94,6 +96,8 @@ export function worldMocks(): WorldMocks {
       photo_url: g.photo_url === null ? null : w.signedGiftPhoto(g.photo_url),
       photo_path: g.photo_url,
     })),
+    // Sam made Christmas 2026, and Priya Book Club's book swap.
+    groupDateMakers: vi.fn(async (ids: string[]) => only(new Map([[IDS.xmas, SAM], [BOOK_SWAP, w.people.priya.id]]), ids)),
   };
 }
 

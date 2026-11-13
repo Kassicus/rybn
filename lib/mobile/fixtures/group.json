@@ -2,7 +2,9 @@
   "group": {
     "id": "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e",
     "name": "Rivera Family",
-    "type": "family"
+    "type": "family",
+    "description": "Everyone on Mom's side.",
+    "role": "member"
   },
   "members": [
     {
@@ -14,7 +16,8 @@
       },
       "itemCount": 2,
       "hasGift": true,
-      "isYou": false
+      "isYou": false,
+      "role": "member"
     },
     {
       "person": {
@@ -25,7 +28,8 @@
       },
       "itemCount": 3,
       "hasGift": false,
-      "isYou": false
+      "isYou": false,
+      "role": "admin"
     },
     {
       "person": {
@@ -36,7 +40,8 @@
       },
       "itemCount": 0,
       "hasGift": false,
-      "isYou": false
+      "isYou": false,
+      "role": "member"
     },
     {
       "person": {
@@ -47,7 +52,8 @@
       },
       "itemCount": 1,
       "hasGift": false,
-      "isYou": false
+      "isYou": false,
+      "role": "member"
     },
     {
       "person": {
@@ -58,7 +64,8 @@
       },
       "itemCount": 4,
       "hasGift": true,
-      "isYou": false
+      "isYou": false,
+      "role": "owner"
     },
     {
       "person": {
@@ -69,7 +76,8 @@
       },
       "itemCount": 4,
       "hasGift": false,
-      "isYou": true
+      "isYou": true,
+      "role": "member"
     }
   ],
   "occasions": [
@@ -132,7 +140,10 @@
         }
       ],
       "started": 2,
-      "total": 5
+      "total": 5,
+      "change": {
+        "id": "9c4b2e1a-7d3f-4e5a-8b6c-1d2e3f4a5b6c"
+      }
     },
     {
       "occasion": {
@@ -154,7 +165,8 @@
         }
       ],
       "started": 0,
-      "total": 1
+      "total": 1,
+      "change": null
     }
   ]
 }

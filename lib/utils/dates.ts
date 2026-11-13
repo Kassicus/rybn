@@ -82,6 +82,22 @@ export function isValidDateString(dateString: string | null | undefined): boolea
 }
 
 /**
+ * True when the text is YYYY-MM-DD and names a day on the Gregorian calendar
+ * (so 2024-02-29 is one and 2026-02-29 is not). Year 0000 is refused: the
+ * database's date type has no year zero.
+ */
+export function isCalendarDay(text: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+
+  const [year, month, day] = text.split("-").map(Number);
+  if (year < 1 || month < 1 || month > 12 || day < 1) return false;
+
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day <= daysInMonth[month - 1];
+}
+
+/**
  * Formats a number as currency
  * @param amount - Amount to format
  * @param currency - Currency code (defaults to USD)

@@ -919,6 +919,40 @@ export type Database = {
           }
         ]
       }
+      // Each person's choice of which kinds of group may see their profile
+      // fields (20261112000000_profile_visibility.sql): one row per person,
+      // keyed on user_id. No row means all four kinds, a new field's
+      // default. The Settings page writes the choice onto every
+      // profile_info field, and the website's profile save gives a new field
+      // the choice; who can see a field is still decided by the field's own
+      // privacy_settings. Read and written by its person only (RLS);
+      // authenticated holds no DELETE, so a row goes only with its
+      // user_profiles row (on delete cascade). The migration's one-time
+      // start_profile_visibility() is executable by no API role, so it is
+      // not in the Functions block.
+      profile_visibility: {
+        Row: {
+          user_id: string
+          visible_to_group_types: ("family" | "friends" | "work" | "custom")[]
+        }
+        Insert: {
+          user_id: string
+          visible_to_group_types?: ("family" | "friends" | "work" | "custom")[]
+        }
+        Update: {
+          user_id?: string
+          visible_to_group_types?: ("family" | "friends" | "work" | "custom")[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profile_visibility_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       user_profiles: {
         Row: {
           id: string
@@ -1385,6 +1419,24 @@ export type Database = {
         Args: {
           p_item_id: string
           p_occasion_id: string | null
+        }
+        Returns: undefined
+      }
+      // Saves the CALLER's choice of which kinds of group may see their
+      // profile fields, in one step (20261112000000_profile_visibility.sql):
+      // stores the kinds, once each in the enum's order, in
+      // profile_visibility, and sets every one of the caller's profile_info
+      // rows to exactly those kinds and no group. Both writes happen in the
+      // one call, so they succeed or fail together. SECURITY INVOKER:
+      // row-level security confines both writes to the caller's own rows.
+      // An empty list means only the caller.
+      //
+      // Error codes, verified against the migration:
+      //   28000 NOT AUTHENTICATED -- no Clerk JWT
+      //   22023 a null p_kinds    -- nothing is written
+      set_profile_visibility: {
+        Args: {
+          p_kinds: ("family" | "friends" | "work" | "custom")[]
         }
         Returns: undefined
       }

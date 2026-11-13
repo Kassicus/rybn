@@ -9,6 +9,8 @@ import { GROUP_NOT_FOUND, NOT_A_MEMBER, NOT_SIGNED_IN, databaseFailure } from ".
 import { PERSON_ID, pathUuid } from "./database";
 import { createGiftStore } from "./gift-store-live";
 import { loadGiftViews } from "./gift-views-live";
+import { groupDateMakers } from "./group-reads";
+import { groupRole } from "./groups";
 import type { PersonRow } from "./occasions";
 import {
   groupMembers,
@@ -64,7 +66,8 @@ interface GroupData {
   id: string;
   name: string;
   type: MobileGroup["type"] | null;
-  group_members: { user_profiles: PersonRow | null }[];
+  description: string | null;
+  group_members: { user_id: string; role: unknown; user_profiles: PersonRow | null }[];
 }
 
 export async function groupAnswer(userId: string, rawGroupId: string): Promise<Response | GroupPage> {
@@ -82,6 +85,7 @@ export async function groupAnswer(userId: string, rawGroupId: string): Promise<R
   }
   const group = (result as { data: GroupData }).data;
   // Named columns only: the group's invite code and settings never leave this function.
+  const roles = new Map(group.group_members.map((m) => [m.user_id, groupRole(m.role)] as const));
   const members: PersonRow[] = group.group_members.flatMap((m) =>
     m.user_profiles === null
       ? []
@@ -95,15 +99,24 @@ export async function groupAnswer(userId: string, rawGroupId: string): Promise<R
   const itemCounts = await visibleItemCounts(members.map((m) => m.id));
   const upcoming = await upcomingForCaller();
   if (upcoming instanceof Response) return upcoming;
-  const [people, views] = await Promise.all([profiles(celebrantIds(upcoming)), loadGiftViews(userId, store, today)]);
+  // This group's dates on the page, whose makers say which of them the caller may change.
+  const dateIds = upcoming.flatMap((o) =>
+    o.kind === "group_date" && o.groupId === group.id && o.occasionId !== null ? [o.occasionId] : []);
+  const [people, views, makers] = await Promise.all([
+    profiles(celebrantIds(upcoming)),
+    loadGiftViews(userId, store, today),
+    groupDateMakers(dateIds),
+  ]);
   return buildGroupPage({
     callerId: userId,
-    group: { id: group.id, name: group.name, type: group.type ?? "custom" },
+    group: { id: group.id, name: group.name, type: group.type ?? "custom", description: group.description ?? null },
     members,
+    roles,
     itemCounts,
     upcoming,
     profiles: people,
     views,
+    makers,
   });
 }
 

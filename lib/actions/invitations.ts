@@ -1,13 +1,20 @@
 "use server";
 
+import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getUserId, requireAuthWithProfile } from "@/lib/auth/require-auth";
-import { generateInviteToken, getInviteExpiration } from "@/lib/utils/groups";
+import {
+  generateInviteToken,
+  getInviteExpiration,
+  tidyInviteCode,
+} from "@/lib/utils/groups";
+import { GROUP_RULES, invitationEmailSchema } from "@/lib/schemas/groups";
+import { GROUP_SENTENCES } from "@/lib/groups/sentences";
 import { sendGroupInviteEmail } from "@/lib/resend/send";
 import { revalidatePath } from "next/cache";
 
 /**
- * What an inviter sees when the send fails.
+ * What an inviter sees when the send fails (GROUP_SENTENCES.emailNotSent).
  *
  * Deliberately generic, and the genericness is the point. `emailError` holds
  * the provider's own words, which for the failure that prompted this read
@@ -20,16 +27,40 @@ import { revalidatePath } from "next/cache";
  * "Try resending" is honest advice for every failure shape reaching here: the
  * invitation row is committed before the send is attempted, so a failed email
  * never costs the user the invitation, and resending picks up the same row.
- *
- * Not exported -- see the "use server" constraint above.
  */
-const EMAIL_SEND_FAILED_MESSAGE =
-  "The invitation is saved, but we couldn't send the email just now. " +
-  "Try resending it in a moment.";
+const EMAIL_SEND_FAILED_MESSAGE = GROUP_SENTENCES.emailNotSent;
 
+/** A group's id: anything else names no group, so it is never sent to the database. */
+const GROUP_ID = z.guid();
+
+/** What joinGroupByCode answers for any code that opens no group. */
+const INVALID_INVITE_CODE = GROUP_SENTENCES.invalidCode;
+
+/** A tidied invite code's only shape; tidyInviteCode puts the dashes back. */
+const INVITE_CODE_SHAPE = /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/;
+
+/**
+ * Invites an address to a group the caller belongs to, by email.
+ *
+ * After the sign-in check and before any query: an argument that is not an
+ * object answers the email sentence, the address is checked and trimmed, and
+ * a group id that cannot be a group's answers "You are not a member of this
+ * group", as a group the caller is not in does. Every lookup, the invitation
+ * row and the email use the trimmed address. The group's name in the email is
+ * read from the caller's own membership, so it is always the name of the
+ * group the invitation is for.
+ *
+ * The membership is read first: someone not in the group is answered "You are
+ * not a member of this group" before any other read. An address with an
+ * invitation another member sent that has not been accepted answers
+ * GROUP_SENTENCES.alreadyInvited, before anything is written.
+ *
+ * Once the invitation is made it answers `emailSent`, `isResend` (an
+ * invitation of the caller's already waiting was sent again) and, when the
+ * email did not go, `warning`.
+ */
 export async function sendGroupInvitation(data: {
   groupId: string;
-  groupName: string;
   email: string;
 }) {
   const supabase = await createClient();
@@ -40,6 +71,42 @@ export async function sendGroupInvitation(data: {
   if (!userId) {
     return { error: "Not authenticated" };
   }
+
+  if (typeof data !== "object" || data === null) {
+    return { error: GROUP_RULES.email };
+  }
+
+  const parsedEmail = invitationEmailSchema.safeParse(data.email);
+  if (!parsedEmail.success) {
+    return { error: GROUP_RULES.email };
+  }
+  const email = parsedEmail.data;
+
+  if (!GROUP_ID.safeParse(data.groupId).success) {
+    return { error: GROUP_SENTENCES.notAMember };
+  }
+
+  // Check if user is a member of the group, reading the group's name with it.
+  // This is the first read, so someone not in the group is told so whatever
+  // else is true of them.
+  const { data: membership, error: membershipError } = await supabase
+    .from("group_members")
+    .select("role, groups ( name )")
+    .eq("group_id", data.groupId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (membershipError) {
+    console.error("Membership check failed:", membershipError);
+    return { error: GROUP_SENTENCES.verifyFailed };
+  }
+
+  // A row with no group is no membership. The name itself may be any string
+  // the group was stored with, the empty one included.
+  if (!membership || !membership.groups) {
+    return { error: GROUP_SENTENCES.notAMember };
+  }
+  const groupName = membership.groups.name;
 
   // Clerk's auth() only returns ids, so the inviter's display details come
   // from their profile row.
@@ -63,33 +130,14 @@ export async function sendGroupInvitation(data: {
   if (rateLimitError) {
     console.error("Rate limit check failed:", rateLimitError);
   } else if (recentInvites && recentInvites.length >= 10) {
-    return {
-      error: "Rate limit exceeded. You can send up to 10 invitations per hour. Please try again later."
-    };
-  }
-
-  // Check if user is a member of the group
-  const { data: membership, error: membershipError } = await supabase
-    .from("group_members")
-    .select("role")
-    .eq("group_id", data.groupId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (membershipError) {
-    console.error("Membership check failed:", membershipError);
-    return { error: "Failed to verify group membership. Please try again." };
-  }
-
-  if (!membership) {
-    return { error: "You are not a member of this group" };
+    return { error: GROUP_SENTENCES.hourlyLimit };
   }
 
   // Check if email is already a member
   const { data: existingUser } = await supabase
     .from("user_profiles")
     .select("id")
-    .eq("email", data.email)
+    .eq("email", email)
     .maybeSingle();
 
   if (existingUser) {
@@ -101,7 +149,7 @@ export async function sendGroupInvitation(data: {
       .maybeSingle();
 
     if (alreadyMember) {
-      return { error: "This user is already a member of the group" };
+      return { error: GROUP_SENTENCES.alreadyInGroup };
     }
   }
 
@@ -109,19 +157,24 @@ export async function sendGroupInvitation(data: {
   // Use order by and limit to handle potential duplicates gracefully
   const { data: existingInvites } = await supabase
     .from("invitations")
-    .select("id, accepted")
+    .select("id, accepted, invited_by")
     .eq("group_id", data.groupId)
-    .eq("email", data.email)
+    .eq("email", email)
     .order("created_at", { ascending: false })
     .limit(1);
 
   const existingInvite = existingInvites && existingInvites.length > 0 ? existingInvites[0] : null;
 
+  // An invitation another member sent that has not been accepted is theirs:
+  // the caller is told so before anything is written. The caller's own is
+  // sent again below.
+  if (existingInvite && !existingInvite.accepted && existingInvite.invited_by !== userId) {
+    return { error: GROUP_SENTENCES.alreadyInvited };
+  }
+
   // Generate invitation token
   const token = generateInviteToken();
   const expiresAt = getInviteExpiration();
-
-  let invitation;
 
   // If there's an existing pending invitation, update it with new token and expiry
   // Otherwise, create a new invitation
@@ -144,23 +197,22 @@ export async function sendGroupInvitation(data: {
       console.error("Error updating invitation:", updateError);
       console.error("Update error details:", JSON.stringify(updateError, null, 2));
       console.error("Attempted to update invitation ID:", existingInvite.id);
-      return { error: "Failed to update invitation. Please try again." };
+      return { error: GROUP_SENTENCES.updateInvitationFailed };
     }
 
     if (!updatedInvite) {
       console.error("No invitation returned after update for ID:", existingInvite.id);
-      return { error: "Failed to update invitation. Please try again." };
+      return { error: GROUP_SENTENCES.updateInvitationFailed };
     }
 
     console.log("Successfully updated invitation:", updatedInvite.id);
-    invitation = updatedInvite;
   } else {
     // Create new invitation
     const { data: newInvite, error: inviteError } = await supabase
       .from("invitations")
       .insert({
         group_id: data.groupId,
-        email: data.email,
+        email,
         invited_by: userId,
         token,
         expires_at: expiresAt.toISOString(),
@@ -170,15 +222,13 @@ export async function sendGroupInvitation(data: {
 
     if (inviteError) {
       console.error("Error creating invitation:", inviteError);
-      return { error: "Failed to create invitation. Please try again." };
+      return { error: GROUP_SENTENCES.createInvitationFailed };
     }
 
     if (!newInvite) {
       console.error("No invitation returned after insert");
-      return { error: "Failed to create invitation. Please try again." };
+      return { error: GROUP_SENTENCES.createInvitationFailed };
     }
-
-    invitation = newInvite;
   }
 
   // Send invitation email.
@@ -197,8 +247,8 @@ export async function sendGroupInvitation(data: {
 
   try {
     const { error: sendError } = await sendGroupInviteEmail({
-      toEmail: data.email,
-      groupName: data.groupName,
+      toEmail: email,
+      groupName,
       inviterName,
       inviteToken: token,
       // Looked up above, to check whether this person is already in the
@@ -221,18 +271,21 @@ export async function sendGroupInvitation(data: {
     // The provider's own words stop here. See EMAIL_SEND_FAILED_MESSAGE.
     console.error("Invite email failed to send:", {
       reason: emailError,
-      toEmail: data.email,
-      groupName: data.groupName,
+      toEmail: email,
+      groupName,
       inviterName,
     });
   }
 
-  return {
-    data: invitation,
-    emailSent,
-    isResend: existingInvite && !existingInvite.accepted ? true : false,
-    warning: emailSent ? undefined : EMAIL_SEND_FAILED_MESSAGE,
-  };
+  const isResend = existingInvite && !existingInvite.accepted ? true : false;
+
+  // The answer is whether the email went and whether the invitation was sent
+  // again, with the warning when the email did not go. The invitation's row
+  // stays on the server.
+  if (emailSent) {
+    return { emailSent, isResend };
+  }
+  return { emailSent, isResend, warning: EMAIL_SEND_FAILED_MESSAGE };
 }
 
 /**
@@ -290,7 +343,7 @@ export async function acceptInvitation(token: string): Promise<
       // apart here: distinguishing them would turn this action into an oracle
       // for which tokens exist. One message covers all three.
       case "22023":
-        return { error: "This invitation is invalid or has expired" };
+        return { error: GROUP_SENTENCES.invitationInvalid };
       case "28000":
         return { error: "Not authenticated" };
       case "23503":
@@ -301,18 +354,16 @@ export async function acceptInvitation(token: string): Promise<
           userId,
           error
         );
-        return {
-          error: "Your account is still being set up. Please try again.",
-        };
+        return { error: GROUP_SENTENCES.stillSettingUp };
       default:
         console.error("acceptInvitation: RPC failed", error);
-        return { error: "Failed to accept invitation. Please try again." };
+        return { error: GROUP_SENTENCES.acceptFailed };
     }
   }
 
   if (!groupId) {
     console.error("acceptInvitation: RPC returned no group id");
-    return { error: "Failed to accept invitation. Please try again." };
+    return { error: GROUP_SENTENCES.acceptFailed };
   }
 
   revalidatePath("/groups");
@@ -330,8 +381,12 @@ export async function acceptInvitation(token: string): Promise<
  * invite_code from here would return nothing anyway -- the groups SELECT
  * policy is membership-only, and a joiner is by definition not a member yet.
  *
- * The code is normalised to upper case inside the function, so the caller does
- * not have to; JoinGroupButton still formats it for display.
+ * The code is tidied here with tidyInviteCode (letters and digits only, upper
+ * case, dashes put back), so a code typed with spaces or in lower case joins
+ * from any caller; the website's join box tidies with the same function. A
+ * code that is not a string, or that is not shaped ABC-DEF-GHI once tidied,
+ * answers "Invalid invite code" without asking the database: the same
+ * sentence the database's answer for an unknown code gets.
  */
 export async function joinGroupByCode(inviteCode: string): Promise<
   | { error: string; data?: never }
@@ -347,10 +402,19 @@ export async function joinGroupByCode(inviteCode: string): Promise<
     return { error: "Not authenticated" };
   }
 
+  if (typeof inviteCode !== "string") {
+    return { error: INVALID_INVITE_CODE };
+  }
+
+  const code = tidyInviteCode(inviteCode);
+  if (!INVITE_CODE_SHAPE.test(code)) {
+    return { error: INVALID_INVITE_CODE };
+  }
+
   const supabase = await createClient();
 
   const { data: groupId, error } = await supabase.rpc("join_group_with_code", {
-    p_invite_code: inviteCode,
+    p_invite_code: code,
   });
 
   if (error) {
@@ -358,9 +422,9 @@ export async function joinGroupByCode(inviteCode: string): Promise<
       // Unknown and malformed codes are the same error by design, so a caller
       // cannot use this to discover which codes exist.
       case "22023":
-        return { error: "Invalid invite code" };
+        return { error: INVALID_INVITE_CODE };
       case "23505":
-        return { error: "You are already a member of this group" };
+        return { error: GROUP_SENTENCES.alreadyMember };
       case "28000":
         return { error: "Not authenticated" };
       case "23503":
@@ -369,18 +433,16 @@ export async function joinGroupByCode(inviteCode: string): Promise<
           userId,
           error
         );
-        return {
-          error: "Your account is still being set up. Please try again.",
-        };
+        return { error: GROUP_SENTENCES.stillSettingUp };
       default:
         console.error("joinGroupByCode: RPC failed", error);
-        return { error: "Failed to join group. Please try again." };
+        return { error: GROUP_SENTENCES.joinFailed };
     }
   }
 
   if (!groupId) {
     console.error("joinGroupByCode: RPC returned no group id");
-    return { error: "Failed to join group. Please try again." };
+    return { error: GROUP_SENTENCES.joinFailed };
   }
 
   revalidatePath("/groups");

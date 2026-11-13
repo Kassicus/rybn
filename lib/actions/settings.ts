@@ -2,8 +2,15 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import {
+  isMixed,
+  readStoredChoice,
+  visibleToSchema,
+  VISIBILITY_INVALID,
+} from "@/lib/profile/visibility";
 
 import { getUserId } from "@/lib/auth/require-auth";
+
 export interface EmailPreferences {
   email_group_invites: boolean;
   email_date_reminders: boolean;
@@ -19,10 +26,31 @@ export interface PrivacySettings {
 export interface UserSettings {
   email_preferences: EmailPreferences;
   privacy_settings: PrivacySettings;
+  /**
+   * Some field of the person's has a setting other than the stored choice:
+   * tied to one group, or seen by a different set of kinds. Saving the choice
+   * sets every field to it.
+   */
+  mixed: boolean;
 }
 
 /**
- * Get user's email preferences and privacy settings
+ * The email_preferences a user_profiles row holds. The column is not in the
+ * hand-kept Row type (types/database.ts), so it is read off the row here.
+ */
+function storedEmailPreferences(profile: unknown): Partial<EmailPreferences> {
+  if (typeof profile !== "object" || profile === null) return {};
+  const stored = (profile as { email_preferences?: unknown }).email_preferences;
+  return typeof stored === "object" && stored !== null && !Array.isArray(stored)
+    ? (stored as Partial<EmailPreferences>)
+    : {};
+}
+
+/**
+ * Get user's email preferences and privacy settings. The privacy setting is
+ * the person's stored choice (profile_visibility; all four kinds of group
+ * until they choose), and `mixed` says whether some field of theirs has
+ * another setting, read from their own profile_info rows' privacy_settings.
  */
 export async function getMySettings() {
   const supabase = await createClient();
@@ -45,23 +73,20 @@ export async function getMySettings() {
     return { data: null, error: "Failed to load settings" };
   }
 
-  // Get profile_info for privacy settings
-  const { data: profileInfo, error: profileInfoError } = await supabase
-    .from("profile_info")
-    .select("*")
-    .eq("user_id", userId);
-
-  if (profileInfoError) {
-    console.error("Error fetching profile info:", profileInfoError);
+  const stored = await readStoredChoice(supabase, userId);
+  if ("error" in stored) {
+    return { data: null, error: "Failed to load settings" };
   }
 
-  // Extract privacy settings from profile_info
-  let visibleToGroupTypes: string[] = [];
-  if (profileInfo && Array.isArray(profileInfo) && profileInfo.length > 0) {
-    const firstField = profileInfo[0] as any;
-    if (firstField.privacy_settings?.visibleToGroupTypes) {
-      visibleToGroupTypes = firstField.privacy_settings.visibleToGroupTypes;
-    }
+  // Each of the caller's own fields' setting, and nothing else of the rows.
+  const { data: fields, error: fieldsError } = await supabase
+    .from("profile_info")
+    .select("privacy_settings")
+    .eq("user_id", userId);
+
+  if (fieldsError) {
+    console.error("Error fetching profile field settings:", fieldsError);
+    return { data: null, error: "Failed to load settings" };
   }
 
   // Default email preferences if not set
@@ -71,14 +96,15 @@ export async function getMySettings() {
     email_gift_updates: true,
     email_exchange_notifications: true,
     email_marketing: false,
-    ...(profile && (profile as any).email_preferences ? ((profile as any).email_preferences as Partial<EmailPreferences>) : {}),
+    ...storedEmailPreferences(profile),
   };
 
   const settings: UserSettings = {
     email_preferences: emailPreferences,
     privacy_settings: {
-      visible_to_group_types: visibleToGroupTypes,
+      visible_to_group_types: stored.choice,
     },
+    mixed: isMixed(stored.choice, (fields ?? []).map((field) => field.privacy_settings)),
   };
 
   return { data: settings, error: null };
@@ -115,7 +141,15 @@ export async function updateEmailPreferences(preferences: EmailPreferences) {
 }
 
 /**
- * Update user's privacy settings
+ * Update user's privacy settings with one database call,
+ * set_profile_visibility: it stores the choice (profile_visibility) and
+ * writes it onto every profile_info field the person has, setting only each
+ * field's privacy_settings, in the same call.
+ *
+ * The stored choice is what the Settings page shows. The two writes succeed
+ * or fail together, so after a failure nothing has changed: the page shows
+ * the choice from before, and choosing the new one again is a change it
+ * saves.
  */
 export async function updatePrivacySettings(settings: PrivacySettings) {
   const supabase = await createClient();
@@ -126,38 +160,19 @@ export async function updatePrivacySettings(settings: PrivacySettings) {
     return { data: null, error: "Not authenticated" };
   }
 
-  // Get current profile_info records
-  const { data: profileInfo, error: fetchError } = await supabase
-    .from("profile_info")
-    .select("*")
-    .eq("user_id", userId);
-
-  if (fetchError) {
-    console.error("Error fetching profile info:", fetchError);
-    return { data: null, error: "Failed to load profile" };
+  // Any of the four kinds, once each, in the order family, friends, work, custom.
+  const parsed = visibleToSchema.safeParse(settings?.visible_to_group_types);
+  if (!parsed.success) {
+    return { data: null, error: VISIBILITY_INVALID };
   }
+  // Every field of the caller's, a field tied to one group included, takes
+  // the choice, so none differs from it afterwards. The database finds the
+  // caller from their own token, not from an argument.
+  const { error } = await supabase.rpc("set_profile_visibility", { p_kinds: parsed.data });
 
-  // Update privacy settings in all profile_info fields
-  if (profileInfo && profileInfo.length > 0) {
-    const updatedProfileInfo = profileInfo.map((field: any) => ({
-      ...field,
-      privacy_settings: {
-        visibleToGroupTypes: settings.visible_to_group_types,
-      },
-    }));
-
-    // Update each profile_info record
-    const { error: updateError } = await supabase
-      .from("profile_info")
-      .upsert(updatedProfileInfo as any, {
-        onConflict: "user_id,category,field_name",
-        ignoreDuplicates: false,
-      });
-
-    if (updateError) {
-      console.error("Error updating privacy settings:", updateError);
-      return { data: null, error: "Failed to update privacy settings" };
-    }
+  if (error) {
+    console.error("Error updating privacy settings:", error);
+    return { data: null, error: "Failed to update privacy settings" };
   }
 
   revalidatePath("/settings");

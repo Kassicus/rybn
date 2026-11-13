@@ -1,14 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fixture } from "@/lib/mobile/test-fixtures";
+import type { GroupMocks } from "@/lib/mobile/test-groups";
 import type { WorldMocks } from "@/lib/mobile/test-shopping-mocks";
 
-const holder = vi.hoisted(() => ({ current: undefined as unknown as WorldMocks }));
+const holder = vi.hoisted(() => ({ current: undefined as unknown as WorldMocks & GroupMocks }));
 
 vi.mock("@/lib/auth/ensure-profile", () => ({ ensureProfile: async () => "user_2abcDEF" }));
 vi.mock("@/lib/actions/occasions", () => ({ getUpcomingOccasions: (...a: unknown[]) => holder.current.getUpcomingOccasions(...a) }));
 vi.mock("@/lib/actions/groups", () => ({
   getMyGroups: (...a: unknown[]) => holder.current.getMyGroups(...a),
   getGroupById: (...a: unknown[]) => holder.current.getGroupById(...a),
+  createGroup: (...a: unknown[]) => holder.current.createGroup(...a),
+  leaveGroup: (...a: unknown[]) => holder.current.leaveGroup(...a),
+  deleteGroup: (...a: unknown[]) => holder.current.deleteGroup(...a),
+}));
+vi.mock("@/lib/actions/invitations", () => ({
+  joinGroupByCode: (...a: unknown[]) => holder.current.joinGroupByCode(...a),
+  sendGroupInvitation: (...a: unknown[]) => holder.current.sendGroupInvitation(...a),
+}));
+vi.mock("@/lib/mobile/group-reads", () => ({
+  groupSummary: (...a: unknown[]) => holder.current.groupSummary(...a),
+  callerRole: (...a: unknown[]) => holder.current.callerRole(...a),
+  inviteCodeOf: (...a: unknown[]) => holder.current.inviteCodeOf(...a),
+  groupNameOf: (...a: unknown[]) => holder.current.groupNameOf(...a),
 }));
 vi.mock("@/lib/actions/wishlist", () => ({
   getUserWishlist: (...a: unknown[]) => holder.current.getUserWishlist(...a),
@@ -40,14 +54,17 @@ vi.mock("@/lib/claims/active", async (importOriginal) => ({
   todayISO: () => holder.current.todayISO(),
 }));
 
-const { GET } = await import("./route");
+const { GET, POST } = await import("./route");
 const { bearer, worldMocks } = await import("@/lib/mobile/test-shopping-mocks");
+const { GARCIA, groupMocks } = await import("@/lib/mobile/test-groups");
 
 const get = () => bearer("http://localhost/api/mobile/v1/groups");
+const post = (body: unknown) => bearer("http://localhost/api/mobile/v1/groups",
+  { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 const ctx = { params: Promise.resolve({}) };
 
 beforeEach(() => {
-  holder.current = worldMocks();
+  holder.current = { ...worldMocks(), ...groupMocks() };
   vi.stubEnv("MOBILE_MIN_BUILD", "");
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -86,5 +103,81 @@ describe("GET /api/mobile/v1/groups", () => {
     expect(holder.current.visibleItemCounts).not.toHaveBeenCalled();
     expect(holder.current.store.writes).toEqual([]);
     expect(text).not.toMatch(/gift|claimedBy|purchased|out_of_stock|email|@example\.com|SECRET12|invite/);
+  });
+});
+
+describe("POST /api/mobile/v1/groups", () => {
+  it("answers 401 without a bearer, creating nothing", async () => {
+    const res = await POST(new Request("http://localhost/api/mobile/v1/groups",
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(fixture("group-request")) }), ctx);
+    expect(res.status).toBe(401);
+    expect(holder.current.createGroup).not.toHaveBeenCalled();
+    expect(holder.current.groupSummary).not.toHaveBeenCalled();
+  });
+
+  it("creates the request fixture and answers the created fixture", async () => {
+    const res = await POST(post(fixture("group-request")), ctx);
+    expect([res.status, res.headers.get("cache-control")]).toEqual([200, "no-store"]);
+    expect(holder.current.createGroup).toHaveBeenCalledWith({ name: "Garcia Cousins", description: "Cousins on Dad's side", type: "family" });
+    expect(holder.current.groupSummary).toHaveBeenCalledWith(GARCIA);
+    const text = await res.text();
+    expect(JSON.parse(text)).toEqual(fixture("group-created"));
+    expect(text).not.toMatch(/SECRET12|invite|created_by|settings/);
+  });
+
+  it("passes on only the name, description and kind, never a creator, code or id the body names", async () => {
+    await POST(post({ ...fixture("group-request"), created_by: "user_2prySHA", invite_code: "AAA-AAA-AAA", id: GARCIA }), ctx);
+    expect(holder.current.createGroup.mock.calls).toEqual([[fixture("group-request")]]);
+  });
+
+  it("takes a null description as none, leaving it out of what it passes on", async () => {
+    await POST(post({ name: "Garcia Cousins", description: null, type: "family" }), ctx);
+    const [[input]] = holder.current.createGroup.mock.calls;
+    expect([input, Object.keys(input)]).toEqual([{ name: "Garcia Cousins", type: "family" }, ["name", "type"]]);
+  });
+
+  it("refuses a blank name with the website's sentence, creating nothing", async () => {
+    const res = await POST(post({ name: "  ", type: "family" }), ctx);
+    expect([res.status, (await res.json()).error]).toEqual([422, { code: "invalid", message: "Group name is required" }]);
+    expect(holder.current.createGroup).not.toHaveBeenCalled();
+    expect(holder.current.groupSummary).not.toHaveBeenCalled();
+  });
+
+  it("refuses a body that is not a group's with the plain sentence", async () => {
+    for (const body of [[], "Garcia Cousins", null]) {
+      const res = await POST(post(body), ctx);
+      expect([res.status, (await res.json()).error.message]).toEqual([422, "That request wasn't valid."]);
+    }
+    expect(holder.current.createGroup).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "Group name is required",
+    "Group name must be less than 50 characters",
+    "Description must be less than 200 characters",
+    "Choose a kind of group.",
+  ])("answers the action's refusal %j as 422 with its sentence", async (message) => {
+    holder.current.createGroup.mockResolvedValue({ error: message });
+    const res = await POST(post(fixture("group-request")), ctx);
+    expect([res.status, (await res.json()).error]).toEqual([422, { code: "invalid", message }]);
+    expect(holder.current.groupSummary).not.toHaveBeenCalled();
+  });
+
+  it("answers 500, not the website's words, when createGroup fails", async () => {
+    holder.current.createGroup.mockResolvedValue({ error: "Failed to create group. Please try again." });
+    const res = await POST(post(fixture("group-request")), ctx);
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toMatch(/Failed to create|group/i);
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("/api/mobile/v1/groups"), expect.anything());
+    expect(holder.current.groupSummary).not.toHaveBeenCalled();
+  });
+
+  it("answers 401 when the action says nobody is signed in, and 500 when the new group cannot be read", async () => {
+    holder.current.createGroup.mockResolvedValueOnce({ error: "Not authenticated" });
+    expect((await POST(post(fixture("group-request")), ctx)).status).toBe(401);
+    holder.current.groupSummary.mockResolvedValue(null);
+    const res = await POST(post(fixture("group-request")), ctx);
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toMatch(/SECRET12|invite|Garcia/);
   });
 });

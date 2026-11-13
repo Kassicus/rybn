@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getUserId } from "@/lib/auth/require-auth";
+import { GROUP_SENTENCES } from "@/lib/groups/sentences";
+import { GROUP_DATE_SENTENCES } from "@/lib/occasions/sentences";
 import { groupDateSchema } from "@/lib/schemas/occasions";
 import type { UpcomingOccasion } from "@/lib/occasions/display";
 
@@ -112,7 +114,7 @@ export async function createGroupDate(input: {
     // 42501 is RLS refusing the insert -- the caller is not a member of that
     // group. Reported as a membership problem, not a generic failure.
     if (error.code === "42501") {
-      return { error: "You are not a member of this group" };
+      return { error: GROUP_SENTENCES.notAMember };
     }
     console.error("createGroupDate: insert failed", error);
     return { error: "Failed to create the occasion. Please try again." };
@@ -170,7 +172,7 @@ export async function updateGroupDate(
   }
 
   if (!data) {
-    return { error: "That occasion no longer exists, or is not yours to edit" };
+    return { error: GROUP_DATE_SENTENCES.notYoursToEdit };
   }
 
   revalidatePath("/dashboard");
@@ -201,7 +203,7 @@ export async function deleteGroupDate(
   }
 
   if (!data) {
-    return { error: "That occasion no longer exists, or is not yours to delete" };
+    return { error: GROUP_DATE_SENTENCES.notYoursToDelete };
   }
 
   revalidatePath("/dashboard");

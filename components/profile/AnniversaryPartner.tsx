@@ -51,9 +51,9 @@ interface AnniversaryPartnerProps {
   /**
    * Runs after any link action here succeeds, including Confirm or Decline
    * on a request card below. The profile edit page uses it to re-read the
-   * anniversary its form is holding: confirming writes the agreed date into
-   * the caller's own profile_info row, and a form still holding the date it
-   * first loaded would write the old one back on Save.
+   * caller's anniversary: confirming writes the agreed date into the caller's
+   * own profile_info row, and the page's field then shows that date and
+   * counts it as loaded, so Save leaves it alone unless the person changes it.
    */
   onLinkChanged?: () => void | Promise<void>;
 }

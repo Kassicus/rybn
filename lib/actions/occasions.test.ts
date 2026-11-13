@@ -344,6 +344,56 @@ describe("createGroupDate", () => {
     expect(insertSpy).not.toHaveBeenCalled();
   });
 
+  it("refuses a date that is not a real day, before reaching the database", async () => {
+    for (const occasionDate of ["2026-02-30", "2026-02-29", "2026-04-31", "2026-13-01", "0000-01-01"]) {
+      const result = await createGroupDate({ groupId: GROUP_ID, name: "Christmas 2026", occasionDate });
+      expect(result).toEqual({ error: "Please enter a valid date (YYYY-MM-DD)" });
+    }
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it("refuses a 201-character name with a sentence", async () => {
+    const result = await createGroupDate({ groupId: GROUP_ID, name: "n".repeat(201), occasionDate: "2026-12-25" });
+
+    expect(result).toEqual({ error: "Keep the name to 200 characters or fewer." });
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it("takes what the website's form sends: a leap day, and a 200-character name with spaces around it, stored trimmed", async () => {
+    supabase = createSupabaseMock({
+      occasions: [{ data: { id: "occasion-1" }, error: null }],
+    });
+
+    const result = await createGroupDate({ groupId: GROUP_ID, name: ` ${"n".repeat(200)} `, occasionDate: "2028-02-29" });
+
+    expect(result).toEqual({ data: { id: "occasion-1" } });
+    expect(insertSpy).toHaveBeenCalledWith(
+      "occasions",
+      expect.objectContaining({ name: "n".repeat(200), occasion_date: "2028-02-29" })
+    );
+  });
+
+  it("refuses a name of only hidden characters with a sentence, before reaching the database", async () => {
+    for (const name of ["\u{200B}", "\u{200B}\u{2060}\u{FEFF}", " \u{202E}\n\t"]) {
+      const result = await createGroupDate({ groupId: GROUP_ID, name, occasionDate: "2026-12-25" });
+      expect(result).toEqual({ error: "Give this occasion a name" });
+    }
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it("stores the name on one line, tidied as a group's own name is", async () => {
+    supabase = createSupabaseMock({
+      occasions: [{ data: { id: "occasion-1" }, error: null }],
+    });
+
+    await createGroupDate({ groupId: GROUP_ID, name: "Gran's\n80th\u{202E}\u{200B}party ", occasionDate: "2027-03-14" });
+
+    expect(insertSpy).toHaveBeenCalledWith(
+      "occasions",
+      expect.objectContaining({ name: "Gran's 80th party" })
+    );
+  });
+
   it('reports "You are not a member of this group" on a 42501, not the raw policy error', async () => {
     supabase = createSupabaseMock({
       occasions: [
@@ -405,6 +455,26 @@ describe("updateGroupDate", () => {
 
     expect(result.error).toBeTruthy();
     expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("refuses a date that is not a real day, and a 201-character name, with a sentence, before reaching the database", async () => {
+    expect(await updateGroupDate("occasion-1", { name: "Christmas Party", occasionDate: "2026-02-30" }))
+      .toEqual({ error: "Please enter a valid date (YYYY-MM-DD)" });
+    expect(await updateGroupDate("occasion-1", { name: "n".repeat(201), occasionDate: "2026-12-24" }))
+      .toEqual({ error: "Keep the name to 200 characters or fewer." });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("refuses a name of only hidden characters, and stores any other on one line, tidied as a group's own name is", async () => {
+    expect(await updateGroupDate("occasion-1", { name: "\u{200B}\u{2060}", occasionDate: "2026-12-24" }))
+      .toEqual({ error: "Give this occasion a name" });
+    expect(updateSpy).not.toHaveBeenCalled();
+
+    supabase = createSupabaseMock({
+      occasions: [{ data: { id: "occasion-1", group_id: GROUP_ID }, error: null }],
+    });
+    await updateGroupDate("occasion-1", { name: "Christmas\u{200B}\nParty", occasionDate: "2026-12-24" });
+    expect(updateSpy).toHaveBeenCalledWith("occasions", { name: "Christmas Party", occasion_date: "2026-12-24" });
   });
 
   it("scopes the update to kind = group_date, so it can never reach a celebrated occasion", async () => {

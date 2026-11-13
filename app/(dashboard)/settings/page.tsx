@@ -18,6 +18,8 @@ import {
   type EmailPreferences,
   type UserSettings,
 } from "@/lib/actions/settings";
+import { VISIBILITY_MIXED } from "@/lib/profile/sentences";
+import { savesPrivacy } from "./privacy-save";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -26,6 +28,16 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [settings, setSettings] = useState<UserSettings | null>(null);
+  // The choice as last loaded or saved. Saving writes it onto every profile
+  // field, so it is saved only when the person changed it or some field has
+  // another setting (savesPrivacy). It moves only when a save succeeds, so
+  // after a failed one the same selection is still a change, and a reload
+  // shows the stored choice from before.
+  const [savedChoice, setSavedChoice] = useState<string[]>([]);
+  // Some field has a setting other than the stored choice. A successful save
+  // sets every field to the choice, so it is then false; a failed one leaves
+  // it as it was.
+  const [mixed, setMixed] = useState(false);
 
   // Load settings
   useEffect(() => {
@@ -34,6 +46,8 @@ export default function SettingsPage() {
       const { data, error } = await getMySettings();
       if (data) {
         setSettings(data);
+        setSavedChoice(data.privacy_settings.visible_to_group_types);
+        setMixed(data.mixed);
       }
       if (error) {
         setError(error);
@@ -79,12 +93,18 @@ export default function SettingsPage() {
       return;
     }
 
-    // Update privacy settings
-    const privacyResult = await updatePrivacySettings(settings.privacy_settings);
-    if (privacyResult.error) {
-      setError(privacyResult.error);
-      setIsSaving(false);
-      return;
+    // Update privacy settings when the selection changed or some field has
+    // another setting: saving them writes the choice onto every profile field.
+    const chosen = settings.privacy_settings.visible_to_group_types;
+    if (savesPrivacy(chosen, savedChoice, mixed)) {
+      const privacyResult = await updatePrivacySettings(settings.privacy_settings);
+      if (privacyResult.error) {
+        setError(privacyResult.error);
+        setIsSaving(false);
+        return;
+      }
+      setSavedChoice(chosen);
+      setMixed(false);
     }
 
     setSuccess(true);
@@ -158,6 +178,11 @@ export default function SettingsPage() {
             label="Who can see your profile fields?"
             description="Select which types of groups can view your profile information (sizes, preferences, dates, etc.). Leave all unchecked to keep everything private."
           />
+          {mixed && (
+            <Text variant="secondary" size="sm">
+              {VISIBILITY_MIXED}
+            </Text>
+          )}
         </div>
       </FormSection>
 

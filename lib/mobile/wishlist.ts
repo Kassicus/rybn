@@ -12,6 +12,7 @@ import {
 } from "@/lib/wishlist/privacy-choice";
 import { priorityLevels, type Priority, type WishlistItemFormData } from "@/lib/schemas/wishlist";
 import { INVALID_IMAGE_ERROR } from "@/lib/storage/image-value";
+import { CHARACTERS_REFUSED, CONTROL, CONTROL_EXCEPT_NOTES_WHITESPACE } from "@/lib/utils/characters";
 import type { GroupType } from "@/types/privacy";
 import {
   mobileOccasion,
@@ -35,15 +36,14 @@ export const RULES = {
   priority: "Choose how much you want it.",
   privacy: "Choose who can see it.",
   chooseGroup: "Choose one of your groups.",
-  characters: "That has characters Rybn can't save. Try typing it again.",
+  /** The website's profile form refuses with the same words (lib/utils/characters.ts). */
+  characters: CHARACTERS_REFUSED,
   chooseDate: "Choose one of your dates.",
   tooManyDates: "Add 20 dates or fewer at a time.",
 } as const;
 
-/** Control characters: U+0000 to U+001F and U+007F. */
-export const CONTROL = /[\u0000-\u001F\u007F]/;
-/** Control characters other than tab, line feed and carriage return, which notes may hold. */
-export const CONTROL_EXCEPT_NOTES_WHITESPACE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+/** Control characters (CONTROL), and those notes may not hold, as the website's forms read them. */
+export { CONTROL, CONTROL_EXCEPT_NOTES_WHITESPACE };
 /** Whitespace or a control character. */
 export const SPACE_OR_CONTROL = /[\s\u0000-\u001F\u007F]/;
 

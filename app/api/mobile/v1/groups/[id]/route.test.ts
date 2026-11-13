@@ -1,14 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fixture } from "@/lib/mobile/test-fixtures";
+import type { GroupMocks } from "@/lib/mobile/test-groups";
 import type { WorldMocks } from "@/lib/mobile/test-shopping-mocks";
 
-const holder = vi.hoisted(() => ({ current: undefined as unknown as WorldMocks }));
+const holder = vi.hoisted(() => ({ current: undefined as unknown as WorldMocks & GroupMocks }));
 
 vi.mock("@/lib/auth/ensure-profile", () => ({ ensureProfile: async () => "user_2abcDEF" }));
 vi.mock("@/lib/actions/occasions", () => ({ getUpcomingOccasions: (...a: unknown[]) => holder.current.getUpcomingOccasions(...a) }));
 vi.mock("@/lib/actions/groups", () => ({
   getMyGroups: (...a: unknown[]) => holder.current.getMyGroups(...a),
   getGroupById: (...a: unknown[]) => holder.current.getGroupById(...a),
+  createGroup: (...a: unknown[]) => holder.current.createGroup(...a),
+  leaveGroup: (...a: unknown[]) => holder.current.leaveGroup(...a),
+  deleteGroup: (...a: unknown[]) => holder.current.deleteGroup(...a),
+}));
+vi.mock("@/lib/actions/invitations", () => ({
+  joinGroupByCode: (...a: unknown[]) => holder.current.joinGroupByCode(...a),
+  sendGroupInvitation: (...a: unknown[]) => holder.current.sendGroupInvitation(...a),
+}));
+vi.mock("@/lib/mobile/group-reads", () => ({
+  groupSummary: (...a: unknown[]) => holder.current.groupSummary(...a),
+  callerRole: (...a: unknown[]) => holder.current.callerRole(...a),
+  inviteCodeOf: (...a: unknown[]) => holder.current.inviteCodeOf(...a),
+  groupNameOf: (...a: unknown[]) => holder.current.groupNameOf(...a),
+  groupDateMakers: (...a: unknown[]) => holder.current.groupDateMakers(...a),
 }));
 vi.mock("@/lib/actions/wishlist", () => ({
   getUserWishlist: (...a: unknown[]) => holder.current.getUserWishlist(...a),
@@ -40,16 +55,23 @@ vi.mock("@/lib/claims/active", async (importOriginal) => ({
   todayISO: () => holder.current.todayISO(),
 }));
 
-const { GET } = await import("./route");
+const { GET, DELETE } = await import("./route");
 const { bearer, oven, worldMocks } = await import("@/lib/mobile/test-shopping-mocks");
 const { memoryGiftStore } = await import("@/lib/mobile/test-gift-store");
 const { IDS, SAM, world } = await import("@/lib/mobile/test-shopping");
+const { BOOK_SWAP, CODE, bookSwap, groupMocks } = await import("@/lib/mobile/test-groups");
 
 const get = (id: string) => bearer(`http://localhost/api/mobile/v1/groups/${id}`);
+const del = (id: string) => bearer(`http://localhost/api/mobile/v1/groups/${id}`, { method: "DELETE" });
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 
+/** Every key in a decoded JSON value, at any depth. */
+const keysOf = (value: unknown): string[] =>
+  Array.isArray(value) ? value.flatMap(keysOf)
+    : typeof value === "object" && value !== null ? Object.entries(value).flatMap(([k, v]) => [k, ...keysOf(v)]) : [];
+
 beforeEach(() => {
-  holder.current = worldMocks();
+  holder.current = { ...worldMocks(), ...groupMocks() };
   vi.stubEnv("MOBILE_MIN_BUILD", "");
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -64,6 +86,86 @@ describe("GET /api/mobile/v1/groups/[id]", () => {
 
   it("never sends an invite code, an email or the group's settings", async () =>
     expect(await (await GET(get(IDS.rivera), ctx(IDS.rivera))).text()).not.toMatch(/SECRET12|invite|settings|@example\.com/));
+
+  it("carries no invite code under any name: the code is answered only by the invite route", async () => {
+    // The group's whole row, as getGroupById reads it, with the code as the website makes them
+    const read = holder.current.getGroupById.getMockImplementation()!;
+    holder.current.getGroupById.mockImplementation(async (id: string) => {
+      const found = await read(id);
+      return { data: { ...found.data, invite_code: CODE, inviteCode: CODE, code: CODE } };
+    });
+    const text = await (await GET(get(IDS.rivera), ctx(IDS.rivera))).text();
+    expect(keysOf(JSON.parse(text)).filter((k) => /invite|code/i.test(k))).toEqual([]);
+    expect(text.toUpperCase().replace(/[^A-Z0-9]/g, "")).not.toContain(CODE.replace(/-/g, ""));
+  });
+
+  it("keeps every field builds 2 and 3 read", async () => {
+    const body = await (await GET(get(IDS.rivera), ctx(IDS.rivera))).json();
+    expect(body.group).toMatchObject({ id: IDS.rivera, name: "Rivera Family", type: "family" });
+    expect(body.members).toHaveLength(6);
+    for (const m of body.members) {
+      expect(m).toMatchObject({ itemCount: expect.any(Number), hasGift: expect.any(Boolean), isYou: expect.any(Boolean) });
+      expect(Object.keys(m.person)).toEqual(["id", "name", "username", "avatarUrl"]);
+    }
+    expect(body.occasions).toHaveLength(2);
+    for (const o of body.occasions) {
+      expect(o).toMatchObject({ occasion: expect.any(Object), people: expect.any(Array), started: expect.any(Number), total: expect.any(Number) });
+      expect(Object.keys(o.occasion)).toEqual(["key", "kind", "title", "date", "group"]);
+      // The one field added to an occasion: which date the caller may change
+      expect(Object.keys(o)).toEqual(["occasion", "people", "started", "total", "change"]);
+    }
+  });
+
+  it("marks the dates the caller may change, from who made this group's dates on the page", async () => {
+    const changes = async () =>
+      (await (await GET(get(IDS.rivera), ctx(IDS.rivera))).json()).occasions.map((o: { change: unknown }) => o.change);
+    expect(await changes()).toEqual([{ id: IDS.xmas }, null]);
+    expect(holder.current.groupDateMakers.mock.calls).toEqual([[[IDS.xmas]]]);
+    // Dad made it: Sam, a member, may not change it; as an admin he may
+    holder.current.groupDateMakers.mockResolvedValue(new Map([[IDS.xmas, world().people.dad.id]]));
+    expect(await changes()).toEqual([null, null]);
+    const read = holder.current.getGroupById.getMockImplementation()!;
+    holder.current.getGroupById.mockImplementation(async (id: string) => {
+      const found = await read(id);
+      return { data: { ...found.data, group_members: found.data.group_members.map(
+        (m: { user_id: string }) => (m.user_id === SAM ? { ...m, role: "admin" } : m)) } };
+    });
+    expect(await changes()).toEqual([{ id: IDS.xmas }, null]);
+  });
+
+  it("lists only the group's own dates, and asks who made only those", async () => {
+    // Sam is in both groups, so his occasions hold Book Club's book swap too
+    holder.current.getUpcomingOccasions.mockResolvedValue({ data: [...world().upcoming, bookSwap()] });
+    expect(await (await GET(get(IDS.rivera), ctx(IDS.rivera))).json()).toEqual(fixture("group"));
+    expect(holder.current.groupDateMakers.mock.calls).toEqual([[[IDS.xmas]]]);
+
+    holder.current.groupDateMakers.mockClear();
+    const club = await (await GET(get(IDS.bookClub), ctx(IDS.bookClub))).json();
+    const dates = club.occasions.filter((o: { occasion: { kind: string } }) => o.occasion.kind === "group_date");
+    // Priya, the owner, made it; Sam, a member, may not change it
+    expect(dates.map((o: { occasion: { key: string; group: unknown }; change: unknown }) => [o.occasion.key, o.occasion.group, o.change]))
+      .toEqual([[`group_date:${BOOK_SWAP}`, { id: IDS.bookClub, name: "Book Club" }, null]]);
+    expect(holder.current.groupDateMakers.mock.calls).toEqual([[[BOOK_SWAP]]]);
+  });
+
+  it("answers 500 when who made the dates cannot be read", async () => {
+    holder.current.groupDateMakers.mockRejectedValue(new Error("groupDateMakers failed: boom"));
+    const res = await GET(get(IDS.rivera), ctx(IDS.rivera));
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toMatch(/boom/);
+  });
+
+  it("answers the group's description and each member's role as getGroupById reads them", async () => {
+    const read = holder.current.getGroupById.getMockImplementation()!;
+    holder.current.getGroupById.mockImplementation(async (id: string) => {
+      const found = await read(id);
+      return { data: { ...found.data, description: null, group_members: found.data.group_members.map(
+        (m: { user_id: string }) => ({ ...m, role: m.user_id === SAM ? "admin" : m.user_id === world().people.mom.id ? "owner" : "moderator" })) } };
+    });
+    const body = await (await GET(get(IDS.rivera), ctx(IDS.rivera))).json();
+    expect([body.group.description, body.group.role]).toEqual([null, "admin"]);
+    expect(body.members.map((m: { role: string }) => m.role)).toEqual(["member", "member", "member", "member", "owner", "admin"]);
+  });
 
   it.each(["Group not found", "You are not a member of this group"])("answers 404 for %s", async (error) => {
     holder.current.getGroupById.mockResolvedValue({ error });
@@ -139,5 +241,69 @@ describe("GET /api/mobile/v1/groups/[id]", () => {
     await GET(get(IDS.rivera), ctx(IDS.rivera));
     expect(holder.current.visibleItemCounts).toHaveBeenCalledWith(
       expect.arrayContaining(world().members.get(IDS.rivera)!.map((p) => p.id)));
+  });
+});
+
+describe("DELETE /api/mobile/v1/groups/[id]", () => {
+  it("answers 401 without a bearer, asking nothing", async () => {
+    const res = await DELETE(new Request(`http://localhost/api/mobile/v1/groups/${IDS.rivera}`, { method: "DELETE" }), ctx(IDS.rivera));
+    expect(res.status).toBe(401);
+    expect(holder.current.callerRole).not.toHaveBeenCalled();
+    expect(holder.current.deleteGroup).not.toHaveBeenCalled();
+  });
+
+  it("deletes the group for its owner and answers 204", async () => {
+    holder.current.callerRole.mockResolvedValue("owner");
+    const upper = IDS.rivera.toUpperCase();
+    const res = await DELETE(del(upper), ctx(upper));
+    expect([res.status, res.headers.get("cache-control"), await res.text()]).toEqual([204, "no-store", ""]);
+    expect(holder.current.callerRole).toHaveBeenCalledWith(IDS.rivera, SAM);
+    expect(holder.current.deleteGroup.mock.calls).toEqual([[IDS.rivera]]);
+  });
+
+  it("answers a member's delete with 422 and the website's sentence", async () => {
+    // Sam is a member of Rivera Family; the action refuses anyone but the owner
+    holder.current.deleteGroup.mockResolvedValue({ error: "Only the owner can delete this group" });
+    const res = await DELETE(del(IDS.rivera), ctx(IDS.rivera));
+    expect([res.status, (await res.json()).error]).toEqual([422, { code: "invalid", message: "Only the owner can delete this group" }]);
+    expect(await holder.current.callerRole.mock.results[0].value).toBe("member");
+    expect(holder.current.deleteGroup).toHaveBeenCalledWith(IDS.rivera);
+  });
+
+  it("answers 404 for a group the caller is not in, without asking to delete it", async () => {
+    holder.current.callerRole.mockResolvedValue(null);
+    expect((await DELETE(del(IDS.rivera), ctx(IDS.rivera))).status).toBe(404);
+    expect(holder.current.deleteGroup).not.toHaveBeenCalled();
+  });
+
+  it("answers 404 for an id that is not a UUID, asking nothing", async () => {
+    expect((await DELETE(del("x"), ctx("x"))).status).toBe(404);
+    expect(holder.current.callerRole).not.toHaveBeenCalled();
+    expect(holder.current.deleteGroup).not.toHaveBeenCalled();
+  });
+
+  it("answers 401 when the action says nobody is signed in, and 500 without the database's words for any other failure", async () => {
+    holder.current.callerRole.mockResolvedValue("owner");
+    holder.current.deleteGroup.mockResolvedValueOnce({ error: "Not authenticated" });
+    expect((await DELETE(del(IDS.rivera), ctx(IDS.rivera))).status).toBe(401);
+    holder.current.deleteGroup.mockResolvedValueOnce({ error: "update or delete on table \"groups\" violates foreign key constraint" });
+    const res = await DELETE(del(IDS.rivera), ctx(IDS.rivera));
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toMatch(/foreign key|groups/);
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("/api/mobile/v1/groups"), expect.anything());
+  });
+
+  it("answers the plain 500 when the action cannot read the caller's role", async () => {
+    holder.current.callerRole.mockResolvedValue("owner");
+    holder.current.deleteGroup.mockResolvedValue({ error: "Failed to verify group membership. Please try again." });
+    const res = await DELETE(del(IDS.rivera), ctx(IDS.rivera));
+    expect([res.status, (await res.json()).error]).toEqual([500, { code: "server_error", message: "Something went wrong. Please try again." }]);
+  });
+
+  it("answers the plain 500 when the action could not delete the group", async () => {
+    holder.current.callerRole.mockResolvedValue("owner");
+    holder.current.deleteGroup.mockResolvedValue({ error: "Failed to delete group. Please try again." });
+    const res = await DELETE(del(IDS.rivera), ctx(IDS.rivera));
+    expect([res.status, (await res.json()).error]).toEqual([500, { code: "server_error", message: "Something went wrong. Please try again." }]);
   });
 });

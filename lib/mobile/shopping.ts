@@ -9,6 +9,7 @@ import {
   type GiftView,
   type MobileGift,
 } from "./gifts";
+import type { GroupRole } from "./groups";
 import {
   byPersonName,
   homeOccasions,
@@ -74,44 +75,78 @@ export function buildGroupList(rows: GroupRow[], counts: ReadonlyMap<string, num
   };
 }
 
+/** The group a group page is about: its description, and the caller's own role in it. */
+export interface GroupPageGroup extends MobileGroup {
+  description: string | null;
+  role: GroupRole;
+}
 export interface GroupMember {
   person: MobilePerson;
   itemCount: number;
   hasGift: boolean;
   isYou: boolean;
+  role: GroupRole;
+}
+/** An occasion on a group page, with the row id to change it by when it is a group date the caller may change. */
+export interface GroupOccasion extends ShoppingOccasion {
+  change: { id: string } | null;
 }
 export interface GroupPage {
-  group: MobileGroup;
+  group: GroupPageGroup;
   members: GroupMember[];
-  occasions: ShoppingOccasion[];
+  occasions: GroupOccasion[];
 }
 
+/**
+ * A person the roles do not name is read as a member, the role that can do the least. A group date carries `change`
+ * as the database decides who may change it: someone in the group who made it, or is an owner or admin of it. `makers`
+ * holds who made each of the group's dates; one it does not name is changed by an owner or admin alone.
+ */
 export function buildGroupPage(input: {
   callerId: string;
-  group: MobileGroup;
+  group: MobileGroup & { description: string | null };
   members: PersonRow[];
+  roles: ReadonlyMap<string, GroupRole>;
   itemCounts: ReadonlyMap<string, number>;
   upcoming: UpcomingOccasion[];
   profiles: ReadonlyMap<string, PersonRow>;
   views: GiftView[];
+  makers: ReadonlyMap<string, string | null>;
 }): GroupPage {
-  const { callerId, group, members, views } = input;
+  const { callerId, group, members, roles, views } = input;
   const memberIds = new Set(members.map((m) => m.id));
   const people = members
     .map((m) => ({ row: m, person: mobilePerson(m) }))
     .sort((a, b) => byPersonName(a.person, b.person));
   const byGroup = new Map<string, PersonRow[]>([[group.id, members]]);
+  // undefined when the caller is not one of the group's members, who may change nothing
+  const callerRole = roles.get(callerId);
+  const change = (o: UpcomingOccasion): { id: string } | null => {
+    if (o.kind !== "group_date" || o.occasionId === null || callerRole === undefined) return null;
+    const allowed = callerRole === "owner" || callerRole === "admin" || input.makers.get(o.occasionId) === callerId;
+    return allowed ? { id: o.occasionId } : null;
+  };
   return {
-    group: { id: group.id, name: group.name, type: group.type },
+    group: {
+      id: group.id,
+      name: group.name,
+      type: group.type,
+      description: group.description,
+      role: roles.get(callerId) ?? "member",
+    },
     members: people.map(({ row, person }) => ({
       person,
       itemCount: input.itemCounts.get(row.id) ?? 0,
       hasGift: row.id !== callerId && views.some((v) => !v.archived && v.personId === row.id && v.status !== "given"),
       isYou: row.id === callerId,
+      role: roles.get(row.id) ?? "member",
     })),
     occasions: homeOccasions(input.upcoming, callerId)
       .filter((o) => (o.kind === "group_date" ? o.groupId === group.id : occasionInvolvesAny(o, memberIds)))
-      .map((o) => shoppingOccasion(o, shoppingPeople(o, callerId, byGroup, input.profiles), views)),
+      .map((o) => ({
+        ...shoppingOccasion(o, shoppingPeople(o, callerId, byGroup, input.profiles), views),
+        change: change(o),
+      })),
   };
 }
 

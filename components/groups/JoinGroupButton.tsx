@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Heading, Text } from "@/components/ui/text";
 import { joinGroupByCode } from "@/lib/actions/invitations";
+import { tidyInviteCode } from "@/lib/utils/groups";
 
 interface JoinGroupButtonProps {
   size?: "small" | "medium" | "large";
@@ -26,15 +27,9 @@ export default function JoinGroupButton({ size = "medium" }: JoinGroupButtonProp
     setSuccess(false);
     setIsLoading(true);
 
-    // Format the code to uppercase and add dashes if needed
-    let formattedCode = inviteCode.toUpperCase().replace(/[^A-Z0-9]/g, "");
-
-    // Add dashes if user entered code without them
-    if (formattedCode.length === 9) {
-      formattedCode = `${formattedCode.slice(0, 3)}-${formattedCode.slice(3, 6)}-${formattedCode.slice(6, 9)}`;
-    }
-
-    const result = await joinGroupByCode(formattedCode);
+    // Upper case, letters and digits only, dashes put back: the same tidying
+    // joinGroupByCode does.
+    const result = await joinGroupByCode(tidyInviteCode(inviteCode));
 
     if (result.error) {
       setError(result.error);
