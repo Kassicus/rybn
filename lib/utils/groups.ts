@@ -55,23 +55,45 @@ export function tidyInviteCode(raw: string): string {
 }
 
 /**
- * One pass over a group's text. The first branch is a whole subdivision flag:
- * the black flag, three to seven tag letters or digits (a subdivision code,
- * as gbeng, gbsct and gbwls are), and the cancel tag. The second is a run of
- * what does not show on one line: line breaks and other control characters,
- * invisible (format) characters, tag characters among them, and the
- * blank-looking characters that show nothing (the combining grapheme joiner,
- * the Hangul fillers, two Khmer inherent vowels and the braille blank).
- *
- * Linear: the flag branch starts with one fixed character and has a bounded
- * middle, and the run branch is a single character class with nothing after
- * it, so neither has anything to backtrack into.
+ * One character of what does not show on one line, stated by Unicode
+ * property: everything Unicode marks as default ignorable, every control,
+ * format, private-use and unassigned character (a lone surrogate too), the
+ * line and paragraph separators, the braille blank, and every space separator
+ * other than the ordinary space. Its two alternatives never match the same
+ * character.
  */
-const ONE_LINE =
-  /(\u{1F3F4}[\u{E0030}-\u{E0039}\u{E0061}-\u{E007A}]{3,7}\u{E007F})|[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\u{034F}\u{115F}\u{1160}\u{17B4}\u{17B5}\u{2800}\u{3164}\u{FFA0}]+/gu;
+const HIDDEN = String.raw`(?:[\p{Default_Ignorable_Code_Point}\p{C}\p{Zl}\p{Zp}\u{2800}]|(?! )\p{Zs})`;
 
-/** A zero-width non-joiner or joiner, on its own. */
-const JOINER = /^[\u{200C}\u{200D}]$/u;
+/** The flags of England, Scotland and Wales: the black flag, gbeng, gbsct or gbwls in tag letters, the cancel tag. */
+const SUBDIVISION_FLAG = String.raw`\u{1F3F4}\u{E0067}\u{E0062}(?:\u{E0065}\u{E006E}\u{E0067}|\u{E0073}\u{E0063}\u{E0074}|\u{E0077}\u{E006C}\u{E0073})\u{E007F}`;
+/** A keycap: a digit, # or *, the emoji presentation selector, the enclosing keycap. */
+const KEYCAP = String.raw`[0-9#*]\u{FE0F}\u{20E3}`;
+/** An emoji with the emoji presentation selector straight after it. */
+const EMOJI_PRESENTATION = String.raw`\p{Extended_Pictographic}\u{FE0F}`;
+/** A zero-width non-joiner or joiner with no hidden character straight after it. */
+const LONE_JOINER = String.raw`[\u{200C}\u{200D}](?!${HIDDEN})`;
+
+/**
+ * One pass over a group's text, tried in this order at each place:
+ *  1. something kept whole: a subdivision flag, a keycap, or an emoji with
+ *     its presentation selector;
+ *  2. a lone joiner, kept or not by joins();
+ *  3. a run of hidden characters, which becomes one space.
+ * Each kept thing is its own branch, so a run never swallows one: a kept
+ * selector always follows a visible emoji, and a lone joiner is only matched
+ * where nothing hidden comes after it (a run before it would already have
+ * taken it in).
+ *
+ * Linear: branch 1 is three fixed-length sequences, each starting with one
+ * character test, so it fails or matches in at most seven steps. Branch 2 is
+ * one character and a one-character look ahead. Branch 3 repeats a single
+ * character, whose two alternatives never overlap, with nothing after the
+ * repeat, so it never gives anything back. None can match nothing.
+ */
+const ONE_LINE = new RegExp(
+  `(${SUBDIVISION_FLAG}|${KEYCAP}|${EMOJI_PRESENTATION})|(${LONE_JOINER})|${HIDDEN}+`,
+  'gu'
+);
 
 /** An emoji just before a joiner, with its variation selector or skin tone if it has one. */
 const EMOJI_BEFORE = /\p{Extended_Pictographic}[\u{FE0F}\p{Emoji_Modifier}]?$/u;
@@ -110,22 +132,27 @@ function joins(text: string, at: number): boolean {
 
 /**
  * A group's name or description as one line of text, trimmed: each run of
- * line breaks, control characters, invisible characters and blank-looking
- * characters becomes one space. Two things stay as they are, because they are
- * part of an emoji or a word: a whole subdivision flag (England, Scotland,
- * Wales), and a lone zero-width joiner or non-joiner between two emoji (a
- * family) or between two characters of a script that joins (Arabic and the
- * Indic scripts). A joiner anywhere else, between two Latin letters for one,
- * becomes a space. The group schema stores names and descriptions this way,
- * and the invitation email builds its subject from a name tidied the same way.
+ * hidden characters (see HIDDEN) becomes one space. Kept as they are, because
+ * they are part of an emoji or a word: the emoji presentation selector
+ * straight after an emoji or inside a keycap; a lone zero-width joiner or
+ * non-joiner between two emoji (a family) or between two characters of a
+ * script that joins (Arabic and the Indic scripts); and the flags of England,
+ * Scotland and Wales. Everything else hidden becomes a space: every other
+ * variation selector, tag sequence, joiner and bidirectional mark, and the
+ * thin and hair spaces. The group schema stores names and descriptions this
+ * way, and the invitation email builds its subject from a name tidied the
+ * same way.
  */
 export function tidyGroupText(text: string): string {
   return text
-    .replace(ONE_LINE, (run: string, flag: string | undefined, at: number, whole: string) => {
-      if (flag !== undefined) return flag;
-      if (JOINER.test(run) && joins(whole, at)) return run;
-      return ' ';
-    })
+    .replace(
+      ONE_LINE,
+      (_match: string, kept: string | undefined, joiner: string | undefined, at: number, whole: string) => {
+        if (kept !== undefined) return kept;
+        if (joiner !== undefined && joins(whole, at)) return joiner;
+        return ' ';
+      }
+    )
     .trim();
 }
 

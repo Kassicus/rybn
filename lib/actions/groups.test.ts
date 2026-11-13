@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { CreateGroupInput } from "@/lib/schemas/groups";
+import { tidyGroupText } from "@/lib/utils/groups";
 
 /**
  * createGroup checks what it is given before it reaches the database, with
@@ -60,7 +61,12 @@ const ZWJ = "\u{200D}"; // zero-width joiner
 const RLO = "\u{202E}"; // right-to-left override
 const HANGUL_FILLER = "\u{3164}"; // shows as a blank
 const LS = "\u{2028}"; // line separator
+const VS16 = "\u{FE0F}"; // emoji presentation selector
 const FAMILY = `\u{1F468}${ZWJ}\u{1F469}${ZWJ}\u{1F467}`; // man, woman, girl
+const RAINBOW = `\u{1F3F3}${VS16}${ZWJ}\u{1F308}`; // white flag, rainbow
+const SCOTLAND = "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}";
+const KEYCAP_ONE = `1${VS16}\u{20E3}`;
+const PERSIAN_WORD = `\u{0645}\u{06CC}${ZWNJ}\u{062E}\u{0648}\u{0627}\u{0647}\u{0645}`;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -223,20 +229,47 @@ describe("createGroup", () => {
     }
   );
 
-  it("tidies a 5,000-character name of joiners and letters without delay, then refuses its length", async () => {
-    // Letters, joiners in each script and between emoji, and a lone joiner:
-    // every branch of the tidying, 834 times over.
-    const unit = `a${ZWJ}\u{0628}${ZWNJ}\u{1F468}`;
-    const name = unit.repeat(834).slice(0, 5_000);
-    expect(name).toHaveLength(5_000);
+  it.each([["\u{FE0F}"], ["\u{FE00}\u{FE0E}\u{E0100}"], ["\u{180B} \u{180F}"]])(
+    "refuses the name %j, made of variation selectors, with the name's sentence",
+    async (name) => {
+      const result = await createGroup({ name, type: "family" });
+
+      expect(result).toEqual({ error: "Group name is required" });
+      expect(insertSpy).not.toHaveBeenCalled();
+    }
+  );
+
+  /**
+   * What this shows: a name of more than 100,000 code units made only of
+   * things the tidying keeps (joined emoji, the rainbow flag with its
+   * presentation selector and joiner, the flag of Scotland, a keycap and a
+   * Persian word with its non-joiner) comes back from tidyGroupText exactly
+   * as it went in, so every kept branch ran on it, and the whole of it,
+   * tidying and createGroup's refusal for its length together, finishes
+   * well inside the limit. A cost that grew with the square of the length
+   * would take far longer than the limit at this size.
+   *
+   * What it does not show: that every possible input is tidied in linear
+   * time; that is argued from the shape of the pattern, not measured. Nor
+   * does the limit say anything about speed on a slower or busier machine,
+   * beyond being generous.
+   */
+  it("tidies a 100,000-unit name of kept emoji, flags and joined words unchanged and quickly, then refuses its length", async () => {
+    const unit = [FAMILY, RAINBOW, SCOTLAND, KEYCAP_ONE, PERSIAN_WORD].join("");
+    // n units and n - 1 spaces between them: n * (length + 1) - 1 code units.
+    const n = Math.ceil(100_001 / (unit.length + 1));
+    const name = Array.from({ length: n }, () => unit).join(" ");
+    expect(name.length).toBeGreaterThanOrEqual(100_000);
 
     const started = performance.now();
+    const tidied = tidyGroupText(name);
     const result = await createGroup({ name, type: "family" });
     const elapsed = performance.now() - started;
 
+    expect(tidied).toBe(name);
     expect(result).toEqual({ error: "Group name must be less than 50 characters" });
     expect(insertSpy).not.toHaveBeenCalled();
-    expect(elapsed).toBeLessThan(250);
+    expect(elapsed).toBeLessThan(1_000);
   });
 
   it("keeps an emoji built with a zero-width joiner as it is", async () => {
