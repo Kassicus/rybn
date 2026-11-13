@@ -210,9 +210,10 @@ begin
             v_ring_settings);
 
   -- a's and b's stored rows go in after the fields, so each field holds
-  -- exactly what the fixture wrote. a's field must still name no kind:
-  -- assertion 23 shows that a, not passed to the function, keeps it as
-  -- written.
+  -- exactly what the fixture wrote: with 20261112000001 applied, a field
+  -- inserted after its owner's stored row would take that row's kinds. a's
+  -- field must still name no kind: assertion 23 shows that a, not passed to
+  -- the function, keeps it as written.
   insert into profile_visibility (user_id, visible_to_group_types)
     values (v_a, '{family}'::public.group_type[]),
            (v_b, '{friends}'::public.group_type[]);
