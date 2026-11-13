@@ -52,6 +52,10 @@ const INVITE_CODE_SHAPE = /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/;
  * row and the email use the trimmed address. The group's name in the email is
  * read from the caller's own membership, so it is always the name of the
  * group the invitation is for.
+ *
+ * Once the invitation is made it answers `emailSent`, `isResend` (an
+ * invitation already waiting was sent again) and, when the email did not go,
+ * `warning`.
  */
 export async function sendGroupInvitation(data: {
   groupId: string;
@@ -163,8 +167,6 @@ export async function sendGroupInvitation(data: {
   const token = generateInviteToken();
   const expiresAt = getInviteExpiration();
 
-  let invitation;
-
   // If there's an existing pending invitation, update it with new token and expiry
   // Otherwise, create a new invitation
   if (existingInvite && !existingInvite.accepted) {
@@ -195,7 +197,6 @@ export async function sendGroupInvitation(data: {
     }
 
     console.log("Successfully updated invitation:", updatedInvite.id);
-    invitation = updatedInvite;
   } else {
     // Create new invitation
     const { data: newInvite, error: inviteError } = await supabase
@@ -219,8 +220,6 @@ export async function sendGroupInvitation(data: {
       console.error("No invitation returned after insert");
       return { error: "Failed to create invitation. Please try again." };
     }
-
-    invitation = newInvite;
   }
 
   // Send invitation email.
@@ -269,12 +268,15 @@ export async function sendGroupInvitation(data: {
     });
   }
 
-  return {
-    data: invitation,
-    emailSent,
-    isResend: existingInvite && !existingInvite.accepted ? true : false,
-    warning: emailSent ? undefined : EMAIL_SEND_FAILED_MESSAGE,
-  };
+  const isResend = existingInvite && !existingInvite.accepted ? true : false;
+
+  // The answer is whether the email went and whether the invitation was sent
+  // again, with the warning when the email did not go. The invitation's row
+  // stays on the server.
+  if (emailSent) {
+    return { emailSent, isResend };
+  }
+  return { emailSent, isResend, warning: EMAIL_SEND_FAILED_MESSAGE };
 }
 
 /**

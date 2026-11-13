@@ -234,7 +234,11 @@ describe("sendGroupInvitation", () => {
     expect(result.warning).not.toContain("resend.com");
     // The invitation row itself is still created: a mail failure must not
     // cost the user the invitation.
-    expect(result.data).toEqual({ id: "invitation-1" });
+    expect(query).toHaveBeenCalledWith(
+      "invitations",
+      "insert",
+      expect.objectContaining({ email: "invitee@example.com" })
+    );
   });
 
   it("reports failure when the send throws outright", async () => {
@@ -265,6 +269,83 @@ describe("sendGroupInvitation", () => {
 
     expect(result.emailSent).toBe(true);
     expect(result.warning).toBeUndefined();
+  });
+});
+
+/**
+ * What the action answers once the invitation is made: whether the email went,
+ * whether it was sent again, and the warning when it did not go. The
+ * invitation's row stays on the server.
+ */
+describe("sendGroupInvitation answers", () => {
+  /** The row the database hands back, with columns the answer must not carry. */
+  const ROW = {
+    id: "invitation-1",
+    email: "invitee@example.com",
+    token: "tok_secret",
+    expires_at: "2026-11-19T10:00:00.000Z",
+  };
+
+  it("whether the email went and whether it was sent again, and nothing else", async () => {
+    supabase = createSupabaseMock({
+      ...happyPathScript(),
+      invitations: [
+        { data: [], error: null },
+        { data: [], error: null },
+        { data: ROW, error: null }, // insert
+      ],
+    });
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    const result = await sendGroupInvitation({
+      groupId: GROUP_ID,
+      email: "invitee@example.com",
+    });
+
+    expect(result).toStrictEqual({ emailSent: true, isResend: false });
+  });
+
+  it("says it was sent again for an invitation already waiting", async () => {
+    supabase = createSupabaseMock({
+      ...happyPathScript(),
+      invitations: [
+        { data: [], error: null },
+        { data: [{ id: "invitation-1", accepted: false }], error: null },
+        { data: ROW, error: null }, // update
+      ],
+    });
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    const result = await sendGroupInvitation({
+      groupId: GROUP_ID,
+      email: "invitee@example.com",
+    });
+
+    expect(query).toHaveBeenCalledWith("invitations", "update", expect.anything());
+    expect(result).toStrictEqual({ emailSent: true, isResend: true });
+  });
+
+  it("adds the warning, and nothing else, when the email did not go", async () => {
+    supabase = createSupabaseMock({
+      ...happyPathScript(),
+      invitations: [
+        { data: [], error: null },
+        { data: [], error: null },
+        { data: ROW, error: null },
+      ],
+    });
+    sendGroupInviteEmail.mockRejectedValue(new Error("fetch failed"));
+
+    const result = await sendGroupInvitation({
+      groupId: GROUP_ID,
+      email: "invitee@example.com",
+    });
+
+    expect(result).toStrictEqual({
+      emailSent: false,
+      isResend: false,
+      warning: EMAIL_SEND_FAILED_MESSAGE,
+    });
   });
 });
 
@@ -396,7 +477,7 @@ describe("sendGroupInvitation checks what it is given", () => {
       email: "invitee@example.com",
     });
 
-    expect(result).toMatchObject({ data: { id: "invitation-1" }, emailSent: true });
+    expect(result).toEqual({ emailSent: true, isResend: false });
     expect(sendGroupInviteEmail).toHaveBeenCalledWith(
       expect.objectContaining({ groupName: "" })
     );

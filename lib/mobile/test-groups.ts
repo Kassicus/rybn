@@ -55,22 +55,8 @@ export function groupMocks(): GroupMocks {
       },
     })),
     joinGroupByCode: vi.fn(async () => ({ data: { id: IDS.rivera } })),
-    // The invitation's whole row, its token included, as the action answers it.
-    sendGroupInvitation: vi.fn(async (input: { groupId: string; email: string }) => ({
-      data: {
-        id: "a1b2c3d4-0001-4d00-8000-000000000001",
-        group_id: input.groupId,
-        email: input.email,
-        invited_by: SAM,
-        token: "tok_secret",
-        expires_at: "2026-11-19T10:00:00.000Z",
-        accepted: false,
-        created_at: "2026-11-12T10:00:00.000Z",
-      },
-      emailSent: true,
-      isResend: false,
-      warning: undefined,
-    })),
+    // As the action answers a first invitation whose email went.
+    sendGroupInvitation: vi.fn(async () => ({ emailSent: true, isResend: false })),
     leaveGroup: vi.fn(async () => ({ success: true })),
     deleteGroup: vi.fn(async () => ({ success: true })),
     groupSummary: vi.fn(async (groupId: string) => (isIn(groupId, SAM) ? summaries.get(groupId) ?? null : null)),

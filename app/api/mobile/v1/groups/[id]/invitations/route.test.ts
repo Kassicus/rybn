@@ -44,12 +44,22 @@ describe("POST /api/mobile/v1/groups/[id]/invitations", () => {
     expect(holder.current.sendGroupInvitation.mock.calls).toEqual([[{ groupId: IDS.rivera, email: "gran@example.com" }]]);
   });
 
-  it("answers the invitation fixture, and never the invitation's token", async () => {
+  it("answers the invitation fixture from the action's answer", async () => {
     const res = await POST(post(fixture("invitation-request")), ctx());
     expect([res.status, res.headers.get("cache-control")]).toEqual([200, "no-store"]);
     const text = await res.text();
     expect(JSON.parse(text)).toEqual(fixture("invitation"));
     expect(Object.keys(JSON.parse(text))).toEqual(["sent", "resent", "message"]);
+  });
+
+  it("answers its three fields and nothing else, whatever else an answer holds", async () => {
+    // Fields beside the three the route reads, a token among them
+    holder.current.sendGroupInvitation.mockResolvedValue({
+      emailSent: true, isResend: false,
+      data: { id: "a1b2c3d4-0001-4d00-8000-000000000001", email: "gran@example.com", token: "tok_secret", expires_at: "2026-11-19" },
+    });
+    const text = await (await POST(post(fixture("invitation-request")), ctx())).text();
+    expect(JSON.parse(text)).toEqual(fixture("invitation"));
     expect(text).not.toMatch(/tok_secret|token|gran@example\.com|a1b2c3d4|data|expires/);
   });
 

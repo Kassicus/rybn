@@ -49,7 +49,7 @@ vi.mock("@/lib/supabase/admin", () => ({
   }),
 }));
 
-const { createGroup } = await import("./groups");
+const { createGroup, deleteGroup } = await import("./groups");
 
 const GROUP_ID = "5a6b7c8d-1e2f-4a3b-9c4d-5e6f7a8b9c0d";
 
@@ -245,5 +245,57 @@ describe("createGroup", () => {
     expect(insertSpy.mock.calls[0][1]).toMatchObject({
       name: `${FAMILY} Riveras`,
     });
+  });
+});
+
+/**
+ * deleteGroup reads the caller's role with their own client, then deletes. The
+ * caller's `from` answers the role read with `membership` and records each
+ * delete.
+ */
+describe("deleteGroup", () => {
+  const deleteSpy = vi.fn();
+  let membership: { data: unknown; error: unknown };
+
+  beforeEach(() => {
+    membership = { data: { role: "owner" }, error: null };
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    from.mockImplementation((table: string) => {
+      const chain: Record<string, unknown> = {
+        select: () => chain,
+        eq: () => chain,
+        delete: () => {
+          deleteSpy(table);
+          return chain;
+        },
+        maybeSingle: async () => membership,
+        then: (resolve: (value: unknown) => unknown) =>
+          Promise.resolve({ error: null }).then(resolve),
+      };
+      return chain;
+    });
+  });
+
+  it("answers that it could not verify the membership when the role cannot be read, deleting nothing", async () => {
+    membership = { data: null, error: { code: "XX000", message: "boom" } };
+
+    const result = await deleteGroup(GROUP_ID);
+
+    expect(result).toEqual({ error: "Failed to verify group membership. Please try again." });
+    expect(deleteSpy).not.toHaveBeenCalled();
+  });
+
+  it("refuses anyone but the owner, deleting nothing", async () => {
+    for (const read of [{ data: { role: "admin" }, error: null }, { data: null, error: null }]) {
+      membership = read;
+
+      expect(await deleteGroup(GROUP_ID)).toEqual({ error: "Only the owner can delete this group" });
+    }
+    expect(deleteSpy).not.toHaveBeenCalled();
+  });
+
+  it("deletes the group for its owner", async () => {
+    expect(await deleteGroup(GROUP_ID)).toEqual({ success: true });
+    expect(deleteSpy).toHaveBeenCalledWith("groups");
   });
 });

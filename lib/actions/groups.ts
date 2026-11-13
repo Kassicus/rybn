@@ -385,12 +385,18 @@ export async function deleteGroup(groupId: string) {
   }
 
   // Check if user is the owner
-  const { data: membership } = await supabase
+  const { data: membership, error: membershipError } = await supabase
     .from("group_members")
     .select("role")
     .eq("group_id", groupId)
     .eq("user_id", userId)
     .maybeSingle();
+
+  // A role that could not be read is not a refusal: say so, and delete nothing.
+  if (membershipError) {
+    console.error("deleteGroup: membership lookup failed", membershipError);
+    return { error: "Failed to verify group membership. Please try again." };
+  }
 
   if (membership?.role !== "owner") {
     return { error: "Only the owner can delete this group" };

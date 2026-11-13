@@ -86,7 +86,7 @@ export async function sendInvitationAnswer(rawGroupId: string, raw: unknown): Pr
     refusals: [GROUP_RULES.email, GROUP_REFUSALS.hourlyLimit, GROUP_REFUSALS.alreadyInGroup],
   });
   if (failed) return failed;
-  // Field by field: the action's answer also carries the invitation's row, whose token accepts it.
+  // Answered field by field: whether the email went, whether it was sent again, and the website's sentence.
   return invitationAnswer(result as { emailSent: boolean; isResend: boolean; warning?: string });
 }
 
