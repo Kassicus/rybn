@@ -8,9 +8,10 @@ import { PROFILE_FIELD_NAMES } from "@/lib/profile/fields";
  * profile_info row:
  *
  *   - a field that already has a row keeps the setting on that row: its
- *     write carries no privacy_settings at all;
- *   - a field with no row takes the person's stored choice
- *     (profile_visibility), or all four kinds when they have never chosen;
+ *     write is an update of the value alone;
+ *   - a field with no row (at the read, or by the time of its update) takes
+ *     the person's stored choice (profile_visibility), or all four kinds when
+ *     they have never chosen;
  *   - a field sent empty or null is removed;
  *   - a field the input does not name is not touched.
  *
@@ -128,6 +129,26 @@ function upsertedNames(): string[][] {
   return upsertCalls().map((rows) => rows.map((row) => row.field_name as string));
 }
 
+/** Each profile_info update: its payload, what it matched on, and what it asked back. */
+function fieldUpdates(): { payload: Row; matched: unknown[][]; select: unknown[] }[] {
+  return queriesWith("profile_info", "update").map((q) => ({
+    payload: argsOf(q, "update")[0] as Row,
+    matched: q.calls.filter((c) => c.method === "eq").map((c) => c.args),
+    select: argsOf(q, "select"),
+  }));
+}
+
+/** The update a saved field's value is written with. */
+const valueUpdate = (category: string, fieldName: string, value: string) => ({
+  payload: { field_value: value },
+  matched: [
+    ["user_id", "user_123"],
+    ["category", category],
+    ["field_name", fieldName],
+  ],
+  select: ["id"],
+});
+
 /** True when some query wrote to profile_info. */
 function wroteFields(): boolean {
   return ["insert", "update", "upsert", "delete"].some(
@@ -152,6 +173,9 @@ const OK = { data: null, error: null };
 const ALL_FOUR = ["family", "friends", "work", "custom"];
 const SHOE_ROW = { category: "sizes", field_name: "shoe_size" };
 const rowsRead = (...rows: Row[]) => ({ data: rows, error: null });
+/** A saved field's update that found its row, and one that found none. */
+const MATCHED = (id = "f-1") => ({ data: [{ id }], error: null });
+const MATCHED_NONE = { data: [], error: null };
 const choice = (kinds: string[] | null) => ({
   data: kinds === null ? null : { visible_to_group_types: kinds },
   error: null,
@@ -168,56 +192,101 @@ describe("updateProfile", () => {
   it("keeps the setting a saved field already has", async () => {
     supabase = createSupabaseMock({
       user_profiles: [PROFILE_SAVED],
-      profile_info: [rowsRead(SHOE_ROW), OK],
+      profile_info: [rowsRead(SHOE_ROW), MATCHED()],
+      profile_visibility: [choice(["family"])],
     });
 
     const result = await updateProfile(form());
 
     expect(result).toEqual({ data: SAVED_PROFILE });
-    expect(upsertedNames()).toEqual([["shoe_size"]]);
-    // The write names the value only, so it can never change the setting.
-    expect(upserted().shoe_size).toEqual({
-      user_id: "user_123",
-      category: "sizes",
-      field_name: "shoe_size",
-      field_value: "10",
-    });
-    expect(upserted().shoe_size).not.toHaveProperty("privacy_settings");
+    // The write is an update of the value alone, matched on the person, the
+    // section and the name, so it can never change the setting.
+    expect(fieldUpdates()).toEqual([valueUpdate("sizes", "shoe_size", "10")]);
+    expect(queriesWith("profile_info", "upsert")).toEqual([]);
 
     // Which fields have rows is read from the caller's own rows.
     const [read] = queriesWith("profile_info", "select");
     expect(argsOf(read, "select")).toEqual(["category, field_name"]);
     expect(argsOf(read, "eq")).toEqual(["user_id", "user_123"]);
     expect(argsOf(read, "in")).toEqual(["field_name", ["shoe_size"]]);
-    const [write] = queriesWith("profile_info", "upsert");
-    expect(argsOf(write, "upsert")[1]).toMatchObject({
-      onConflict: "user_id,category,field_name",
-    });
-    // Every field had a row, so the choice is not read.
-    expect(queriesWith("profile_visibility", "select")).toEqual([]);
+    // Both reads, the stored choice included, come before any write.
+    expect(supabase.queries.map((q) => [q.table, q.calls[0].method])).toEqual([
+      ["profile_info", "select"],
+      ["profile_visibility", "select"],
+      ["user_profiles", "update"],
+      ["profile_info", "update"],
+    ]);
   });
 
   it("gives a new field the person's stored choice", async () => {
     supabase = createSupabaseMock({
       user_profiles: [PROFILE_SAVED],
-      profile_info: [rowsRead(SHOE_ROW), OK, OK],
+      profile_info: [rowsRead(SHOE_ROW), MATCHED(), OK],
       profile_visibility: [choice(["family", "friends"])],
     });
 
     await updateProfile(form({ shirt_size: "M" }));
 
-    // The saved field and the new one are written in separate calls.
-    expect(upsertedNames()).toEqual([["shoe_size"], ["shirt_size"]]);
+    // The saved field is updated; the new one is upserted with the choice.
+    expect(fieldUpdates()).toEqual([valueUpdate("sizes", "shoe_size", "10")]);
+    expect(upsertedNames()).toEqual([["shirt_size"]]);
     const rows = upserted();
     expect(rows.shirt_size).toMatchObject({ category: "sizes", field_value: "M" });
     expect(rows.shirt_size.privacy_settings).toEqual({
       visibleToGroupTypes: ["family", "friends"],
       restrictToGroup: null,
     });
-    expect(rows.shoe_size).not.toHaveProperty("privacy_settings");
+    const [write] = queriesWith("profile_info", "upsert");
+    expect(argsOf(write, "upsert")[1]).toMatchObject({
+      onConflict: "user_id,category,field_name",
+    });
 
     const [read] = queriesWith("profile_visibility", "select");
     expect(argsOf(read, "eq")).toEqual(["user_id", "user_123"]);
+  });
+
+  it("writes a field that vanished between the read and the write as a new row with the stored choice", async () => {
+    supabase = createSupabaseMock({
+      user_profiles: [PROFILE_SAVED],
+      profile_info: [
+        rowsRead(SHOE_ROW), // there at the read
+        MATCHED_NONE, // gone by the update
+        OK, // the new row
+      ],
+      profile_visibility: [choice(["family"])],
+    });
+
+    const result = await updateProfile(form());
+
+    expect(result).toEqual({ data: SAVED_PROFILE });
+    expect(fieldUpdates()).toEqual([valueUpdate("sizes", "shoe_size", "10")]);
+    // What the person typed is kept, with their choice, never the column's default.
+    expect(upsertedNames()).toEqual([["shoe_size"]]);
+    expect(upserted().shoe_size).toEqual({
+      user_id: "user_123",
+      category: "sizes",
+      field_name: "shoe_size",
+      field_value: "10",
+      privacy_settings: { visibleToGroupTypes: ["family"], restrictToGroup: null },
+    });
+  });
+
+  it("answers the database's message when a saved field cannot be written", async () => {
+    supabase = createSupabaseMock({
+      user_profiles: [PROFILE_SAVED],
+      profile_info: [
+        rowsRead(SHOE_ROW),
+        { data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } },
+        OK,
+      ],
+      profile_visibility: [choice(["family"])],
+    });
+
+    const result = await updateProfile(form({ shirt_size: "M" }));
+
+    expect(result).toEqual({ error: "canceling statement due to statement timeout" });
+    expect(queriesWith("profile_info", "upsert")).toEqual([]);
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 
   it("gives a new field all four kinds when the person has never chosen", async () => {
@@ -372,7 +441,8 @@ describe("updateProfile", () => {
       user_profiles: [PROFILE_SAVED],
       profile_info: [
         rowsRead(SHOE_ROW, { category: "dates", field_name: "birthday" }),
-        OK, // saved fields
+        MATCHED("f-1"), // shoe_size
+        MATCHED("f-2"), // birthday
         OK, // new field
         OK, // delete
       ],
@@ -391,10 +461,12 @@ describe("updateProfile", () => {
 
     // The saved fields keep their settings; the new one takes the stored
     // choice, not the empty visible_to_group_types the input carries.
-    expect(upsertedNames()).toEqual([["shoe_size", "birthday"], ["hobbies"]]);
+    expect(fieldUpdates()).toEqual([
+      valueUpdate("sizes", "shoe_size", "10"),
+      valueUpdate("dates", "birthday", "1990-05-04"),
+    ]);
+    expect(upsertedNames()).toEqual([["hobbies"]]);
     const rows = upserted();
-    expect(rows.shoe_size).not.toHaveProperty("privacy_settings");
-    expect(rows.birthday).not.toHaveProperty("privacy_settings");
     expect(rows.hobbies.privacy_settings).toEqual({
       visibleToGroupTypes: ["family", "friends"],
       restrictToGroup: null,
@@ -437,7 +509,8 @@ describe("updateProfile", () => {
   it("leaves the avatar alone when the input has none", async () => {
     supabase = createSupabaseMock({
       user_profiles: [PROFILE_SAVED],
-      profile_info: [rowsRead(SHOE_ROW), OK],
+      profile_info: [rowsRead(SHOE_ROW), MATCHED()],
+      profile_visibility: [choice(null)],
     });
     const { avatar_url: _avatar, ...withoutAvatar } = BROWSER_FORM;
 
@@ -453,7 +526,8 @@ describe("updateProfile", () => {
   it("writes the avatar the input has, and none for an empty one", async () => {
     const script = () => ({
       user_profiles: [PROFILE_SAVED],
-      profile_info: [rowsRead(SHOE_ROW), OK],
+      profile_info: [rowsRead(SHOE_ROW), MATCHED()],
+      profile_visibility: [choice(null)],
     });
 
     supabase = createSupabaseMock(script());
@@ -482,6 +556,7 @@ describe("updateProfile", () => {
         },
       ],
       profile_info: [rowsRead(SHOE_ROW)],
+      profile_visibility: [choice(null)],
     });
 
     const result = await updateProfile(form());
@@ -503,7 +578,8 @@ describe("updateProfile", () => {
   it("refreshes the profile pages after a save", async () => {
     supabase = createSupabaseMock({
       user_profiles: [PROFILE_SAVED],
-      profile_info: [rowsRead(SHOE_ROW), OK],
+      profile_info: [rowsRead(SHOE_ROW), MATCHED()],
+      profile_visibility: [choice(null)],
     });
 
     await updateProfile(form());

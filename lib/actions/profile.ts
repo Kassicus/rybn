@@ -180,7 +180,9 @@ export async function updateProfile(formData: ProfileEditFormData) {
 
   // Both reads come before any write, so a failed read changes nothing.
   // Which of the fields being set already have a row of the caller's, in
-  // that field's own section; the others are new.
+  // that field's own section; the others are new. The stored choice is read
+  // whenever anything is set: a new field takes it, and so does a saved one
+  // whose row is gone by the time it is written.
   const saved = new Set<string>();
   let newFieldSetting: ReturnType<typeof newFieldPrivacy> | null = null;
 
@@ -199,13 +201,11 @@ export async function updateProfile(formData: ProfileEditFormData) {
       saved.add(`${row.category}/${row.field_name}`);
     }
 
-    if (set.some((field) => !saved.has(`${field.category}/${field.field_name}`))) {
-      const stored = await readStoredChoice(supabase, userId);
-      if ("error" in stored) {
-        return { error: "Failed to update profile" };
-      }
-      newFieldSetting = newFieldPrivacy(stored.choice);
+    const stored = await readStoredChoice(supabase, userId);
+    if ("error" in stored) {
+      return { error: "Failed to update profile" };
     }
+    newFieldSetting = newFieldPrivacy(stored.choice);
   }
 
   // Provision before writing: this updates the caller's own row, and layout
@@ -238,27 +238,50 @@ export async function updateProfile(formData: ProfileEditFormData) {
     return { error: profileError.message };
   }
 
-  type FieldRow = Database["public"]["Tables"]["profile_info"]["Insert"];
-  const row = (field: (typeof set)[number]): FieldRow => ({
-    user_id: userId,
-    category: field.category,
-    field_name: field.field_name,
-    field_value: field.field_value,
-  });
+  // A field that had a row is written with an update of its value alone,
+  // matched on the person, its section and its name, so a save never changes
+  // its setting. The updates run together, and each asks for its row back.
+  const savedFields = set.filter((field) => saved.has(`${field.category}/${field.field_name}`));
+  const updates = await Promise.all(
+    savedFields.map((field) =>
+      supabase
+        .from("profile_info")
+        .update({ field_value: field.field_value })
+        .eq("user_id", userId)
+        .eq("category", field.category)
+        .eq("field_name", field.field_name)
+        .select("id")
+    )
+  );
 
-  // A field that has a row is written without privacy_settings, so a save
-  // never changes its setting. A new field carries the stored choice. They
-  // are separate calls, so the conflict update on the first names no setting.
-  const savedRows = set
-    .filter((field) => saved.has(`${field.category}/${field.field_name}`))
-    .map(row);
-  const newRows = set
-    .filter((field) => !saved.has(`${field.category}/${field.field_name}`))
-    .map((field): FieldRow => ({ ...row(field), privacy_settings: newFieldSetting ?? undefined }));
+  const updateError = updates.find((result) => result.error)?.error;
+  if (updateError) {
+    return { error: updateError.message };
+  }
 
-  for (const records of [savedRows, newRows]) {
-    if (records.length === 0) continue;
+  // New fields carry the stored choice. So does a saved field whose update
+  // matched nothing (removed elsewhere since the read): what the person typed
+  // is kept, and the field comes back with their choice, not the column's
+  // default.
+  const vanished = savedFields.filter((_, index) => (updates[index].data ?? []).length === 0);
+  const newFields = [
+    ...set.filter((field) => !saved.has(`${field.category}/${field.field_name}`)),
+    ...vanished,
+  ];
 
+  if (newFields.length > 0) {
+    const records: Database["public"]["Tables"]["profile_info"]["Insert"][] = newFields.map(
+      (field) => ({
+        user_id: userId,
+        category: field.category,
+        field_name: field.field_name,
+        field_value: field.field_value,
+        privacy_settings: newFieldSetting ?? undefined,
+      })
+    );
+
+    // An upsert, so a row created elsewhere since the read takes the
+    // person's value and choice instead of failing the save.
     const { error: saveError } = await supabase
       .from("profile_info")
       .upsert(records, {

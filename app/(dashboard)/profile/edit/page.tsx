@@ -109,7 +109,7 @@ export default function ProfileEditPage() {
     const { data } = await getMyProfile();
     if (!data) {
       setError(
-        "Couldn't refresh your anniversary. Reload the page before saving."
+        "Couldn't refresh your anniversary. Reload the page to see it."
       );
       return;
     }

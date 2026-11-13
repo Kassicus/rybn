@@ -204,6 +204,9 @@ describe("ProfileEditPage saving", () => {
 
     fireEvent.change(field("shoe_size"), { target: { value: "11" } });
     fireEvent.change(field("hobbies"), { target: { value: "" } });
+    fireEvent.change(field("shirt_size"), { target: { value: "M" } });
+    fireEvent.change(field("hat_size"), { target: { value: "8" } });
+    fireEvent.change(field("hat_size"), { target: { value: "7" } });
     fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
 
     await waitFor(() => expect(updateProfile).toHaveBeenCalledTimes(1));
@@ -214,13 +217,41 @@ describe("ProfileEditPage saving", () => {
       bio: "",
       shoe_size: "11", // changed: its new value
       hobbies: "", // emptied: "" so it is removed
+      shirt_size: "M", // empty at load, typed for the first time
     });
     expect(sent).toHaveProperty("avatar_url");
     // Empty at load and never touched (anniversary, birthday, ...), or
-    // unchanged (hat_size): not sent at all.
+    // changed and put back (hat_size): not sent at all.
     const catalog = Object.keys(sent).filter((key) =>
       (PROFILE_FIELD_NAMES as readonly string[]).includes(key)
     );
-    expect(catalog.sort()).toEqual(["hobbies", "shoe_size"]);
+    expect(catalog.sort()).toEqual(["hobbies", "shirt_size", "shoe_size"]);
+  });
+
+  it("asks for a reload when the anniversary cannot be refreshed, and leaves it alone on Save", async () => {
+    let loads = 0;
+    getMyProfile.mockImplementation(async () =>
+      ++loads === 1
+        ? profileWithAnniversary(OLD_DATE)
+        : { data: null, error: "canceling statement due to statement timeout" }
+    );
+    const { container } = render(<ProfileEditPage />);
+
+    await waitFor(() => expect(anniversaryInput().value).toBe(OLD_DATE));
+
+    fireEvent.click(await screen.findByRole("button", { name: /confirm/i }));
+    await screen.findByText(
+      "Couldn't refresh your anniversary. Reload the page to see it."
+    );
+
+    fireEvent.change(displayNameInput(container), {
+      target: { value: "Kasey S" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => expect(updateProfile).toHaveBeenCalledTimes(1));
+    const sent = updateProfile.mock.calls[0][0];
+    expect(sent).toMatchObject({ display_name: "Kasey S" });
+    expect(sent).not.toHaveProperty("anniversary");
   });
 });
