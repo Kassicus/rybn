@@ -9,6 +9,7 @@ import { revalidatePath } from "next/cache";
 import type { BasicProfileFormData, ProfileEditFormData } from "@/lib/schemas/profile";
 import { planProfileFields, profileEditSchema } from "@/lib/schemas/profile";
 import { newFieldPrivacy, readStoredChoice } from "@/lib/profile/visibility";
+import { PROFILE_SENTENCES } from "@/lib/profile/sentences";
 import type { Database } from "@/types/database";
 import type { ViewerContext, GroupType } from "@/types/privacy";
 
@@ -140,7 +141,7 @@ export async function updateBasicProfile(formData: BasicProfileFormData) {
   if (profileError) {
     // Check for unique constraint violation
     if (profileError.code === '23505' && profileError.message.includes('username')) {
-      return { error: "Username is already taken" };
+      return { error: PROFILE_SENTENCES.usernameTaken };
     }
     return { error: profileError.message };
   }
@@ -233,7 +234,7 @@ export async function updateProfile(formData: ProfileEditFormData) {
 
   if (profileError) {
     if (profileError.code === '23505' && profileError.message.includes('username')) {
-      return { error: "Username is already taken" };
+      return { error: PROFILE_SENTENCES.usernameTaken };
     }
     return { error: profileError.message };
   }

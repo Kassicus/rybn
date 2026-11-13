@@ -111,6 +111,9 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 | Route | Answers |
 | --- | --- |
 | `GET /me` | The signed-in person's profile. |
+| `GET /profile` | `{ profile }`: `username`, `displayName`, `bio`, `avatarUrl`, `limits`, `sections` (every field the website knows, each with what the caller saved in it, `value` null where empty), `visibleTo` and `mixed`. |
+| `PUT /profile` | `{ profile }`, read again after the save; body `{ username, displayName, bio, fields }`. 422 with the plain sentence for a body of another shape, the website form's sentence for anything the form refuses, and `Username is already taken`. |
+| `PUT /profile/visibility` | `{ visibleTo }`; body `{ visibleTo }`, any of `family`, `friends`, `work` and `custom`, none for only the caller. 422 `Choose which kinds of group can see your details.` for anything else. |
 | `GET /wishlist` | `{ items }`, the caller's own wishlist. |
 | `POST /wishlist` | `{ item }`, the new item (200). |
 | `PUT /wishlist/{id}` | `{ item }`, the replaced item; 404 when it is not the caller's. |
@@ -130,6 +133,7 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 | `PUT /groups/{id}/dates/{dateId}` | `{ occasion }`; body `{ name, date }`. 404 for a date that is not there, not in that group, or not the caller's to change; 422 as for `POST`. |
 | `DELETE /groups/{id}/dates/{dateId}` | 204; 404 for a date that is not there, not in that group, or not the caller's to change. |
 | `GET /people/{id}/wishlist?occasion=<key>` | `{ person, occasion, occasions, gifts, items }`; the caller's own list answers items alone. |
+| `GET /people/{id}/profile` | `{ person, bio, sections, sharedGroups }`: only the fields the caller may see that hold something (a section with none is left out), and the groups the two share. 404 with no group in common, as for someone who is not there. |
 | `POST /wishlist/{id}/claim` | `{ gift }`, body `{ occasion }` (a key or null). A second POST by the person who already holds the item answers their gift again (it does not claim twice). |
 | `DELETE /wishlist/{id}/claim` | 204; 422 once the item is bought or its gift is past Claimed. |
 | `GET /gifts?season=<year>` | `{ season, seasons, counts, groups, choices }`. |
@@ -161,9 +165,14 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 - An invitation's group name is read on the server, never taken from the request; the answer never holds the invitation's token.
 - A group date: name 1 to 200 characters; date `YYYY-MM-DD` and a real day. A date that is not there, or not the caller's to change, answers 404. Who may change or delete one is the database's rule (its maker, or an owner or admin of the group, while still in it); the routes ask the website's actions and never rely on the page's `change`, which follows the same rule.
 - The migration `20261111000000_shopping_links.sql` must be applied before these routes are merged (`npx supabase db push`).
+- The profile form is described by the website (`lib/profile/fields.ts`): every field it knows, in order, with its label, its kind (`text` or `date`) and the most characters it takes. A field added there needs no new build of the app.
+- `PUT /profile` sets every field named in `fields` and clears one sent as null or empty; a field not named is left alone, so the app sends only what the person changed. The username, display name and bio are always sent. The rules are the website form's (`profileEditSchema`), checked at the door and again by `updateProfile`.
+- `visibleTo` is the person's stored choice (`profile_visibility`): none means only them, and a person who never chose has all four. `mixed` says some field has another setting. Only `PUT /profile/visibility` changes who sees a field: it stores the choice and writes it onto every field, as the Settings page does.
+- Another person's profile is built field by field from what row-level security returns, with named columns: never a row, never an email.
+- The migration `20261112000000_profile_visibility.sql` must be applied before these routes are merged (`npx supabase db push`).
 - Adding a value to an enumerated field (a priority, a privacy kind, a gift's step) is a breaking change for v1, because the app decodes strictly.
 
-`lib/mobile/fixtures/*.json` are the contract, including `wishlist.json`, `wishlist-item.json`, `wishlist-occasions.json`, `groups.json`, `wishlist-item-request.json`, `home.json`, `group-list.json`, `group.json`, `person-wishlist.json`, `gift.json`, `gifts.json`, `claim-request.json`, `gift-request.json`, `step-request.json`, `group-request.json`, `group-created.json`, `join-request.json`, `invite.json`, `invitation-request.json`, `invitation.json`, `group-date-request.json` and `group-date.json`. They are copied into `rybn-mobile/Packages/RybnKit/Tests/RybnKitTests/Fixtures/`, so change both together.
+`lib/mobile/fixtures/*.json` are the contract, including `wishlist.json`, `wishlist-item.json`, `wishlist-occasions.json`, `groups.json`, `wishlist-item-request.json`, `home.json`, `group-list.json`, `group.json`, `person-wishlist.json`, `gift.json`, `gifts.json`, `claim-request.json`, `gift-request.json`, `step-request.json`, `group-request.json`, `group-created.json`, `join-request.json`, `invite.json`, `invitation-request.json`, `invitation.json`, `group-date-request.json`, `group-date.json`, `profile.json`, `profile-request.json`, `visibility-request.json`, `visibility.json` and `person-profile.json`. They are copied into `rybn-mobile/Packages/RybnKit/Tests/RybnKitTests/Fixtures/`, so change both together.
 
 ## Tech Stack
 

@@ -1,0 +1,66 @@
+{
+  "profile": {
+    "username": "sam",
+    "displayName": "Sam Rivera",
+    "bio": "Coffee, maps and long walks.",
+    "avatarUrl": "https://img.clerk.com/abc",
+    "limits": { "username": 30, "displayName": 50, "bio": 500 },
+    "sections": [
+      {
+        "id": "sizes",
+        "title": "Sizes",
+        "fields": [
+          { "name": "shoe_size", "label": "Shoe size", "kind": "text", "max": 20, "value": "10" },
+          { "name": "shirt_size", "label": "Shirt size", "kind": "text", "max": 20, "value": "M" },
+          { "name": "pants_size", "label": "Pants size", "kind": "text", "max": 20, "value": null },
+          { "name": "dress_size", "label": "Dress size", "kind": "text", "max": 20, "value": null },
+          { "name": "ring_size", "label": "Ring size", "kind": "text", "max": 20, "value": null },
+          { "name": "hat_size", "label": "Hat size", "kind": "text", "max": 20, "value": null }
+        ]
+      },
+      {
+        "id": "preferences",
+        "title": "Preferences",
+        "fields": [
+          { "name": "favorite_colors", "label": "Favorite colors", "kind": "text", "max": 200, "value": "Green, navy" },
+          { "name": "favorite_brands", "label": "Favorite brands", "kind": "text", "max": 200, "value": null },
+          { "name": "style_preferences", "label": "Style preferences", "kind": "text", "max": 200, "value": null },
+          { "name": "hobbies", "label": "Hobbies", "kind": "text", "max": 300, "value": "Hiking, board games" },
+          { "name": "interests", "label": "Interests", "kind": "text", "max": 300, "value": null },
+          { "name": "dislikes", "label": "Dislikes", "kind": "text", "max": 300, "value": null }
+        ]
+      },
+      {
+        "id": "vehicles",
+        "title": "Vehicles",
+        "fields": [
+          { "name": "vehicle_make", "label": "Make", "kind": "text", "max": 50, "value": null },
+          { "name": "vehicle_model", "label": "Model", "kind": "text", "max": 50, "value": null },
+          { "name": "vehicle_year", "label": "Year", "kind": "text", "max": 4, "value": null },
+          { "name": "vehicle_accessories_needed", "label": "Accessories needed", "kind": "text", "max": 200, "value": null }
+        ]
+      },
+      {
+        "id": "personal",
+        "title": "Personal information",
+        "fields": [
+          { "name": "dietary_restrictions", "label": "Dietary restrictions", "kind": "text", "max": 200, "value": null },
+          { "name": "allergies", "label": "Allergies", "kind": "text", "max": 200, "value": null },
+          { "name": "coffee_order", "label": "Favorite coffee order", "kind": "text", "max": 100, "value": "Flat white" },
+          { "name": "favorite_restaurant", "label": "Favorite restaurant", "kind": "text", "max": 100, "value": null },
+          { "name": "favorite_snacks", "label": "Favorite snacks", "kind": "text", "max": 200, "value": null }
+        ]
+      },
+      {
+        "id": "dates",
+        "title": "Important dates",
+        "fields": [
+          { "name": "birthday", "label": "Birthday", "kind": "date", "max": 10, "value": "1991-11-30" },
+          { "name": "anniversary", "label": "Anniversary", "kind": "date", "max": 10, "value": null }
+        ]
+      }
+    ],
+    "visibleTo": ["family", "friends"],
+    "mixed": false
+  }
+}
