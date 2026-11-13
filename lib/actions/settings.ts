@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import {
+  isMixed,
   readStoredChoice,
   visibleToSchema,
   VISIBILITY_INVALID,
@@ -25,6 +26,12 @@ export interface PrivacySettings {
 export interface UserSettings {
   email_preferences: EmailPreferences;
   privacy_settings: PrivacySettings;
+  /**
+   * Some field of the person's has a setting other than the stored choice:
+   * tied to one group, or seen by a different set of kinds. Saving the choice
+   * sets every field to it.
+   */
+  mixed: boolean;
 }
 
 /**
@@ -42,7 +49,8 @@ function storedEmailPreferences(profile: unknown): Partial<EmailPreferences> {
 /**
  * Get user's email preferences and privacy settings. The privacy setting is
  * the person's stored choice (profile_visibility; all four kinds of group
- * until they choose).
+ * until they choose), and `mixed` says whether some field of theirs has
+ * another setting, read from their own profile_info rows' privacy_settings.
  */
 export async function getMySettings() {
   const supabase = await createClient();
@@ -70,6 +78,17 @@ export async function getMySettings() {
     return { data: null, error: "Failed to load settings" };
   }
 
+  // Each of the caller's own fields' setting, and nothing else of the rows.
+  const { data: fields, error: fieldsError } = await supabase
+    .from("profile_info")
+    .select("privacy_settings")
+    .eq("user_id", userId);
+
+  if (fieldsError) {
+    console.error("Error fetching profile field settings:", fieldsError);
+    return { data: null, error: "Failed to load settings" };
+  }
+
   // Default email preferences if not set
   const emailPreferences: EmailPreferences = {
     email_group_invites: true,
@@ -85,6 +104,7 @@ export async function getMySettings() {
     privacy_settings: {
       visible_to_group_types: stored.choice,
     },
+    mixed: isMixed(stored.choice, (fields ?? []).map((field) => field.privacy_settings)),
   };
 
   return { data: settings, error: null };

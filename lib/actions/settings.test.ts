@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 /**
  * The Settings page's "Who can see your profile fields?" is one choice per
  * person, kept in profile_visibility. getMySettings answers that row (all four
- * kinds when there is none); updatePrivacySettings makes one database call,
+ * kinds when there is none) and whether some field of the person's has another
+ * setting (`mixed`); updatePrivacySettings makes one database call,
  * set_profile_visibility, which stores the choice and writes it onto every
  * profile_info field the person has, both or neither.
  */
@@ -114,6 +115,13 @@ function argsOf(query: Query, method: string): unknown[] {
   return query.calls.find((c) => c.method === method)?.args ?? [];
 }
 
+/** True when some query wrote to a table. */
+function wroteAnything(): boolean {
+  return ["insert", "update", "upsert", "delete"].some((method) =>
+    supabase.queries.some((q) => q.calls.some((c) => c.method === method))
+  );
+}
+
 /** The one call a Settings save makes, with these kinds. */
 const saveCall = (kinds: string[]) => ({ name: "set_profile_visibility", args: { p_kinds: kinds } });
 
@@ -179,9 +187,73 @@ describe("getMySettings", () => {
 
     expect(result.error).toBeNull();
     expect(result.data?.privacy_settings.visible_to_group_types).toEqual(["friends"]);
-    expect(supabase.queries.map((q) => q.table)).not.toContain("profile_info");
     const [choice] = queriesWith("profile_visibility", "select");
     expect(argsOf(choice, "eq")).toEqual(["user_id", "user_123"]);
+  });
+
+  it("reads the caller's own fields' settings, by that one named column", async () => {
+    supabase = createSupabaseMock({
+      user_profiles: [{ data: { email_preferences: null }, error: null }],
+      profile_visibility: [{ data: { visible_to_group_types: ["friends"] }, error: null }],
+      profile_info: [{ data: FIELDS, error: null }],
+    });
+
+    await getMySettings();
+
+    const fields = queriesWith("profile_info", "select");
+    expect(fields).toHaveLength(1);
+    expect(argsOf(fields[0], "select")).toEqual(["privacy_settings"]);
+    expect(argsOf(fields[0], "eq")).toEqual(["user_id", "user_123"]);
+    expect(wroteAnything()).toBe(false);
+  });
+
+  it("says mixed when a field has a setting other than the stored choice", async () => {
+    supabase = createSupabaseMock({
+      user_profiles: [{ data: { email_preferences: null }, error: null }],
+      profile_visibility: [{ data: { visible_to_group_types: ["family"] }, error: null }],
+      // The shoe size is Family's, as stored; the birthday is tied to one group.
+      profile_info: [{ data: FIELDS, error: null }],
+    });
+
+    const result = await getMySettings();
+
+    expect(result.data?.mixed).toBe(true);
+  });
+
+  it("says mixed when a field lets a different set of kinds see it", async () => {
+    supabase = createSupabaseMock({
+      user_profiles: [{ data: { email_preferences: null }, error: null }],
+      profile_visibility: [{ data: { visible_to_group_types: ["family"] }, error: null }],
+      profile_info: [{ data: [{ privacy_settings: { visibleToGroupTypes: ALL_FOUR, restrictToGroup: null } }], error: null }],
+    });
+
+    expect((await getMySettings()).data?.mixed).toBe(true);
+  });
+
+  it("is not mixed when every field has the stored choice, or there are no fields", async () => {
+    const familyOnly = { privacy_settings: { visibleToGroupTypes: ["family"], restrictToGroup: null } };
+    for (const fields of [[familyOnly, familyOnly], []]) {
+      supabase = createSupabaseMock({
+        user_profiles: [{ data: { email_preferences: null }, error: null }],
+        profile_visibility: [{ data: { visible_to_group_types: ["family"] }, error: null }],
+        profile_info: [{ data: fields, error: null }],
+      });
+
+      expect((await getMySettings()).data?.mixed).toBe(false);
+    }
+  });
+
+  it("answers Failed to load settings when the fields' settings cannot be read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    supabase = createSupabaseMock({
+      user_profiles: [{ data: { email_preferences: null }, error: null }],
+      profile_visibility: [{ data: { visible_to_group_types: ["family"] }, error: null }],
+      profile_info: [{ data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } }],
+    });
+
+    const result = await getMySettings();
+
+    expect(result).toEqual({ data: null, error: "Failed to load settings" });
   });
 
   it("answers all four kinds for a person who has never chosen", async () => {
@@ -200,6 +272,7 @@ describe("getMySettings", () => {
     supabase = createSupabaseMock({
       user_profiles: [{ data: { email_preferences: null }, error: null }],
       profile_visibility: [{ data: { visible_to_group_types: [] }, error: null }],
+      profile_info: [{ data: [], error: null }],
     });
 
     const result = await getMySettings();
