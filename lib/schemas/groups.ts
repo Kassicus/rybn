@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { tidyGroupText } from "@/lib/utils/groups";
 import type { Database } from "@/types/database";
 
 type GroupType = Database["public"]["Enums"]["group_type"];
@@ -20,22 +21,28 @@ const GROUP_TYPES = ["family", "friends", "work", "custom"] as const satisfies r
 
 /**
  * A new group: a name of 1 to 50 characters and a description of at most 200,
- * both trimmed, and one of the four kinds. Every refusal, a value of the wrong
- * kind included, carries its field's GROUP_RULES sentence.
+ * each made one line and trimmed first (tidyGroupText: line breaks, control
+ * characters and invisible characters become spaces), and one of the four
+ * kinds. Every refusal carries a GROUP_RULES sentence: a field's own, for a
+ * value of the wrong kind too, and the name's for an input that is not an
+ * object at all.
  */
-export const createGroupSchema = z.object({
-  name: z
-    .string({ error: GROUP_RULES.nameMissing })
-    .trim()
-    .min(1, GROUP_RULES.nameMissing)
-    .max(50, GROUP_RULES.nameTooLong),
-  description: z
-    .string({ error: GROUP_RULES.descriptionTooLong })
-    .trim()
-    .max(200, GROUP_RULES.descriptionTooLong)
-    .optional(),
-  type: z.enum(GROUP_TYPES, { error: GROUP_RULES.kind }),
-});
+export const createGroupSchema = z.object(
+  {
+    name: z
+      .string({ error: GROUP_RULES.nameMissing })
+      .overwrite(tidyGroupText)
+      .min(1, GROUP_RULES.nameMissing)
+      .max(50, GROUP_RULES.nameTooLong),
+    description: z
+      .string({ error: GROUP_RULES.descriptionTooLong })
+      .overwrite(tidyGroupText)
+      .max(200, GROUP_RULES.descriptionTooLong)
+      .optional(),
+    type: z.enum(GROUP_TYPES, { error: GROUP_RULES.kind }),
+  },
+  { error: GROUP_RULES.nameMissing }
+);
 
 export type CreateGroupInput = z.input<typeof createGroupSchema>;
 

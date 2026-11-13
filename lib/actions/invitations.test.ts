@@ -121,6 +121,9 @@ const MEMBERSHIP = {
   error: null,
 };
 
+/** The group every invitation here is for; a group's id is a UUID. */
+const GROUP_ID = "4f1c2b3a-5d6e-4f70-8a9b-0c1d2e3f4a5b";
+
 /**
  * The happy-path query sequence sendGroupInvitation walks, in order:
  * user_profiles -> inviter, then the invitee lookup; invitations -> rate
@@ -166,7 +169,7 @@ describe("sendGroupInvitation invitee copy", () => {
     sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
 
     await sendGroupInvitation({
-      groupId: "group-1",
+      groupId: GROUP_ID,
       email: "invitee@example.com",
     });
 
@@ -194,7 +197,7 @@ describe("sendGroupInvitation invitee copy", () => {
     sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
 
     await sendGroupInvitation({
-      groupId: "group-1",
+      groupId: GROUP_ID,
       email: "invitee@example.com",
     });
 
@@ -218,7 +221,7 @@ describe("sendGroupInvitation", () => {
     });
 
     const result = await sendGroupInvitation({
-      groupId: "group-1",
+      groupId: GROUP_ID,
       email: "invitee@example.com",
     });
 
@@ -238,7 +241,7 @@ describe("sendGroupInvitation", () => {
     sendGroupInviteEmail.mockRejectedValue(new Error("fetch failed"));
 
     const result = await sendGroupInvitation({
-      groupId: "group-1",
+      groupId: GROUP_ID,
       email: "invitee@example.com",
     });
 
@@ -256,7 +259,7 @@ describe("sendGroupInvitation", () => {
     });
 
     const result = await sendGroupInvitation({
-      groupId: "group-1",
+      groupId: GROUP_ID,
       email: "invitee@example.com",
     });
 
@@ -274,7 +277,7 @@ describe("sendGroupInvitation checks what it is given", () => {
     sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
 
     await sendGroupInvitation({
-      groupId: "group-1",
+      groupId: GROUP_ID,
       email: "invitee@example.com",
     });
 
@@ -284,6 +287,8 @@ describe("sendGroupInvitation checks what it is given", () => {
       "select",
       "role, groups ( name )"
     );
+    expect(query).toHaveBeenCalledWith("group_members", "eq", "group_id", GROUP_ID);
+    expect(query).toHaveBeenCalledWith("group_members", "eq", "user_id", "user_123");
     expect(sendGroupInviteEmail).toHaveBeenCalledWith(
       expect.objectContaining({ groupName: "The Suchows" })
     );
@@ -291,7 +296,7 @@ describe("sendGroupInvitation checks what it is given", () => {
 
   it("refuses an address that is not an email, before any query", async () => {
     const result = await sendGroupInvitation({
-      groupId: "group-1",
+      groupId: GROUP_ID,
       email: "not-an-email",
     });
 
@@ -306,7 +311,7 @@ describe("sendGroupInvitation checks what it is given", () => {
     const email = `${"a".repeat(64)}@${"b".repeat(186)}.com`;
     expect(email).toHaveLength(255);
 
-    const result = await sendGroupInvitation({ groupId: "group-1", email });
+    const result = await sendGroupInvitation({ groupId: GROUP_ID, email });
 
     expect(result).toEqual({ error: "Please enter a valid email address" });
     expect(query).not.toHaveBeenCalled();
@@ -317,7 +322,7 @@ describe("sendGroupInvitation checks what it is given", () => {
     sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
 
     await sendGroupInvitation({
-      groupId: "group-1",
+      groupId: GROUP_ID,
       email: " gran@example.com ",
     });
 
@@ -351,7 +356,7 @@ describe("sendGroupInvitation checks what it is given", () => {
       });
 
       const result = await sendGroupInvitation({
-        groupId: "group-1",
+        groupId: GROUP_ID,
         email: "invitee@example.com",
       });
 
@@ -364,9 +369,72 @@ describe("sendGroupInvitation checks what it is given", () => {
       expect(sendGroupInviteEmail).not.toHaveBeenCalled();
     }
   );
+
+  it("invites for a member whose group's stored name is empty", async () => {
+    supabase = createSupabaseMock({
+      ...happyPathScript(),
+      group_members: [{ data: { role: "member", groups: { name: "" } }, error: null }],
+    });
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    const result = await sendGroupInvitation({
+      groupId: GROUP_ID,
+      email: "invitee@example.com",
+    });
+
+    expect(result).toMatchObject({ data: { id: "invitation-1" }, emailSent: true });
+    expect(sendGroupInviteEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ groupName: "" })
+    );
+  });
+
+  it.each([[null], [undefined]])(
+    "answers the email sentence for %j, which is not an object, before any query",
+    async (data) => {
+      const result = await sendGroupInvitation(
+        data as unknown as { groupId: string; email: string }
+      );
+
+      expect(result).toEqual({ error: "Please enter a valid email address" });
+      expect(query).not.toHaveBeenCalled();
+      expect(sendGroupInviteEmail).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([["nope"], [123], [undefined]])(
+    "answers You are not a member of this group for the group id %j, reading nothing",
+    async (groupId) => {
+      const result = await sendGroupInvitation({
+        groupId: groupId as unknown as string,
+        email: "a@example.com",
+      });
+
+      expect(result).toEqual({ error: "You are not a member of this group" });
+      expect(query).not.toHaveBeenCalled();
+      expect(rpc).not.toHaveBeenCalled();
+      expect(sendGroupInviteEmail).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe("joinGroupByCode", () => {
+  it.each([[123], [null], [undefined], [{}]])(
+    "answers Invalid invite code for %j without asking the database",
+    async (raw) => {
+      const result = await joinGroupByCode(raw as unknown as string);
+
+      expect(result).toEqual({ error: "Invalid invite code" });
+      expect(rpc).not.toHaveBeenCalled();
+    }
+  );
+
+  it("answers Invalid invite code for a 10,000-character code without asking the database", async () => {
+    const result = await joinGroupByCode("A".repeat(10_000));
+
+    expect(result).toEqual({ error: "Invalid invite code" });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
   it("tidies the code before asking the database", async () => {
     rpc.mockResolvedValue({ data: "group-1", error: null });
 

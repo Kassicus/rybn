@@ -4,6 +4,7 @@ import { GroupInviteEmail } from "./templates/GroupInviteEmail";
 import { DateReminderEmail } from "./templates/DateReminderEmail";
 import { TestEmail } from "./templates/TestEmail";
 import { render } from "@react-email/render";
+import { tidyGroupText } from "@/lib/utils/groups";
 
 export async function sendWelcomeEmail(email: string, username: string) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://rybn.app';
@@ -74,7 +75,8 @@ export async function sendGroupInviteEmail(data: {
     from: `${EMAIL_FROM_NAME} <${EMAIL_FROM}>`,
     to: data.toEmail,
     replyTo: supportEmail,
-    subject: `You're invited to join ${data.groupName} on Rybn`,
+    // On one line however the name was stored: see tidyGroupText.
+    subject: `You're invited to join ${tidyGroupText(data.groupName)} on Rybn`,
     html: emailHtml,
     text: emailText,
     headers: {

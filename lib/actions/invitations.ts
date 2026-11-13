@@ -1,5 +1,6 @@
 "use server";
 
+import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getUserId, requireAuthWithProfile } from "@/lib/auth/require-auth";
 import {
@@ -32,13 +33,25 @@ const EMAIL_SEND_FAILED_MESSAGE =
   "The invitation is saved, but we couldn't send the email just now. " +
   "Try resending it in a moment.";
 
+/** A group's id: anything else names no group, so it is never sent to the database. */
+const GROUP_ID = z.guid();
+
+/** What joinGroupByCode answers for any code that opens no group. */
+const INVALID_INVITE_CODE = "Invalid invite code";
+
+/** A tidied invite code's only shape; tidyInviteCode puts the dashes back. */
+const INVITE_CODE_SHAPE = /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/;
+
 /**
  * Invites an address to a group the caller belongs to, by email.
  *
- * The address is checked and trimmed here, before any query, and every
- * lookup, the invitation row and the email use the trimmed address. The
- * group's name in the email is read from the caller's own membership, so it
- * is always the name of the group the invitation is for.
+ * After the sign-in check and before any query: an argument that is not an
+ * object answers the email sentence, the address is checked and trimmed, and
+ * a group id that cannot be a group's answers "You are not a member of this
+ * group", as a group the caller is not in does. Every lookup, the invitation
+ * row and the email use the trimmed address. The group's name in the email is
+ * read from the caller's own membership, so it is always the name of the
+ * group the invitation is for.
  */
 export async function sendGroupInvitation(data: {
   groupId: string;
@@ -53,11 +66,19 @@ export async function sendGroupInvitation(data: {
     return { error: "Not authenticated" };
   }
 
+  if (typeof data !== "object" || data === null) {
+    return { error: GROUP_RULES.email };
+  }
+
   const parsedEmail = invitationEmailSchema.safeParse(data.email);
   if (!parsedEmail.success) {
     return { error: GROUP_RULES.email };
   }
   const email = parsedEmail.data;
+
+  if (!GROUP_ID.safeParse(data.groupId).success) {
+    return { error: "You are not a member of this group" };
+  }
 
   // Clerk's auth() only returns ids, so the inviter's display details come
   // from their profile row.
@@ -99,11 +120,12 @@ export async function sendGroupInvitation(data: {
     return { error: "Failed to verify group membership. Please try again." };
   }
 
-  const groupName = membership?.groups?.name;
-
-  if (!membership || !groupName) {
+  // A row with no group is no membership. The name itself may be any string
+  // the group was stored with, the empty one included.
+  if (!membership || !membership.groups) {
     return { error: "You are not a member of this group" };
   }
+  const groupName = membership.groups.name;
 
   // Check if email is already a member
   const { data: existingUser } = await supabase
@@ -350,9 +372,12 @@ export async function acceptInvitation(token: string): Promise<
  * invite_code from here would return nothing anyway -- the groups SELECT
  * policy is membership-only, and a joiner is by definition not a member yet.
  *
- * The code is tidied here with tidyInviteCode (upper case, letters and digits
- * only, dashes put back), so a code typed with spaces or in lower case joins
- * from any caller; the website's join box tidies with the same function.
+ * The code is tidied here with tidyInviteCode (letters and digits only, upper
+ * case, dashes put back), so a code typed with spaces or in lower case joins
+ * from any caller; the website's join box tidies with the same function. A
+ * code that is not a string, or that is not shaped ABC-DEF-GHI once tidied,
+ * answers "Invalid invite code" without asking the database: the same
+ * sentence the database's answer for an unknown code gets.
  */
 export async function joinGroupByCode(inviteCode: string): Promise<
   | { error: string; data?: never }
@@ -368,10 +393,19 @@ export async function joinGroupByCode(inviteCode: string): Promise<
     return { error: "Not authenticated" };
   }
 
+  if (typeof inviteCode !== "string") {
+    return { error: INVALID_INVITE_CODE };
+  }
+
+  const code = tidyInviteCode(inviteCode);
+  if (!INVITE_CODE_SHAPE.test(code)) {
+    return { error: INVALID_INVITE_CODE };
+  }
+
   const supabase = await createClient();
 
   const { data: groupId, error } = await supabase.rpc("join_group_with_code", {
-    p_invite_code: tidyInviteCode(inviteCode),
+    p_invite_code: code,
   });
 
   if (error) {
@@ -379,7 +413,7 @@ export async function joinGroupByCode(inviteCode: string): Promise<
       // Unknown and malformed codes are the same error by design, so a caller
       // cannot use this to discover which codes exist.
       case "22023":
-        return { error: "Invalid invite code" };
+        return { error: INVALID_INVITE_CODE };
       case "23505":
         return { error: "You are already a member of this group" };
       case "28000":

@@ -4,7 +4,7 @@ import type { CreateGroupInput } from "@/lib/schemas/groups";
 /**
  * createGroup checks what it is given before it reaches the database, with
  * the sentences the website's create form shows, and stores the name and
- * description trimmed.
+ * description on one line and trimmed.
  *
  * The caller's own client is used only for the invite-code probe (`rpc`); the
  * group itself is written with the admin client, whose `insert` is spied so a
@@ -52,6 +52,13 @@ vi.mock("@/lib/supabase/admin", () => ({
 const { createGroup } = await import("./groups");
 
 const GROUP_ID = "5a6b7c8d-1e2f-4a3b-9c4d-5e6f7a8b9c0d";
+
+/** Invisible characters, written as escapes, never typed. */
+const ZWSP = "\u{200B}"; // zero-width space
+const ZWJ = "\u{200D}"; // zero-width joiner
+const RLO = "\u{202E}"; // right-to-left override
+const LS = "\u{2028}"; // line separator
+const FAMILY = `\u{1F468}${ZWJ}\u{1F469}${ZWJ}\u{1F467}`; // man, woman, girl
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -139,6 +146,75 @@ describe("createGroup", () => {
       name: "Garcia Cousins",
       description: "Cousins on Dad's side",
       type: "friends",
+    });
+  });
+
+  it.each([[null], ["Garcia Cousins"], [[]], [undefined]])(
+    "refuses %j, which is not an object, with the name's sentence",
+    async (input) => {
+      const result = await createGroup(input as unknown as CreateGroupInput);
+
+      expect(result).toEqual({ error: "Group name is required" });
+      expect(rpc).not.toHaveBeenCalled();
+      expect(from).not.toHaveBeenCalled();
+      expect(insertSpy).not.toHaveBeenCalled();
+    }
+  );
+
+  it("stores only the checked fields, with the caller as its creator and a generated code", async () => {
+    await createGroup({
+      name: "Garcia Cousins",
+      type: "family",
+      id: "x",
+      invite_code: "AAA-AAA-AAA",
+      created_by: "someone_else",
+    } as unknown as CreateGroupInput);
+
+    expect(insertSpy).toHaveBeenCalledTimes(1);
+    const [, payload] = insertSpy.mock.calls[0];
+    expect(Object.keys(payload).sort()).toEqual([
+      "created_by",
+      "description",
+      "invite_code",
+      "name",
+      "type",
+    ]);
+    expect(payload.created_by).toBe("user_123");
+    expect(payload.invite_code).not.toBe("AAA-AAA-AAA");
+    expect(rpc).toHaveBeenCalledWith("find_group_by_invite_code", {
+      p_invite_code: payload.invite_code,
+    });
+  });
+
+  it("stores a name and description with each run of line breaks, control and invisible characters as one space", async () => {
+    await createGroup({
+      name: "Garcia\nCousins",
+      description: `Cousins\ton Dad's${LS}side${ZWSP}`,
+      type: "family",
+    });
+
+    expect(insertSpy).toHaveBeenCalledTimes(1);
+    expect(insertSpy.mock.calls[0][1]).toMatchObject({
+      name: "Garcia Cousins",
+      description: "Cousins on Dad's side",
+    });
+  });
+
+  it.each([[ZWSP], ["\n\t"], [`${RLO} ${ZWJ}`]])(
+    "refuses the name %j, which shows nothing, with the name's sentence",
+    async (name) => {
+      const result = await createGroup({ name, type: "family" });
+
+      expect(result).toEqual({ error: "Group name is required" });
+      expect(insertSpy).not.toHaveBeenCalled();
+    }
+  );
+
+  it("keeps an emoji built with a zero-width joiner as it is", async () => {
+    await createGroup({ name: `${FAMILY} Riveras`, type: "family" });
+
+    expect(insertSpy.mock.calls[0][1]).toMatchObject({
+      name: `${FAMILY} Riveras`,
     });
   });
 });

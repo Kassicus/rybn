@@ -37,19 +37,51 @@ export function generateInviteCode(): string {
 
 /**
  * An invite code as a person typed or pasted it, tidied the way the website
- * reads codes: upper case, letters and digits only, and the dashes put back
- * when exactly nine are left ("abc def ghi" -> "ABC-DEF-GHI"). Anything else
- * is returned as stripped, for the database to refuse. The website's join box
- * and joinGroupByCode both use it.
+ * reads codes: compatibility forms folded (fullwidth letters and digits become
+ * ASCII), letters and digits only, upper case, and the dashes put back when
+ * exactly nine are left ("abc def ghi" -> "ABC-DEF-GHI"). Anything else is
+ * returned as stripped, for joinGroupByCode to refuse. The strip comes before
+ * the change of case, so upper-casing can never turn some other letter into
+ * one of A to Z. The website's join box and joinGroupByCode both use it.
  */
 export function tidyInviteCode(raw: string): string {
-  const stripped = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const stripped = raw.normalize('NFKC').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 
   if (stripped.length === 9) {
     return `${stripped.slice(0, 3)}-${stripped.slice(3, 6)}-${stripped.slice(6, 9)}`;
   }
 
   return stripped;
+}
+
+/** Line breaks and other control characters, and invisible (format) characters. */
+const NOT_SHOWN_ON_ONE_LINE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu;
+/** A zero-width non-joiner or joiner, on its own. */
+const JOINER = /^[\u{200C}\u{200D}]$/u;
+/** The tag characters that follow a flag to name the country it is. */
+const TAGS = /^[\u{E0020}-\u{E007F}]+$/u;
+const VISIBLE = /\S/;
+
+/**
+ * A group's name or description as one line of text, trimmed: each run of
+ * line breaks, control characters and invisible characters becomes one
+ * space. Two runs stay as they are, because they are part of an emoji or a
+ * word: a lone zero-width joiner or non-joiner between two visible
+ * characters (a family emoji, a word in Persian), and the tag characters
+ * straight after a visible one (the flags of England, Scotland and Wales).
+ * The group schema stores names and descriptions this way, and the
+ * invitation email builds its subject from a name tidied the same way.
+ */
+export function tidyGroupText(text: string): string {
+  return text
+    .replace(NOT_SHOWN_ON_ONE_LINE, (run: string, at: number, whole: string) => {
+      const before = whole.charAt(at - 1);
+      const after = whole.charAt(at + run.length);
+      if (JOINER.test(run) && VISIBLE.test(before) && VISIBLE.test(after)) return run;
+      if (TAGS.test(run) && VISIBLE.test(before)) return run;
+      return ' ';
+    })
+    .trim();
 }
 
 /**

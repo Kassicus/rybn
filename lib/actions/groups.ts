@@ -106,10 +106,13 @@ async function rotateInviteCode(
 }
 
 /**
- * Makes a group with the caller as its owner. The input is checked with the
- * create form's own schema before anything reaches the database, so a caller
- * other than the form is refused with the form's sentences, and the name and
- * description are stored trimmed.
+ * Makes a group with the caller as its owner. After the sign-in check, the
+ * input is checked with the create form's own schema before anything reaches
+ * the database. Whatever a caller other than the form sends, an argument that
+ * is not an object included, a refusal is one of the form's sentences
+ * (GROUP_RULES). The name and description are stored as the schema leaves
+ * them: on one line and trimmed. Only the checked name, description and kind
+ * are written, with the caller as creator and a generated invite code.
  */
 export async function createGroup(formData: CreateGroupInput) {
   // Use regular client for auth check
