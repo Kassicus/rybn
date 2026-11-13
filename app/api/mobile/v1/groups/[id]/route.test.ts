@@ -203,6 +203,13 @@ describe("GET /api/mobile/v1/groups/[id]", () => {
 });
 
 describe("DELETE /api/mobile/v1/groups/[id]", () => {
+  it("answers 401 without a bearer, asking nothing", async () => {
+    const res = await DELETE(new Request(`http://localhost/api/mobile/v1/groups/${IDS.rivera}`, { method: "DELETE" }), ctx(IDS.rivera));
+    expect(res.status).toBe(401);
+    expect(holder.current.callerRole).not.toHaveBeenCalled();
+    expect(holder.current.deleteGroup).not.toHaveBeenCalled();
+  });
+
   it("deletes the group for its owner and answers 204", async () => {
     holder.current.callerRole.mockResolvedValue("owner");
     const upper = IDS.rivera.toUpperCase();

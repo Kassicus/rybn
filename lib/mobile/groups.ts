@@ -62,17 +62,29 @@ export function parseNewGroupBody(raw: unknown): { ok: true; body: NewGroupBody 
   return { ok: true, body: { name, description: description ?? null, type } };
 }
 
-const joinBodySchema = z.object({ code: z.string() });
+/** The longest code the door passes on: well beyond a code with spaces in, tidied by joinGroupByCode. */
+const CODE_MAX = 64;
+/** The longest address, once trimmed, that sendGroupInvitation takes (invitationEmailSchema). */
+const EMAIL_MAX = 254;
 
-/** The code as the app sent it: joinGroupByCode tidies it. A body without a code is refused as a bad code is. */
+const joinBodySchema = z.object({ code: z.string().max(CODE_MAX) });
+
+/**
+ * The code as the app sent it: joinGroupByCode tidies it. A body without a code, or with one longer than 64
+ * characters, is refused as a bad code is, before the action.
+ */
 export function parseJoinBody(raw: unknown): { ok: true; code: string } | { ok: false; message: string } {
   const result = joinBodySchema.safeParse(raw);
   return result.success ? { ok: true, code: result.data.code } : { ok: false, message: GROUP_SENTENCES.invalidCode };
 }
 
-const invitationBodySchema = z.object({ email: z.string() });
+const invitationBodySchema = z.object({ email: z.string().refine((email) => email.trim().length <= EMAIL_MAX) });
 
-/** The address as the app sent it: sendGroupInvitation trims and checks it. A body without one is refused as a bad one is. */
+/**
+ * The address as the app sent it: sendGroupInvitation trims and checks it. A body without one, or with one longer
+ * than 254 characters once trimmed, is refused as a bad one is, before the action. A space after an address, as a
+ * phone's keyboard adds, is the action's to trim, so it never counts toward the length.
+ */
 export function parseInvitationBody(raw: unknown): { ok: true; email: string } | { ok: false; message: string } {
   const result = invitationBodySchema.safeParse(raw);
   return result.success ? { ok: true, email: result.data.email } : { ok: false, message: GROUP_RULES.email };

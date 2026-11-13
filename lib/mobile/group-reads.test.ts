@@ -47,6 +47,12 @@ it("reads a group's summary with named columns and counts its members", async ()
   expect(memberCountsSpy).toHaveBeenCalledWith([GARCIA]);
 });
 
+it("answers null for a group stored with an empty name, as GET /groups leaves it out", async () => {
+  found({ id: GARCIA, name: "", type: "family" });
+  expect(await groupSummary(GARCIA)).toBeNull();
+  expect(memberCountsSpy).not.toHaveBeenCalled();
+});
+
 it("reads the caller's role in a group", async () => {
   found({ role: "owner" });
   expect(await callerRole(GARCIA, "user_2abcDEF")).toBe("owner");

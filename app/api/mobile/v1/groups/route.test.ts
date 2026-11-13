@@ -107,6 +107,14 @@ describe("GET /api/mobile/v1/groups", () => {
 });
 
 describe("POST /api/mobile/v1/groups", () => {
+  it("answers 401 without a bearer, creating nothing", async () => {
+    const res = await POST(new Request("http://localhost/api/mobile/v1/groups",
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(fixture("group-request")) }), ctx);
+    expect(res.status).toBe(401);
+    expect(holder.current.createGroup).not.toHaveBeenCalled();
+    expect(holder.current.groupSummary).not.toHaveBeenCalled();
+  });
+
   it("creates the request fixture and answers the created fixture", async () => {
     const res = await POST(post(fixture("group-request")), ctx);
     expect([res.status, res.headers.get("cache-control")]).toEqual([200, "no-store"]);

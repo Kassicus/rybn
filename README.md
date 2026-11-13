@@ -119,13 +119,13 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 | `POST /wishlist/images` | `{ imagePath, imageUrl }` for a JPEG or PNG sent as raw bytes. |
 | `GET /groups` | `{ groups }`, the groups the caller belongs to, each with a `memberCount`. |
 | `POST /groups` | `{ group }` with `memberCount`; body `{ name, description, type }` (`description` may be null or left out). Name 1 to 50 characters after trimming, description at most 200, type one of the four (`lib/schemas/groups.ts`). |
-| `POST /groups/join` | `{ group }`; body `{ code }`, tidied as the website's form tidies it. |
+| `POST /groups/join` | `{ group }`; body `{ code }`, tidied as the website's form tidies it. 422 with the website's sentence for a bad code (one longer than 64 characters included), a second join, or an account still being set up. |
 | `GET /home` | `{ occasions }`, a year ahead, not the caller's own birthday, each with the people to shop for and the caller's gift count for each. |
 | `GET /groups/{id}` | `{ group, members, occasions }`, with `group.description`, `group.role` (the caller's) and each member's `role` (`owner`, `admin` or `member`); 404 when the caller is not in it. |
 | `DELETE /groups/{id}` | 204; 422 for anyone but the owner; 404 when the caller is not in it. |
-| `GET /groups/{id}/invite` | `{ code }`, to members only. |
-| `POST /groups/{id}/invitations` | `{ sent, resent, message }`; body `{ email }`. |
-| `DELETE /groups/{id}/membership` | 204; 422 for the owner. |
+| `GET /groups/{id}/invite` | `{ code }`, to members only; 404 when the caller is not in it. |
+| `POST /groups/{id}/invitations` | `{ sent, resent, message }`; body `{ email }`. 404 when the caller is not in it; 422 with the website's sentence for a bad address (one longer than 254 characters once trimmed included), the hourly limit, or someone already in the group. |
+| `DELETE /groups/{id}/membership` | 204; 422 for the owner; 404 when the caller is not in it. |
 | `GET /people/{id}/wishlist?occasion=<key>` | `{ person, occasion, occasions, gifts, items }`; the caller's own list answers items alone. |
 | `POST /wishlist/{id}/claim` | `{ gift }`, body `{ occasion }` (a key or null). A second POST by the person who already holds the item answers their gift again (it does not claim twice). |
 | `DELETE /wishlist/{id}/claim` | 204; 422 once the item is bought or its gift is past Claimed. |

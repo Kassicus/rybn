@@ -37,6 +37,13 @@ beforeEach(() => {
 });
 
 describe("GET /api/mobile/v1/groups/[id]/invite", () => {
+  it("answers 401 without a bearer, reading nothing", async () => {
+    const res = await GET(new Request(`http://localhost/api/mobile/v1/groups/${IDS.rivera}/invite`), ctx(IDS.rivera));
+    expect(res.status).toBe(401);
+    expect(await res.text()).not.toContain("K7P");
+    expect(holder.current.inviteCodeOf).not.toHaveBeenCalled();
+  });
+
   it("answers the invite fixture to a member", async () => {
     const upper = IDS.rivera.toUpperCase();
     const res = await GET(get(upper), ctx(upper));

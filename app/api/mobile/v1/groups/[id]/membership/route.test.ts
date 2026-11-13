@@ -35,6 +35,12 @@ beforeEach(() => {
 });
 
 describe("DELETE /api/mobile/v1/groups/[id]/membership", () => {
+  it("answers 401 without a bearer, leaving nothing", async () => {
+    const res = await DELETE(new Request(`http://localhost/api/mobile/v1/groups/${IDS.rivera}/membership`, { method: "DELETE" }), ctx(IDS.rivera));
+    expect(res.status).toBe(401);
+    expect(holder.current.leaveGroup).not.toHaveBeenCalled();
+  });
+
   it("leaves and answers 204", async () => {
     const upper = IDS.rivera.toUpperCase();
     const res = await DELETE(del(upper), ctx(upper));

@@ -57,6 +57,21 @@ it("passes an address on as sent, and refuses a body with none", () => {
   }
 });
 
+it("refuses a code longer than 64 characters as it refuses any other bad code", () => {
+  expect(parseJoinBody({ code: "K".repeat(64) })).toEqual({ ok: true, code: "K".repeat(64) });
+  expect(parseJoinBody({ code: "K".repeat(65) })).toEqual({ ok: false, message: "Invalid invite code" });
+  expect(parseJoinBody({ code: "K".repeat(5_000_000) })).toEqual({ ok: false, message: "Invalid invite code" });
+});
+
+it("refuses an address longer than 254 characters, once trimmed, as it refuses any other bad address", () => {
+  const longest = `${"a".repeat(64)}@${"b".repeat(185)}.com`;   // 254
+  expect(longest).toHaveLength(254);
+  expect(parseInvitationBody({ email: `${longest} ` })).toEqual({ ok: true, email: `${longest} ` });
+  for (const email of [`${"a".repeat(64)}@${"b".repeat(186)}.com`, "a".repeat(5_000_000)]) {
+    expect(parseInvitationBody({ email })).toEqual({ ok: false, message: GROUP_RULES.email });
+  }
+});
+
 it("answers the invitation fixture for a first send, and says so for a resend and a failed email", () => {
   expect(invitationAnswer({ emailSent: true, isResend: false })).toEqual(fixture("invitation"));
   expect(invitationAnswer({ emailSent: true, isResend: true }))

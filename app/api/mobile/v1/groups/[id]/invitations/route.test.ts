@@ -37,6 +37,13 @@ beforeEach(() => {
 });
 
 describe("POST /api/mobile/v1/groups/[id]/invitations", () => {
+  it("answers 401 without a bearer, sending nothing", async () => {
+    const res = await POST(new Request(`http://localhost/api/mobile/v1/groups/${IDS.rivera}/invitations`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(fixture("invitation-request")) }), ctx());
+    expect(res.status).toBe(401);
+    expect(holder.current.sendGroupInvitation).not.toHaveBeenCalled();
+  });
+
   it("sends to the body's address with the path's group, and nothing else from the body", async () => {
     const body = { ...fixture("invitation-request"), groupName: "Hacked", groupId: "other", inviterName: "Rybn", token: "x" };
     const upper = IDS.rivera.toUpperCase();
@@ -80,6 +87,12 @@ describe("POST /api/mobile/v1/groups/[id]/invitations", () => {
       const res = await POST(post(body), ctx());
       expect([res.status, (await res.json()).error]).toEqual([422, { code: "invalid", message: "Please enter a valid email address" }]);
     }
+    expect(holder.current.sendGroupInvitation).not.toHaveBeenCalled();
+  });
+
+  it("refuses an address longer than 254 characters as a bad address, before the action", async () => {
+    const res = await POST(post({ email: `${"a".repeat(64)}@${"b".repeat(186)}.com` }), ctx());
+    expect([res.status, (await res.json()).error]).toEqual([422, { code: "invalid", message: "Please enter a valid email address" }]);
     expect(holder.current.sendGroupInvitation).not.toHaveBeenCalled();
   });
 

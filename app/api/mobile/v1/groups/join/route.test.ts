@@ -38,6 +38,14 @@ beforeEach(() => {
 });
 
 describe("POST /api/mobile/v1/groups/join", () => {
+  it("answers 401 without a bearer, joining nothing", async () => {
+    const res = await POST(new Request("http://localhost/api/mobile/v1/groups/join",
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(fixture("join-request")) }), ctx);
+    expect(res.status).toBe(401);
+    expect(holder.current.joinGroupByCode).not.toHaveBeenCalled();
+    expect(holder.current.groupSummary).not.toHaveBeenCalled();
+  });
+
   it("joins and answers the group's summary", async () => {
     const res = await POST(post(fixture("join-request")), ctx);
     expect([res.status, res.headers.get("cache-control")]).toEqual([200, "no-store"]);
@@ -58,6 +66,12 @@ describe("POST /api/mobile/v1/groups/join", () => {
       const res = await POST(post(body), ctx);
       expect([res.status, (await res.json()).error]).toEqual([422, { code: "invalid", message: "Invalid invite code" }]);
     }
+    expect(holder.current.joinGroupByCode).not.toHaveBeenCalled();
+  });
+
+  it("refuses a code longer than 64 characters as a bad code, before the action", async () => {
+    const res = await POST(post({ code: "K7P-MXR-4TQ ".repeat(6) }), ctx);
+    expect([res.status, (await res.json()).error]).toEqual([422, { code: "invalid", message: "Invalid invite code" }]);
     expect(holder.current.joinGroupByCode).not.toHaveBeenCalled();
   });
 
