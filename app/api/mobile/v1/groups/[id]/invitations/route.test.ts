@@ -104,6 +104,7 @@ describe("POST /api/mobile/v1/groups/[id]/invitations", () => {
   it.each([
     ["Rate limit exceeded. You can send up to 10 invitations per hour. Please try again later.", 422],
     ["This user is already a member of the group", 422],
+    ["Someone in this group has already invited this address.", 422],
     ["Please enter a valid email address", 422],
     ["You are not a member of this group", 404],
     ["Not authenticated", 401],

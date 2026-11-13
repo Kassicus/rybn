@@ -50,9 +50,14 @@ const INVITE_CODE_SHAPE = /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/;
  * read from the caller's own membership, so it is always the name of the
  * group the invitation is for.
  *
+ * The membership is read first: someone not in the group is answered "You are
+ * not a member of this group" before any other read. An address with an
+ * invitation another member sent that has not been accepted answers
+ * GROUP_SENTENCES.alreadyInvited, before anything is written.
+ *
  * Once the invitation is made it answers `emailSent`, `isResend` (an
- * invitation already waiting was sent again) and, when the email did not go,
- * `warning`.
+ * invitation of the caller's already waiting was sent again) and, when the
+ * email did not go, `warning`.
  */
 export async function sendGroupInvitation(data: {
   groupId: string;
@@ -81,6 +86,28 @@ export async function sendGroupInvitation(data: {
     return { error: GROUP_SENTENCES.notAMember };
   }
 
+  // Check if user is a member of the group, reading the group's name with it.
+  // This is the first read, so someone not in the group is told so whatever
+  // else is true of them.
+  const { data: membership, error: membershipError } = await supabase
+    .from("group_members")
+    .select("role, groups ( name )")
+    .eq("group_id", data.groupId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (membershipError) {
+    console.error("Membership check failed:", membershipError);
+    return { error: GROUP_SENTENCES.verifyFailed };
+  }
+
+  // A row with no group is no membership. The name itself may be any string
+  // the group was stored with, the empty one included.
+  if (!membership || !membership.groups) {
+    return { error: GROUP_SENTENCES.notAMember };
+  }
+  const groupName = membership.groups.name;
+
   // Clerk's auth() only returns ids, so the inviter's display details come
   // from their profile row.
   const { data: inviterProfile } = await supabase
@@ -106,26 +133,6 @@ export async function sendGroupInvitation(data: {
     return { error: GROUP_SENTENCES.hourlyLimit };
   }
 
-  // Check if user is a member of the group, reading the group's name with it
-  const { data: membership, error: membershipError } = await supabase
-    .from("group_members")
-    .select("role, groups ( name )")
-    .eq("group_id", data.groupId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (membershipError) {
-    console.error("Membership check failed:", membershipError);
-    return { error: GROUP_SENTENCES.verifyFailed };
-  }
-
-  // A row with no group is no membership. The name itself may be any string
-  // the group was stored with, the empty one included.
-  if (!membership || !membership.groups) {
-    return { error: GROUP_SENTENCES.notAMember };
-  }
-  const groupName = membership.groups.name;
-
   // Check if email is already a member
   const { data: existingUser } = await supabase
     .from("user_profiles")
@@ -150,13 +157,20 @@ export async function sendGroupInvitation(data: {
   // Use order by and limit to handle potential duplicates gracefully
   const { data: existingInvites } = await supabase
     .from("invitations")
-    .select("id, accepted")
+    .select("id, accepted, invited_by")
     .eq("group_id", data.groupId)
     .eq("email", email)
     .order("created_at", { ascending: false })
     .limit(1);
 
   const existingInvite = existingInvites && existingInvites.length > 0 ? existingInvites[0] : null;
+
+  // An invitation another member sent that has not been accepted is theirs:
+  // the caller is told so before anything is written. The caller's own is
+  // sent again below.
+  if (existingInvite && !existingInvite.accepted && existingInvite.invited_by !== userId) {
+    return { error: GROUP_SENTENCES.alreadyInvited };
+  }
 
   // Generate invitation token
   const token = generateInviteToken();

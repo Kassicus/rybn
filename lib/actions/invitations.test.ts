@@ -125,10 +125,11 @@ const MEMBERSHIP = {
 const GROUP_ID = "4f1c2b3a-5d6e-4f70-8a9b-0c1d2e3f4a5b";
 
 /**
- * The happy-path query sequence sendGroupInvitation walks, in order:
+ * The happy-path query sequence sendGroupInvitation walks, per table, each in
+ * order: group_members -> the caller's membership (the first read of all);
  * user_profiles -> inviter, then the invitee lookup; invitations -> rate
- * limit, then existing-invite lookup, then the insert; group_members -> the
- * caller's membership. Individual tests override only what they care about.
+ * limit, then existing-invite lookup, then the insert. Individual tests
+ * override only what they care about.
  */
 function happyPathScript() {
   return {
@@ -310,7 +311,8 @@ describe("sendGroupInvitation answers", () => {
       ...happyPathScript(),
       invitations: [
         { data: [], error: null },
-        { data: [{ id: "invitation-1", accepted: false }], error: null },
+        // The caller's own invitation, still waiting.
+        { data: [{ id: "invitation-1", accepted: false, invited_by: "user_123" }], error: null },
         { data: ROW, error: null }, // update
       ],
     });
@@ -323,6 +325,56 @@ describe("sendGroupInvitation answers", () => {
 
     expect(query).toHaveBeenCalledWith("invitations", "update", expect.anything());
     expect(result).toStrictEqual({ emailSent: true, isResend: true });
+  });
+
+  it("reads who sent the invitation already there", async () => {
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
+
+    expect(query).toHaveBeenCalledWith("invitations", "select", "id, accepted, invited_by");
+  });
+
+  it("answers that someone else in the group already invited the address while theirs is waiting, writing and sending nothing", async () => {
+    supabase = createSupabaseMock({
+      ...happyPathScript(),
+      invitations: [
+        { data: [], error: null },
+        { data: [{ id: "invitation-1", accepted: false, invited_by: "user_other" }], error: null },
+        { data: ROW, error: null }, // scripted so that a write would run, and fail the assertions below
+      ],
+    });
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    const result = await sendGroupInvitation({
+      groupId: GROUP_ID,
+      email: "invitee@example.com",
+    });
+
+    expect(result).toEqual({ error: "Someone in this group has already invited this address." });
+    expect(query).not.toHaveBeenCalledWith("invitations", "update", expect.anything());
+    expect(query).not.toHaveBeenCalledWith("invitations", "insert", expect.anything());
+    expect(sendGroupInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it("invites afresh when someone else's invitation to the address was accepted", async () => {
+    supabase = createSupabaseMock({
+      ...happyPathScript(),
+      invitations: [
+        { data: [], error: null },
+        { data: [{ id: "invitation-1", accepted: true, invited_by: "user_other" }], error: null },
+        { data: ROW, error: null }, // insert
+      ],
+    });
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    const result = await sendGroupInvitation({
+      groupId: GROUP_ID,
+      email: "invitee@example.com",
+    });
+
+    expect(query).toHaveBeenCalledWith("invitations", "insert", expect.objectContaining({ invited_by: "user_123" }));
+    expect(result).toStrictEqual({ emailSent: true, isResend: false });
   });
 
   it("adds the warning, and nothing else, when the email did not go", async () => {
@@ -464,6 +516,53 @@ describe("sendGroupInvitation checks what it is given", () => {
       expect(sendGroupInviteEmail).not.toHaveBeenCalled();
     }
   );
+
+  it("answers someone not in the group as not a member, whatever they have sent this hour, before any other read", async () => {
+    supabase = createSupabaseMock({
+      ...happyPathScript(),
+      group_members: [{ data: null, error: null }],
+      // Ten invitations in the last hour, to groups of their own.
+      invitations: [{ data: Array.from({ length: 10 }, (_, i) => ({ id: `invitation-${i}` })), error: null }],
+    });
+
+    const result = await sendGroupInvitation({
+      groupId: GROUP_ID,
+      email: "invitee@example.com",
+    });
+
+    expect(result).toEqual({ error: "You are not a member of this group" });
+    // The membership is the only thing read: not the inviter's profile, not the hourly count.
+    const tables = query.mock.calls.filter(([, method]) => method === "from").map(([table]) => table);
+    expect(tables).toEqual(["group_members"]);
+    expect(sendGroupInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it("reads the membership first, then the inviter, then the hourly count", async () => {
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
+
+    const tables = query.mock.calls.filter(([, method]) => method === "from").map(([table]) => table);
+    expect(tables.slice(0, 3)).toEqual(["group_members", "user_profiles", "invitations"]);
+  });
+
+  it("answers the hourly limit to a member who has sent ten this hour, writing nothing", async () => {
+    supabase = createSupabaseMock({
+      ...happyPathScript(),
+      invitations: [{ data: Array.from({ length: 10 }, (_, i) => ({ id: `invitation-${i}` })), error: null }],
+    });
+
+    const result = await sendGroupInvitation({
+      groupId: GROUP_ID,
+      email: "invitee@example.com",
+    });
+
+    expect(result).toEqual({
+      error: "Rate limit exceeded. You can send up to 10 invitations per hour. Please try again later.",
+    });
+    expect(query).not.toHaveBeenCalledWith("invitations", "insert", expect.anything());
+    expect(sendGroupInviteEmail).not.toHaveBeenCalled();
+  });
 
   it("invites for a member whose group's stored name is empty", async () => {
     supabase = createSupabaseMock({

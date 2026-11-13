@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Heading, Text } from "@/components/ui/text";
 import { createGroupDate } from "@/lib/actions/occasions";
+import { GROUP_DATE_RULES } from "@/lib/occasions/sentences";
 
 interface NewGroupDateButtonProps {
   groupId: string;
@@ -41,7 +42,7 @@ export function NewGroupDateButton({ groupId }: NewGroupDateButtonProps) {
 
   const handleCreate = async () => {
     if (!name.trim()) {
-      setError("Give this occasion a name");
+      setError(GROUP_DATE_RULES.name);
       return;
     }
     if (!occasionDate) {

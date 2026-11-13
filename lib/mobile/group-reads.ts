@@ -45,7 +45,10 @@ export async function inviteCodeOf(groupId: string): Promise<string | null> {
   return data ? data.invite_code : null;
 }
 
-/** The group's name. */
+/**
+ * The group's name, or null for a group the caller is not in. The group date routes rely on that null: it is their
+ * answer of 404 to someone not in the group.
+ */
 export async function groupNameOf(groupId: string): Promise<string | null> {
   const supabase = await createClient();
   const { data, error } = await supabase.from("groups").select("name").eq("id", groupId).maybeSingle();

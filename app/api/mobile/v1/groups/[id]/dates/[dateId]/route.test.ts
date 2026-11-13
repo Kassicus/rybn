@@ -59,6 +59,12 @@ describe("PUT /api/mobile/v1/groups/[id]/dates/[dateId]", () => {
     expect(holder.current.groupDateRow.mock.calls).toEqual([[GRAN_80TH]]);
   });
 
+  it("answers a name with hidden characters or a line break as the action stores it, on one line", async () => {
+    const res = await PUT(put({ name: "Gran's\n80th\u{200B}\u{202E}party", date: "2027-03-15" }), ctx());
+    expect((await res.json()).occasion.title).toBe("Gran's 80th party");
+    expect(holder.current.updateGroupDate.mock.calls[0][1].name).toBe("Gran's\n80th\u{200B}\u{202E}party");
+  });
+
   it("answers 404 for a date in another group, writing nothing", async () => {
     // Christmas 2026 is Rivera Family's; Sam is in Book Club too
     const res = await PUT(put(SAVE, IDS.bookClub, IDS.xmas), ctx(IDS.bookClub, IDS.xmas));

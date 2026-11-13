@@ -1,4 +1,5 @@
-// Tests only. The groups Task A4's routes act on, and the actions and reads they call, answering from world().
+// Tests only. The groups Task A4's routes and the group date routes (Task A5) act on, and the actions and reads they
+// call, answering from world().
 import { vi, type Mock } from "vitest";
 import type { UpcomingOccasion } from "@/lib/occasions/display";
 import type { GroupRole } from "./groups";

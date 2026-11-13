@@ -16,24 +16,25 @@ export function groupRole(value: unknown): GroupRole {
   return value === "owner" || value === "admin" ? value : "member";
 }
 
-/** What the website's invite dialog says once an invitation is sent, or sent again. */
-export const INVITATION_WORDS = {
-  sent: "Invitation sent successfully!",
-  resent: "Invitation resent successfully!",
-} as const;
-
 /**
  * For each group route, the sentences of the action it calls that it passes on (actionAnswer): `notFound` as 404, as
  * for a group the caller cannot see, and `refusals` as 422 with the website's words. Each is the action's own sentence,
  * from lib/groups/sentences.ts. Any other answer is a fault.
  */
 export const GROUP_ROUTE_ANSWERS = {
+  // createGroup's refusals are its schema's: the same sentences the door answers.
+  create: { refusals: Object.values(GROUP_RULES) },
   join: {
     refusals: [GROUP_SENTENCES.invalidCode, GROUP_SENTENCES.alreadyMember, GROUP_SENTENCES.stillSettingUp],
   },
   invitation: {
     notFound: [GROUP_SENTENCES.notAMember],
-    refusals: [GROUP_RULES.email, GROUP_SENTENCES.hourlyLimit, GROUP_SENTENCES.alreadyInGroup],
+    refusals: [
+      GROUP_RULES.email,
+      GROUP_SENTENCES.hourlyLimit,
+      GROUP_SENTENCES.alreadyInGroup,
+      GROUP_SENTENCES.alreadyInvited,
+    ],
   },
   leave: { notFound: [GROUP_SENTENCES.notAMember], refusals: [GROUP_SENTENCES.ownerCannotLeave] },
   delete: { refusals: [GROUP_SENTENCES.onlyOwnerDeletes] },
@@ -62,12 +63,24 @@ const isRecord = (raw: unknown): raw is Record<string, unknown> =>
   typeof raw === "object" && raw !== null && !Array.isArray(raw);
 
 /**
+ * The longest group name, group description or group date name, in UTF-16 code units, that the door passes on to be
+ * tidied (tidyGroupText): far beyond the 50 or 200 the schema allows once tidied. A longer one is refused first, with
+ * the field's own too-long sentence.
+ */
+const TEXT_MAX = 2000;
+
+const tooLong = (value: unknown): boolean => typeof value === "string" && value.length > TEXT_MAX;
+
+/**
  * A new group's name, description and kind, checked with the website's own create schema. A body that is not an object
- * is refused with the plain sentence; a description sent as null, or not sent, is none. Every other refusal is the
+ * is refused with the plain sentence; a name or a description longer than 2000 UTF-16 code units, before any tidying,
+ * with its own too-long sentence; a description sent as null, or not sent, is none. Every other refusal is the
  * schema's first sentence (GROUP_RULES). Nothing else in the body is read.
  */
 export function parseNewGroupBody(raw: unknown): { ok: true; body: NewGroupBody } | { ok: false; message: string } {
   if (!isRecord(raw)) return { ok: false, message: RULES.request };
+  if (tooLong(raw.name)) return { ok: false, message: GROUP_RULES.nameTooLong };
+  if (tooLong(raw.description)) return { ok: false, message: GROUP_RULES.descriptionTooLong };
   const result = createGroupSchema.safeParse({
     name: raw.name,
     description: raw.description ?? undefined,
@@ -117,7 +130,7 @@ export interface InvitationAnswer {
  * website's sentence for it. The action's warning when the email could not be sent; otherwise its sent or resent words.
  */
 export function invitationAnswer(result: { emailSent: boolean; isResend: boolean; warning?: string }): InvitationAnswer {
-  const words = result.isResend ? INVITATION_WORDS.resent : INVITATION_WORDS.sent;
+  const words = result.isResend ? GROUP_SENTENCES.invitationResent : GROUP_SENTENCES.invitationSent;
   return {
     sent: result.emailSent === true,
     resent: result.isResend === true,
@@ -127,12 +140,14 @@ export function invitationAnswer(result: { emailSent: boolean; isResend: boolean
 
 /**
  * A group date's name and date as the app sent them: createGroupDate and updateGroupDate tidy the name (tidyGroupText)
- * and check both (GROUP_DATE_RULES). A body that is not an object is refused with the plain sentence, and one whose name or date is
- * not text with the action's sentence for it, before the action. Nothing else in the body is read.
+ * and check both (GROUP_DATE_RULES). A body that is not an object is refused with the plain sentence, one whose name or date is
+ * not text with the action's sentence for it, and one whose name is longer than 2000 UTF-16 code units, before any
+ * tidying, with the name's too-long sentence, all before the action. Nothing else in the body is read.
  */
 export function parseGroupDateBody(raw: unknown): { ok: true; name: string; date: string } | { ok: false; message: string } {
   if (!isRecord(raw)) return { ok: false, message: RULES.request };
   if (typeof raw.name !== "string") return { ok: false, message: GROUP_DATE_RULES.name };
+  if (tooLong(raw.name)) return { ok: false, message: GROUP_DATE_RULES.nameTooLong };
   if (typeof raw.date !== "string") return { ok: false, message: GROUP_DATE_RULES.date };
   return { ok: true, name: raw.name, date: raw.date };
 }

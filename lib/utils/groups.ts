@@ -137,8 +137,9 @@ function joins(text: string, at: number): boolean {
 }
 
 /**
- * A group's name or description as one line of text, trimmed: each run of
- * hidden characters (see HIDDEN) becomes one space. Kept as they are, because
+ * A group's name or description, or a group date's name, as one line of
+ * text, trimmed: each run of hidden characters (see HIDDEN) becomes one
+ * space. Kept as they are, because
  * they are part of an emoji or a word: the emoji presentation selector
  * straight after an emoji or inside a keycap; a lone zero-width joiner or
  * non-joiner between two emoji (a family) or between two characters of a
@@ -146,8 +147,9 @@ function joins(text: string, at: number): boolean {
  * Scotland and Wales. Everything else hidden becomes a space: every other
  * variation selector, tag sequence, joiner and bidirectional mark, and the
  * thin and hair spaces. The group schema stores names and descriptions this
- * way, and the invitation email builds its subject from a name tidied the
- * same way.
+ * way, the group date schema (lib/schemas/occasions.ts) stores a date's name
+ * this way, and the invitation email builds its subject from a name tidied
+ * the same way.
  */
 export function tidyGroupText(text: string): string {
   return text

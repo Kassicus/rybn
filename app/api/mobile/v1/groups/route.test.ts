@@ -151,6 +151,18 @@ describe("POST /api/mobile/v1/groups", () => {
     expect(holder.current.createGroup).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "Group name is required",
+    "Group name must be less than 50 characters",
+    "Description must be less than 200 characters",
+    "Choose a kind of group.",
+  ])("answers the action's refusal %j as 422 with its sentence", async (message) => {
+    holder.current.createGroup.mockResolvedValue({ error: message });
+    const res = await POST(post(fixture("group-request")), ctx);
+    expect([res.status, (await res.json()).error]).toEqual([422, { code: "invalid", message }]);
+    expect(holder.current.groupSummary).not.toHaveBeenCalled();
+  });
+
   it("answers 500, not the website's words, when createGroup fails", async () => {
     holder.current.createGroup.mockResolvedValue({ error: "Failed to create group. Please try again." });
     const res = await POST(post(fixture("group-request")), ctx);

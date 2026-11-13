@@ -409,8 +409,10 @@ export async function deleteGroup(groupId: string) {
     .delete()
     .eq("id", groupId);
 
+  // The database's own words go only to the server log.
   if (error) {
-    return { error: error.message };
+    console.error("deleteGroup: delete failed", error);
+    return { error: GROUP_SENTENCES.deleteFailed };
   }
 
   revalidatePath("/groups");

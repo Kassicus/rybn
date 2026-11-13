@@ -299,4 +299,11 @@ describe("DELETE /api/mobile/v1/groups/[id]", () => {
     const res = await DELETE(del(IDS.rivera), ctx(IDS.rivera));
     expect([res.status, (await res.json()).error]).toEqual([500, { code: "server_error", message: "Something went wrong. Please try again." }]);
   });
+
+  it("answers the plain 500 when the action could not delete the group", async () => {
+    holder.current.callerRole.mockResolvedValue("owner");
+    holder.current.deleteGroup.mockResolvedValue({ error: "Failed to delete group. Please try again." });
+    const res = await DELETE(del(IDS.rivera), ctx(IDS.rivera));
+    expect([res.status, (await res.json()).error]).toEqual([500, { code: "server_error", message: "Something went wrong. Please try again." }]);
+  });
 });

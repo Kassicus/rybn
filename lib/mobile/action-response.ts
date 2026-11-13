@@ -20,20 +20,6 @@ export const ALREADY_TAGGED = "You've already tagged this item for that occasion
 /** What untagItem returns when the tag is not there; asked only about the caller's own item, it is already gone. */
 export const TAG_GONE = "That tag no longer exists, or is not yours to remove";
 
-export const ACTION_FALLBACK = "That didn't work. Please try again.";
-
-/**
- * The app's answer for a server action that failed, or null when it succeeded.
- * A sign-in failure answers 401; any other refusal answers 422 with the
- * website's own words.
- */
-export function actionFailure(result: object): Response | null {
-  const error: unknown = "error" in result ? result.error : undefined;
-  if (error === undefined || error === null) return null;
-  if (error === NOT_SIGNED_IN) return mobileError("unauthorized");
-  return mobileError("invalid", typeof error === "string" && error !== "" ? error : ACTION_FALLBACK);
-}
-
 /**
  * For actions whose errors are database text (D7), which must never reach the app.
  * Signed out: the 401 Response. Any other error: throws an Error naming `action` and the text,
@@ -53,8 +39,8 @@ export interface ActionAnswers {
 }
 
 /**
- * Between actionFailure and databaseFailure, for actions whose refusals the person can act on but whose other errors
- * are faults. The answer for an action that failed, or null when it succeeded. Signed out: 401. A sentence in
+ * For actions whose refusals the person can act on but whose other errors are faults: only the sentences a route
+ * lists reach the app. The answer for an action that failed, or null when it succeeded. Signed out: 401. A sentence in
  * `notFound`: 404, saying nothing more, as for something the caller cannot see. A sentence in `refusals`: 422 with
  * those words. Anything else throws an Error naming `action` and the error, so mobileRoute logs it and answers 500.
  */

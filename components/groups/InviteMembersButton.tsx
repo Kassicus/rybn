@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Heading, Text } from "@/components/ui/text";
 import { sendGroupInvitation } from "@/lib/actions/invitations";
+import { GROUP_RULES, GROUP_SENTENCES } from "@/lib/groups/sentences";
 
 interface InviteMembersButtonProps {
   groupId: string;
@@ -26,7 +27,7 @@ export function InviteMembersButton({
 
   const handleSendInvite = async () => {
     if (!email || !email.includes("@")) {
-      setError("Please enter a valid email address");
+      setError(GROUP_RULES.email);
       return;
     }
 
@@ -119,8 +120,8 @@ export function InviteMembersButton({
             <div className="p-3 rounded bg-success-light border border-success">
               <Text variant="success" size="sm">
                 {isResend
-                  ? "Invitation resent successfully!"
-                  : "Invitation sent successfully!"}
+                  ? GROUP_SENTENCES.invitationResent
+                  : GROUP_SENTENCES.invitationSent}
               </Text>
             </div>
           )}

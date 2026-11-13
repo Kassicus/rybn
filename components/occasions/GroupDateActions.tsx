@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Heading, Text } from "@/components/ui/text";
 import { updateGroupDate, deleteGroupDate } from "@/lib/actions/occasions";
+import { GROUP_DATE_RULES } from "@/lib/occasions/sentences";
 
 interface GroupDateActionsProps {
   occasionId: string;
@@ -70,7 +71,7 @@ export function GroupDateActions({
 
   const handleSave = async () => {
     if (!editName.trim()) {
-      setError("Give this occasion a name");
+      setError(GROUP_DATE_RULES.name);
       return;
     }
     if (!editDate) {

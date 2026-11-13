@@ -289,9 +289,11 @@ describe("createGroup", () => {
 describe("deleteGroup", () => {
   const deleteSpy = vi.fn();
   let membership: { data: unknown; error: unknown };
+  let deleted: { error: unknown };
 
   beforeEach(() => {
     membership = { data: { role: "owner" }, error: null };
+    deleted = { error: null };
     vi.spyOn(console, "error").mockImplementation(() => {});
     from.mockImplementation((table: string) => {
       const chain: Record<string, unknown> = {
@@ -303,10 +305,20 @@ describe("deleteGroup", () => {
         },
         maybeSingle: async () => membership,
         then: (resolve: (value: unknown) => unknown) =>
-          Promise.resolve({ error: null }).then(resolve),
+          Promise.resolve(deleted).then(resolve),
       };
       return chain;
     });
+  });
+
+  it("answers its own sentence when the delete fails, logging the database's error but never answering it", async () => {
+    const error = { code: "23503", message: 'update or delete on table "groups" violates foreign key constraint' };
+    deleted = { error };
+
+    const result = await deleteGroup(GROUP_ID);
+
+    expect(result).toEqual({ error: "Failed to delete group. Please try again." });
+    expect(console.error).toHaveBeenCalledWith(expect.any(String), error);
   });
 
   it("answers that it could not verify the membership when the role cannot be read, deleting nothing", async () => {

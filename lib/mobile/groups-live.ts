@@ -1,6 +1,6 @@
 import { createGroup, deleteGroup, leaveGroup } from "@/lib/actions/groups";
 import { joinGroupByCode, sendGroupInvitation } from "@/lib/actions/invitations";
-import { actionAnswer, databaseFailure } from "./action-response";
+import { actionAnswer } from "./action-response";
 import { pathUuid } from "./database";
 import { callerRole, groupSummary, inviteCodeOf } from "./group-reads";
 import {
@@ -27,8 +27,9 @@ export async function createGroupAnswer(raw: unknown): Promise<Response | { grou
   const { name, description, type } = parsed.body;
   // Only the checked name, description and kind reach the action. A description sent as null is none.
   const result = await createGroup(description === null ? { name, type } : { name, description, type });
-  // Every refusal the person could cause was answered at the door, so any other error is a fault.
-  const failed = databaseFailure(result, "createGroup");
+  // A refusal from the action is one of its schema's sentences, answered as 422 as at the door; any other error is a
+  // fault.
+  const failed = actionAnswer(result, "createGroup", GROUP_ROUTE_ANSWERS.create);
   if (failed) return failed;
   // Answered from a read of named columns, never from the row the action returns (it holds the invite code).
   return { group: await summaryAfter((result as { data: { id: string } }).data.id, "createGroup") };
