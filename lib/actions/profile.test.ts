@@ -494,7 +494,7 @@ describe("updateProfile", () => {
     );
 
     // The saved fields keep their settings; the new one takes the stored
-    // choice, not the empty visible_to_group_types the input carries.
+    // choice. A visible_to_group_types in the input is no part of a save.
     expect(fieldUpdates()).toEqual([
       valueUpdate("sizes", "shoe_size", "10"),
       valueUpdate("dates", "birthday", "1990-05-04"),
