@@ -3,7 +3,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import {
-  newFieldPrivacy,
   readStoredChoice,
   visibleToSchema,
   VISIBILITY_INVALID,
@@ -122,13 +121,15 @@ export async function updateEmailPreferences(preferences: EmailPreferences) {
 }
 
 /**
- * Update user's privacy settings: write the choice onto every profile_info
- * field the person has, with one update that names only privacy_settings (a
- * field's value is never written here), then store it (profile_visibility).
+ * Update user's privacy settings with one database call,
+ * set_profile_visibility: it stores the choice (profile_visibility) and
+ * writes it onto every profile_info field the person has, setting only each
+ * field's privacy_settings, in the same call.
  *
- * The stored choice is what the Settings page shows. It is stored only after
- * the fields took it, so a failure at either step leaves the page showing the
- * choice from before, and choosing the new one again is a change it saves.
+ * The stored choice is what the Settings page shows. The two writes succeed
+ * or fail together, so after a failure the page shows the choice from
+ * before, which is what the fields still have, and choosing the new one
+ * again is a change it saves.
  */
 export async function updatePrivacySettings(settings: PrivacySettings) {
   const supabase = await createClient();
@@ -144,26 +145,13 @@ export async function updatePrivacySettings(settings: PrivacySettings) {
   if (!parsed.success) {
     return { data: null, error: VISIBILITY_INVALID };
   }
-  const kinds = parsed.data;
-
   // Every field of the caller's, a field tied to one group included, takes
-  // the choice, so none differs from it afterwards.
-  const { error: updateError } = await supabase
-    .from("profile_info")
-    .update({ privacy_settings: newFieldPrivacy(kinds) })
-    .eq("user_id", userId);
+  // the choice, so none differs from it afterwards. The database finds the
+  // caller from their own token, not from an argument.
+  const { error } = await supabase.rpc("set_profile_visibility", { p_kinds: parsed.data });
 
-  if (updateError) {
-    console.error("Error updating privacy settings:", updateError);
-    return { data: null, error: "Failed to update privacy settings" };
-  }
-
-  const { error: choiceError } = await supabase
-    .from("profile_visibility")
-    .upsert({ user_id: userId, visible_to_group_types: kinds }, { onConflict: "user_id" });
-
-  if (choiceError) {
-    console.error("Error storing profile visibility:", choiceError);
+  if (error) {
+    console.error("Error updating privacy settings:", error);
     return { data: null, error: "Failed to update privacy settings" };
   }
 

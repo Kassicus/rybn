@@ -289,6 +289,40 @@ describe("updateProfile", () => {
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
+  it("writes every saved field and answers the first error when some of several cannot be written", async () => {
+    supabase = createSupabaseMock({
+      user_profiles: [PROFILE_SAVED],
+      profile_info: [
+        rowsRead(
+          SHOE_ROW,
+          { category: "sizes", field_name: "shirt_size" },
+          { category: "sizes", field_name: "hat_size" }
+        ),
+        MATCHED("f-1"), // shoe_size is written
+        { data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } }, // shirt_size
+        { data: null, error: { code: "40P01", message: "deadlock detected" } }, // hat_size
+        OK, // scripted so a new-row write, were one made, would not fail on a missing script
+        OK, // and a removal likewise
+      ],
+      profile_visibility: [choice(["family"])],
+    });
+
+    const result = await updateProfile(form({ shirt_size: "M", hat_size: "7", ring_size: "" }));
+
+    // The first failure, in the form's order, is the one answered.
+    expect(result).toEqual({ error: "canceling statement due to statement timeout" });
+    // All three updates were issued, so the field that could be written was.
+    expect(fieldUpdates()).toEqual([
+      valueUpdate("sizes", "shoe_size", "10"),
+      valueUpdate("sizes", "shirt_size", "M"),
+      valueUpdate("sizes", "hat_size", "7"),
+    ]);
+    // Nothing after the updates runs: no new rows, no removals.
+    expect(queriesWith("profile_info", "upsert")).toEqual([]);
+    expect(queriesWith("profile_info", "delete")).toEqual([]);
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
   it("gives a new field all four kinds when the person has never chosen", async () => {
     supabase = createSupabaseMock({
       user_profiles: [PROFILE_SAVED],

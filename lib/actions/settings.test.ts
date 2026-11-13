@@ -1,12 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { isMixed } from "@/lib/profile/visibility";
 
 /**
  * The Settings page's "Who can see your profile fields?" is one choice per
  * person, kept in profile_visibility. getMySettings answers that row (all four
- * kinds when there is none); updatePrivacySettings stores it and writes it
- * onto every profile_info field the person has, with one update that names
- * only privacy_settings.
+ * kinds when there is none); updatePrivacySettings makes one database call,
+ * set_profile_visibility, which stores the choice and writes it onto every
+ * profile_info field the person has, both or neither.
  */
 
 /**
@@ -31,18 +30,32 @@ vi.mock("@/lib/auth/ensure-profile", () => ({
 
 type Call = { method: string; args: unknown[] };
 type Query = { table: string; calls: Call[] };
-type Row = Record<string, unknown>;
+type RpcCall = { name: string; args: unknown };
 
-/** The same mock as ./profile.test.ts: queued per table, every call recorded. */
+/**
+ * The same mock as ./profile.test.ts: queued per table, every call recorded.
+ * A database function's answers are queued under "rpc:<name>", and each call
+ * is recorded in `rpcs`.
+ */
 function createSupabaseMock(script: Record<string, unknown[]>) {
   const queues: Record<string, unknown[]> = {};
   for (const [table, responses] of Object.entries(script)) {
     queues[table] = [...responses];
   }
   const queries: Query[] = [];
+  const rpcs: RpcCall[] = [];
 
   return {
     queries,
+    rpcs,
+    rpc(name: string, args: unknown) {
+      rpcs.push({ name, args });
+      const queue = queues[`rpc:${name}`];
+      if (!queue || queue.length === 0) {
+        throw new Error(`No scripted Supabase response left for rpc "${name}"`);
+      }
+      return Promise.resolve(queue.shift());
+    },
     from(table: string) {
       const query: Query = { table, calls: [] };
       queries.push(query);
@@ -101,18 +114,8 @@ function argsOf(query: Query, method: string): unknown[] {
   return query.calls.find((c) => c.method === method)?.args ?? [];
 }
 
-/** Every query on profile_info, whatever it did. */
-function fieldQueries(): Query[] {
-  return supabase.queries.filter((q) => q.table === "profile_info");
-}
-
-/** The one write to profile_info a Settings save makes, and its payload. */
-function theFieldWrite(): { query: Query; payload: Row } {
-  const queries = fieldQueries();
-  expect(queries).toHaveLength(1);
-  expect(queries[0].calls.map((c) => c.method)).toEqual(["update", "eq"]);
-  return { query: queries[0], payload: argsOf(queries[0], "update")[0] as Row };
-}
+/** The one call a Settings save makes, with these kinds. */
+const saveCall = (kinds: string[]) => ({ name: "set_profile_visibility", args: { p_kinds: kinds } });
 
 const OK = { data: null, error: null };
 const ALL_FOUR = ["family", "friends", "work", "custom"];
@@ -224,96 +227,73 @@ describe("getMySettings", () => {
 });
 
 describe("updatePrivacySettings", () => {
-  it("stores the choice for a person with no fields", async () => {
-    supabase = createSupabaseMock({
-      profile_visibility: [OK],
-      profile_info: [OK], // the update matches no row
-    });
+  // One call: set_profile_visibility stores the choice and writes it onto
+  // every field of the caller's in the same statement, so the two succeed or
+  // fail together and the page never shows a choice the fields do not have.
+  it("makes exactly one database call, set_profile_visibility, with the kinds once each in order", async () => {
+    supabase = createSupabaseMock({ "rpc:set_profile_visibility": [OK] });
+
+    const result = await updatePrivacySettings({ visible_to_group_types: ["work", "family", "work"] });
+
+    expect(result).toEqual({ data: true, error: null });
+    expect(supabase.rpcs).toEqual([saveCall(["family", "work"])]);
+    expect(supabase.queries).toEqual([]);
+  });
+
+  it("stores the choice for a person with no fields: the one call is made", async () => {
+    // Whether the person has fields is the database's business: the call is
+    // the same, and answers no rows either way.
+    supabase = createSupabaseMock({ "rpc:set_profile_visibility": [OK] });
 
     const result = await updatePrivacySettings({ visible_to_group_types: ["family"] });
 
     expect(result).toEqual({ data: true, error: null });
-    const stored = queriesWith("profile_visibility", "upsert");
-    expect(stored).toHaveLength(1);
-    expect(argsOf(stored[0], "upsert")[0]).toEqual({
-      user_id: "user_123",
-      visible_to_group_types: ["family"],
-    });
-    expect(argsOf(stored[0], "upsert")[1]).toMatchObject({ onConflict: "user_id" });
+    expect(supabase.rpcs).toEqual([saveCall(["family"])]);
   });
 
-  it("stores the choice and writes it onto every field", async () => {
-    supabase = createSupabaseMock({
-      profile_visibility: [OK],
-      profile_info: [OK],
-    });
-
-    const result = await updatePrivacySettings({ visible_to_group_types: ["friends"] });
-
-    expect(result).toEqual({ data: true, error: null });
-    // The fields are written first, then the choice is stored.
-    expect(supabase.queries.map((q) => q.table)).toEqual(["profile_info", "profile_visibility"]);
-    const [stored] = queriesWith("profile_visibility", "upsert");
-    expect(argsOf(stored, "upsert")[0]).toEqual({
-      user_id: "user_123",
-      visible_to_group_types: ["friends"],
-    });
-
-    // Exactly one write to profile_info: every row of the caller's, and it
-    // names the setting only, never a field's value.
-    const { query, payload } = theFieldWrite();
-    expect(argsOf(query, "eq")).toEqual(["user_id", "user_123"]);
-    expect(payload).toEqual({
-      privacy_settings: { visibleToGroupTypes: ["friends"], restrictToGroup: null },
-    });
-    expect(payload).not.toHaveProperty("field_value");
-
-    // Afterwards no field differs from the choice, the tied one included.
-    expect(isMixed(["friends"], FIELDS.map((field) => field.privacy_settings))).toBe(true);
-    const after = FIELDS.map((field) => ({ ...field, ...payload }));
-    expect(isMixed(["friends"], after.map((field) => field.privacy_settings))).toBe(false);
-  });
-
-  it("stores the kinds once each, in the order family, friends, work, custom", async () => {
-    supabase = createSupabaseMock({
-      profile_visibility: [OK],
-      profile_info: [OK],
-    });
-
-    await updatePrivacySettings({ visible_to_group_types: ["work", "family", "work"] });
-
-    const [stored] = queriesWith("profile_visibility", "upsert");
-    expect(argsOf(stored, "upsert")[0]).toEqual({
-      user_id: "user_123",
-      visible_to_group_types: ["family", "work"],
-    });
-    expect(theFieldWrite().payload).toEqual({
-      privacy_settings: { visibleToGroupTypes: ["family", "work"], restrictToGroup: null },
-    });
-  });
-
-  it("stores an empty choice as only you, on the choice and on every field", async () => {
-    supabase = createSupabaseMock({
-      profile_visibility: [OK],
-      profile_info: [OK],
-    });
+  it("sends an empty selection (only you) as an empty list", async () => {
+    supabase = createSupabaseMock({ "rpc:set_profile_visibility": [OK] });
 
     const result = await updatePrivacySettings({ visible_to_group_types: [] });
 
     expect(result).toEqual({ data: true, error: null });
-    const [stored] = queriesWith("profile_visibility", "upsert");
-    expect(argsOf(stored, "upsert")[0]).toEqual({
-      user_id: "user_123",
-      visible_to_group_types: [],
+    expect(supabase.rpcs).toEqual([saveCall([])]);
+  });
+
+  it("neither reads nor writes profile_info or profile_visibility itself", async () => {
+    // Scripted so that code which does reach those tables runs to the end
+    // and fails on the assertion below, not on a missing script.
+    supabase = createSupabaseMock({
+      "rpc:set_profile_visibility": [OK],
+      profile_visibility: [OK, OK],
+      profile_info: [{ data: FIELDS, error: null }, OK],
     });
-    expect(theFieldWrite().payload).toEqual({
-      privacy_settings: { visibleToGroupTypes: [], restrictToGroup: null },
+
+    await updatePrivacySettings({ visible_to_group_types: ["friends"] });
+
+    expect(supabase.queries.map((q) => q.table)).toEqual([]);
+    expect(supabase.rpcs).toEqual([saveCall(["friends"])]);
+  });
+
+  it("answers Failed to update privacy settings when the call fails, refreshing nothing", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    supabase = createSupabaseMock({
+      "rpc:set_profile_visibility": [
+        { data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } },
+      ],
     });
+
+    const result = await updatePrivacySettings({ visible_to_group_types: ["family"] });
+
+    expect(result).toEqual({ data: null, error: "Failed to update privacy settings" });
+    expect(supabase.rpcs).toEqual([saveCall(["family"])]);
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 
   it("refuses a kind that is not one of the four, touching nothing", async () => {
     // Scripted so that code which does reach the database runs to the end.
     supabase = createSupabaseMock({
+      "rpc:set_profile_visibility": [OK],
       profile_visibility: [OK],
       profile_info: [{ data: FIELDS, error: null }, OK],
     });
@@ -322,56 +302,32 @@ describe("updatePrivacySettings", () => {
 
     expect(result).toEqual({ data: null, error: VISIBILITY_INVALID });
     expect(supabase.queries).toEqual([]);
+    expect(supabase.rpcs).toEqual([]);
   });
 
   it("refuses a missing choice, touching nothing", async () => {
+    supabase = createSupabaseMock({ "rpc:set_profile_visibility": [OK] });
+
     const result = await updatePrivacySettings(null as never);
 
     expect(result).toEqual({ data: null, error: VISIBILITY_INVALID });
     expect(supabase.queries).toEqual([]);
+    expect(supabase.rpcs).toEqual([]);
   });
 
-  // The stored choice is what the Settings page shows. Storing it only after
-  // the fields took it means a failure never leaves the page showing a choice
-  // the fields do not have, so choosing it again is a change and is saved.
-  it("stores no choice when the fields cannot be written", async () => {
-    supabase = createSupabaseMock({
-      profile_visibility: [OK],
-      profile_info: [
-        { data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } },
-      ],
-    });
+  it("answers Not authenticated when signed out, touching nothing", async () => {
+    getUserId.mockResolvedValue(null);
+    supabase = createSupabaseMock({ "rpc:set_profile_visibility": [OK] });
 
     const result = await updatePrivacySettings({ visible_to_group_types: ["family"] });
 
-    expect(result).toEqual({ data: null, error: "Failed to update privacy settings" });
-    expect(supabase.queries.map((q) => q.table)).not.toContain("profile_visibility");
-    expect(revalidatePath).not.toHaveBeenCalled();
-  });
-
-  it("answers Failed to update privacy settings when the choice cannot be stored after the fields were written", async () => {
-    supabase = createSupabaseMock({
-      profile_visibility: [
-        { data: null, error: { code: "42501", message: "permission denied for table profile_visibility" } },
-      ],
-      profile_info: [OK],
-    });
-
-    const result = await updatePrivacySettings({ visible_to_group_types: ["family"] });
-
-    expect(result).toEqual({ data: null, error: "Failed to update privacy settings" });
-    // The fields already have the new setting.
-    expect(theFieldWrite().payload).toEqual({
-      privacy_settings: { visibleToGroupTypes: ["family"], restrictToGroup: null },
-    });
-    expect(revalidatePath).not.toHaveBeenCalled();
+    expect(result).toEqual({ data: null, error: "Not authenticated" });
+    expect(supabase.queries).toEqual([]);
+    expect(supabase.rpcs).toEqual([]);
   });
 
   it("refreshes the settings and profile pages after a save", async () => {
-    supabase = createSupabaseMock({
-      profile_visibility: [OK],
-      profile_info: [OK],
-    });
+    supabase = createSupabaseMock({ "rpc:set_profile_visibility": [OK] });
 
     await updatePrivacySettings({ visible_to_group_types: ["family"] });
 
