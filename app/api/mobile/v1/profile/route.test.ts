@@ -156,6 +156,29 @@ describe("PUT /api/mobile/v1/profile", () => {
     expect(holder.current.updateProfile).not.toHaveBeenCalled();
   });
 
+  it("refuses a character Rybn cannot save with the sentence, writing nothing", async () => {
+    const request = fixture("profile-request");
+    for (const body of [
+      { ...request, displayName: "Sam\u0000Rivera" },
+      { ...request, bio: "Coffee\u0000" },
+      { ...request, fields: { shirt_size: "M\u0000L" } },
+      { ...request, fields: { hobbies: "Hiking\u0007" } },
+      { ...request, fields: { favorite_colors: "Green\nnavy" } },
+    ]) {
+      const res = await PUT(put(body), ctx);
+      expect([res.status, (await res.json()).error], JSON.stringify(body))
+        .toEqual([422, { code: "invalid", message: "That has characters Rybn can't save. Try typing it again." }]);
+    }
+    expect(holder.current.updateProfile).not.toHaveBeenCalled();
+  });
+
+  it("saves a bio and a longer field over several lines", async () => {
+    const res = await PUT(put({ ...fixture("profile-request"), bio: "Coffee,\nmaps and\tlong walks.", fields: { hobbies: "Hiking\r\nboard games" } }), ctx);
+    expect(res.status).toBe(200);
+    expect(holder.current.updateProfile.mock.calls[0][0])
+      .toMatchObject({ bio: "Coffee,\nmaps and\tlong walks.", hobbies: "Hiking\r\nboard games" });
+  });
+
   it("counts a field's limit after trimming", async () => {
     const res = await PUT(put({ ...fixture("profile-request"), fields: { shirt_size: ` ${"x".repeat(20)} ` } }), ctx);
     expect(res.status).toBe(200);

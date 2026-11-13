@@ -6,12 +6,31 @@ import { z } from 'zod';
 import { privacyLevelSchema } from '@/lib/utils/privacy';
 import { isCalendarDay } from '@/lib/utils/dates';
 import {
+  CHARACTERS_REFUSED,
+  CONTROL,
+  CONTROL_EXCEPT_NOTES_WHITESPACE,
+} from '@/lib/utils/characters';
+import {
   PROFILE_LIMITS,
   PROFILE_SECTIONS,
   fieldSpec,
   type ProfileCategory,
   type ProfileFieldName,
 } from '@/lib/profile/fields';
+
+/**
+ * The catalog's text fields the edit form draws as a textarea, written over
+ * several lines: like the bio, they may hold a tab, a line feed and a carriage
+ * return. Every other text field is a one-line input, as the display name is,
+ * and may hold no control character. Either refusal is CHARACTERS_REFUSED, the
+ * words the app's rules at the door answer too.
+ */
+const FREE_TEXT_FIELDS: ReadonlySet<ProfileFieldName> = new Set(['hobbies', 'interests', 'dislikes']);
+
+/** One-line text holds no control character. */
+const oneLine = (value: string) => !CONTROL.test(value);
+/** Free text holds no control character but a tab, a line feed or a carriage return. */
+const freeText = (value: string) => !CONTROL_EXCEPT_NOTES_WHITESPACE.test(value);
 
 /**
  * A text profile field, its limit and label read from the catalog
@@ -22,6 +41,7 @@ function profileText(name: ProfileFieldName) {
   if (!spec) throw new Error(`No profile field named ${name}`);
   return z.string()
     .max(spec.max, `${spec.label} must be at most ${spec.max} characters`)
+    .refine(FREE_TEXT_FIELDS.has(name) ? freeText : oneLine, CHARACTERS_REFUSED)
     .optional()
     .nullable();
 }
@@ -79,11 +99,13 @@ export const profileEditSchema = z.object({
 
   display_name: z.string()
     .max(PROFILE_LIMITS.displayName, `Display name must be less than ${PROFILE_LIMITS.displayName} characters`)
+    .refine(oneLine, CHARACTERS_REFUSED)
     .optional()
     .nullable(),
 
   bio: z.string()
     .max(PROFILE_LIMITS.bio, `Bio must be less than ${PROFILE_LIMITS.bio} characters`)
+    .refine(freeText, CHARACTERS_REFUSED)
     .optional()
     .nullable(),
 

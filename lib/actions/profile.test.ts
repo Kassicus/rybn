@@ -519,6 +519,11 @@ describe("updateProfile", () => {
     [{ username: "ab" }, "Username must be at least 3 characters"],
     [{ shoe_size: "1".repeat(21) }, "Shoe size must be at most 20 characters"],
     [{ birthday: "1990-02-30" }, "Please enter a valid date (YYYY-MM-DD)"],
+    // A U+0000 cannot be stored: in a field it is refused before the basics are written, not after.
+    [{ shirt_size: "M\u0000" }, "That has characters Rybn can't save. Try typing it again."],
+    [{ display_name: "Sam\u0000Rivera" }, "That has characters Rybn can't save. Try typing it again."],
+    [{ bio: "Coffee\u0000" }, "That has characters Rybn can't save. Try typing it again."],
+    [{ favorite_colors: "Green\nnavy" }, "That has characters Rybn can't save. Try typing it again."],
   ])("refuses %j with the form's sentence, touching nothing", async (over, sentence) => {
     // Responses are scripted so that code which does reach the database runs
     // to the end and fails on the assertions below, not on a missing script.
