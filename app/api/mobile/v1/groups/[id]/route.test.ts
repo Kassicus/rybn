@@ -1,14 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fixture } from "@/lib/mobile/test-fixtures";
+import type { GroupMocks } from "@/lib/mobile/test-groups";
 import type { WorldMocks } from "@/lib/mobile/test-shopping-mocks";
 
-const holder = vi.hoisted(() => ({ current: undefined as unknown as WorldMocks }));
+const holder = vi.hoisted(() => ({ current: undefined as unknown as WorldMocks & GroupMocks }));
 
 vi.mock("@/lib/auth/ensure-profile", () => ({ ensureProfile: async () => "user_2abcDEF" }));
 vi.mock("@/lib/actions/occasions", () => ({ getUpcomingOccasions: (...a: unknown[]) => holder.current.getUpcomingOccasions(...a) }));
 vi.mock("@/lib/actions/groups", () => ({
   getMyGroups: (...a: unknown[]) => holder.current.getMyGroups(...a),
   getGroupById: (...a: unknown[]) => holder.current.getGroupById(...a),
+  createGroup: (...a: unknown[]) => holder.current.createGroup(...a),
+  leaveGroup: (...a: unknown[]) => holder.current.leaveGroup(...a),
+  deleteGroup: (...a: unknown[]) => holder.current.deleteGroup(...a),
+}));
+vi.mock("@/lib/actions/invitations", () => ({
+  joinGroupByCode: (...a: unknown[]) => holder.current.joinGroupByCode(...a),
+  sendGroupInvitation: (...a: unknown[]) => holder.current.sendGroupInvitation(...a),
+}));
+vi.mock("@/lib/mobile/group-reads", () => ({
+  groupSummary: (...a: unknown[]) => holder.current.groupSummary(...a),
+  callerRole: (...a: unknown[]) => holder.current.callerRole(...a),
+  inviteCodeOf: (...a: unknown[]) => holder.current.inviteCodeOf(...a),
+  groupNameOf: (...a: unknown[]) => holder.current.groupNameOf(...a),
 }));
 vi.mock("@/lib/actions/wishlist", () => ({
   getUserWishlist: (...a: unknown[]) => holder.current.getUserWishlist(...a),
@@ -40,16 +54,23 @@ vi.mock("@/lib/claims/active", async (importOriginal) => ({
   todayISO: () => holder.current.todayISO(),
 }));
 
-const { GET } = await import("./route");
+const { GET, DELETE } = await import("./route");
 const { bearer, oven, worldMocks } = await import("@/lib/mobile/test-shopping-mocks");
 const { memoryGiftStore } = await import("@/lib/mobile/test-gift-store");
 const { IDS, SAM, world } = await import("@/lib/mobile/test-shopping");
+const { CODE, groupMocks } = await import("@/lib/mobile/test-groups");
 
 const get = (id: string) => bearer(`http://localhost/api/mobile/v1/groups/${id}`);
+const del = (id: string) => bearer(`http://localhost/api/mobile/v1/groups/${id}`, { method: "DELETE" });
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 
+/** Every key in a decoded JSON value, at any depth. */
+const keysOf = (value: unknown): string[] =>
+  Array.isArray(value) ? value.flatMap(keysOf)
+    : typeof value === "object" && value !== null ? Object.entries(value).flatMap(([k, v]) => [k, ...keysOf(v)]) : [];
+
 beforeEach(() => {
-  holder.current = worldMocks();
+  holder.current = { ...worldMocks(), ...groupMocks() };
   vi.stubEnv("MOBILE_MIN_BUILD", "");
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -64,6 +85,45 @@ describe("GET /api/mobile/v1/groups/[id]", () => {
 
   it("never sends an invite code, an email or the group's settings", async () =>
     expect(await (await GET(get(IDS.rivera), ctx(IDS.rivera))).text()).not.toMatch(/SECRET12|invite|settings|@example\.com/));
+
+  it("carries no invite code under any name: the code is answered only by the invite route", async () => {
+    // The group's whole row, as getGroupById reads it, with the code as the website makes them
+    const read = holder.current.getGroupById.getMockImplementation()!;
+    holder.current.getGroupById.mockImplementation(async (id: string) => {
+      const found = await read(id);
+      return { data: { ...found.data, invite_code: CODE, inviteCode: CODE, code: CODE } };
+    });
+    const text = await (await GET(get(IDS.rivera), ctx(IDS.rivera))).text();
+    expect(keysOf(JSON.parse(text)).filter((k) => /invite|code/i.test(k))).toEqual([]);
+    expect(text.toUpperCase().replace(/[^A-Z0-9]/g, "")).not.toContain(CODE.replace(/-/g, ""));
+  });
+
+  it("keeps every field builds 2 and 3 read", async () => {
+    const body = await (await GET(get(IDS.rivera), ctx(IDS.rivera))).json();
+    expect(body.group).toMatchObject({ id: IDS.rivera, name: "Rivera Family", type: "family" });
+    expect(body.members).toHaveLength(6);
+    for (const m of body.members) {
+      expect(m).toMatchObject({ itemCount: expect.any(Number), hasGift: expect.any(Boolean), isYou: expect.any(Boolean) });
+      expect(Object.keys(m.person)).toEqual(["id", "name", "username", "avatarUrl"]);
+    }
+    expect(body.occasions).toHaveLength(2);
+    for (const o of body.occasions) {
+      expect(o).toMatchObject({ occasion: expect.any(Object), people: expect.any(Array), started: expect.any(Number), total: expect.any(Number) });
+      expect(Object.keys(o.occasion)).toEqual(["key", "kind", "title", "date", "group"]);
+    }
+  });
+
+  it("answers the group's description and each member's role as getGroupById reads them", async () => {
+    const read = holder.current.getGroupById.getMockImplementation()!;
+    holder.current.getGroupById.mockImplementation(async (id: string) => {
+      const found = await read(id);
+      return { data: { ...found.data, description: null, group_members: found.data.group_members.map(
+        (m: { user_id: string }) => ({ ...m, role: m.user_id === SAM ? "admin" : m.user_id === world().people.mom.id ? "owner" : "moderator" })) } };
+    });
+    const body = await (await GET(get(IDS.rivera), ctx(IDS.rivera))).json();
+    expect([body.group.description, body.group.role]).toEqual([null, "admin"]);
+    expect(body.members.map((m: { role: string }) => m.role)).toEqual(["member", "member", "member", "member", "owner", "admin"]);
+  });
 
   it.each(["Group not found", "You are not a member of this group"])("answers 404 for %s", async (error) => {
     holder.current.getGroupById.mockResolvedValue({ error });
@@ -139,5 +199,48 @@ describe("GET /api/mobile/v1/groups/[id]", () => {
     await GET(get(IDS.rivera), ctx(IDS.rivera));
     expect(holder.current.visibleItemCounts).toHaveBeenCalledWith(
       expect.arrayContaining(world().members.get(IDS.rivera)!.map((p) => p.id)));
+  });
+});
+
+describe("DELETE /api/mobile/v1/groups/[id]", () => {
+  it("deletes the group for its owner and answers 204", async () => {
+    holder.current.callerRole.mockResolvedValue("owner");
+    const upper = IDS.rivera.toUpperCase();
+    const res = await DELETE(del(upper), ctx(upper));
+    expect([res.status, res.headers.get("cache-control"), await res.text()]).toEqual([204, "no-store", ""]);
+    expect(holder.current.callerRole).toHaveBeenCalledWith(IDS.rivera, SAM);
+    expect(holder.current.deleteGroup.mock.calls).toEqual([[IDS.rivera]]);
+  });
+
+  it("answers a member's delete with 422 and the website's sentence", async () => {
+    // Sam is a member of Rivera Family; the action refuses anyone but the owner
+    holder.current.deleteGroup.mockResolvedValue({ error: "Only the owner can delete this group" });
+    const res = await DELETE(del(IDS.rivera), ctx(IDS.rivera));
+    expect([res.status, (await res.json()).error]).toEqual([422, { code: "invalid", message: "Only the owner can delete this group" }]);
+    expect(await holder.current.callerRole.mock.results[0].value).toBe("member");
+    expect(holder.current.deleteGroup).toHaveBeenCalledWith(IDS.rivera);
+  });
+
+  it("answers 404 for a group the caller is not in, without asking to delete it", async () => {
+    holder.current.callerRole.mockResolvedValue(null);
+    expect((await DELETE(del(IDS.rivera), ctx(IDS.rivera))).status).toBe(404);
+    expect(holder.current.deleteGroup).not.toHaveBeenCalled();
+  });
+
+  it("answers 404 for an id that is not a UUID, asking nothing", async () => {
+    expect((await DELETE(del("x"), ctx("x"))).status).toBe(404);
+    expect(holder.current.callerRole).not.toHaveBeenCalled();
+    expect(holder.current.deleteGroup).not.toHaveBeenCalled();
+  });
+
+  it("answers 401 when the action says nobody is signed in, and 500 without the database's words for any other failure", async () => {
+    holder.current.callerRole.mockResolvedValue("owner");
+    holder.current.deleteGroup.mockResolvedValueOnce({ error: "Not authenticated" });
+    expect((await DELETE(del(IDS.rivera), ctx(IDS.rivera))).status).toBe(401);
+    holder.current.deleteGroup.mockResolvedValueOnce({ error: "update or delete on table \"groups\" violates foreign key constraint" });
+    const res = await DELETE(del(IDS.rivera), ctx(IDS.rivera));
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toMatch(/foreign key|groups/);
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("/api/mobile/v1/groups"), expect.anything());
   });
 });

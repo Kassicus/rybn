@@ -118,8 +118,14 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 | `GET /wishlist/occasions` | `{ occasions }`, what the caller may tag one of their own items for now, soonest first: their own birthday and anniversary (titled `Your birthday` and `Your anniversary`) and their groups' dates. |
 | `POST /wishlist/images` | `{ imagePath, imageUrl }` for a JPEG or PNG sent as raw bytes. |
 | `GET /groups` | `{ groups }`, the groups the caller belongs to, each with a `memberCount`. |
+| `POST /groups` | `{ group }` with `memberCount`; body `{ name, description, type }` (`description` may be null or left out). Name 1 to 50 characters after trimming, description at most 200, type one of the four (`lib/schemas/groups.ts`). |
+| `POST /groups/join` | `{ group }`; body `{ code }`, tidied as the website's form tidies it. |
 | `GET /home` | `{ occasions }`, a year ahead, not the caller's own birthday, each with the people to shop for and the caller's gift count for each. |
-| `GET /groups/{id}` | `{ group, members, occasions }`; 404 when the caller is not in it. |
+| `GET /groups/{id}` | `{ group, members, occasions }`, with `group.description`, `group.role` (the caller's) and each member's `role` (`owner`, `admin` or `member`); 404 when the caller is not in it. |
+| `DELETE /groups/{id}` | 204; 422 for anyone but the owner; 404 when the caller is not in it. |
+| `GET /groups/{id}/invite` | `{ code }`, to members only. |
+| `POST /groups/{id}/invitations` | `{ sent, resent, message }`; body `{ email }`. |
+| `DELETE /groups/{id}/membership` | 204; 422 for the owner. |
 | `GET /people/{id}/wishlist?occasion=<key>` | `{ person, occasion, occasions, gifts, items }`; the caller's own list answers items alone. |
 | `POST /wishlist/{id}/claim` | `{ gift }`, body `{ occasion }` (a key or null). A second POST by the person who already holds the item answers their gift again (it does not claim twice). |
 | `DELETE /wishlist/{id}/claim` | 204; 422 once the item is bought or its gift is past Claimed. |
@@ -148,10 +154,12 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 - A gift from a list whose item the caller can no longer see (the owner hid it from them, or they left the group, but did not delete it) is never stepped between Claimed and Ordered, because the item cannot be marked; past Claimed it can be deleted while its claim is held, and the claim stays as the record that the item was bought.
 - A gift's `seasonYear` is the year of its occasion, else its stored season, which for a gift from a list whose claim has no occasion is the year the claim was made (when it is filed, claimed again or moved to No occasion), and for a hand-added gift with no occasion, the year it was added.
 - Owner-blindness: Home, groups and a person's list never read claims on the caller's own items; the caller's own list answers with no claim state. Never send `claimedBy`, `out_of_stock_marked_by` or an email.
+- A group's invite code lets anyone holding it join. It is answered by `GET /groups/{id}/invite` to the group's members, and is never part of a list or a page.
+- An invitation's group name is read on the server, never taken from the request; the answer never holds the invitation's token.
 - The migration `20261111000000_shopping_links.sql` must be applied before these routes are merged (`npx supabase db push`).
 - Adding a value to an enumerated field (a priority, a privacy kind, a gift's step) is a breaking change for v1, because the app decodes strictly.
 
-`lib/mobile/fixtures/*.json` are the contract, including `wishlist.json`, `wishlist-item.json`, `wishlist-occasions.json`, `groups.json`, `wishlist-item-request.json`, `home.json`, `group-list.json`, `group.json`, `person-wishlist.json`, `gift.json`, `gifts.json`, `claim-request.json`, `gift-request.json` and `step-request.json`. They are copied into `rybn-mobile/Packages/RybnKit/Tests/RybnKitTests/Fixtures/`, so change both together.
+`lib/mobile/fixtures/*.json` are the contract, including `wishlist.json`, `wishlist-item.json`, `wishlist-occasions.json`, `groups.json`, `wishlist-item-request.json`, `home.json`, `group-list.json`, `group.json`, `person-wishlist.json`, `gift.json`, `gifts.json`, `claim-request.json`, `gift-request.json`, `step-request.json`, `group-request.json`, `group-created.json`, `join-request.json`, `invite.json`, `invitation-request.json` and `invitation.json`. They are copied into `rybn-mobile/Packages/RybnKit/Tests/RybnKitTests/Fixtures/`, so change both together.
 
 ## Tech Stack
 

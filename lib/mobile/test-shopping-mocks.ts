@@ -3,6 +3,7 @@ import { vi, type Mock } from "vitest";
 import type { ClaimRow, ClaimedItem } from "./gifts";
 import { memoryGiftStore, type MemoryGiftStore } from "./test-gift-store";
 import { fixture, groupRows } from "./test-fixtures";
+import { RIVERA_DESCRIPTION, roleIn } from "./test-groups";
 import { IDS, SAM, TODAY, world } from "./test-shopping";
 
 export type WorldMocks = { store: MemoryGiftStore; rpc: Mock; todayISO: Mock } & Record<
@@ -49,7 +50,7 @@ export function worldMocks(): WorldMocks {
       return {
         data: {
           ...group,
-          description: null,
+          description: id === IDS.rivera ? RIVERA_DESCRIPTION : null,
           invite_code: "SECRET12",
           settings: {},
           created_at: "2026-01-01T00:00:00.000000+00:00",
@@ -57,7 +58,7 @@ export function worldMocks(): WorldMocks {
           group_members: (w.members.get(id) ?? []).map((p, i) => ({
             id: `member-${i}`,
             user_id: p.id,
-            role: "member",
+            role: roleIn(id, p.id),
             joined_at: "2026-01-02T00:00:00+00:00",
             user_profiles: { id: p.id, username: p.username, display_name: p.display_name, avatar_url: p.avatar_url },
           })),

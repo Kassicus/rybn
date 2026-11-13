@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { fixture, groupRows } from "./test-fixtures";
+import { CODE, RIVERA_DESCRIPTION, roleIn } from "./test-groups";
 import { IDS, SAM, world } from "./test-shopping";
 import { RULES } from "./wishlist";
 import { SHOPPING_RULES } from "./shopping-rules";
@@ -54,9 +55,21 @@ describe("buildGroupList", () => {
   });
 });
 describe("buildGroupPage", () => {
-  const input = { callerId: SAM, group: { id: IDS.rivera, name: "Rivera Family", type: "family" as const },
-    members: w.members.get(IDS.rivera)!, itemCounts: w.itemCounts, upcoming: w.upcoming, profiles: w.profiles, views };
+  const rivera = w.members.get(IDS.rivera)!;
+  const input = { callerId: SAM, group: { id: IDS.rivera, name: "Rivera Family", type: "family" as const, description: RIVERA_DESCRIPTION },
+    members: rivera, roles: new Map(rivera.map((p) => [p.id, roleIn(IDS.rivera, p.id)])),
+    itemCounts: w.itemCounts, upcoming: w.upcoming, profiles: w.profiles, views };
   it("matches the group fixture", () => expect(buildGroupPage(input)).toEqual(fixture("group")));
+  it("reads anyone the roles do not name as a member, the caller included", () => {
+    const page = buildGroupPage({ ...input, roles: new Map([[w.people.mom.id, "owner" as const]]) });
+    expect([page.group.role, page.members.map((m) => m.role)]).toEqual(["member", ["member", "member", "member", "member", "owner", "member"]]);
+    expect(buildGroupPage({ ...input, roles: new Map([[SAM, "admin" as const]]) }).group.role).toBe("admin");
+  });
+  it("sends the group's description as stored, none as null, and nothing else of the group's", () => {
+    expect(buildGroupPage({ ...input, group: { ...input.group, description: null } }).group.description).toBeNull();
+    const row = { ...input.group, invite_code: CODE, settings: {}, created_by: SAM };
+    expect(Object.keys(buildGroupPage({ ...input, group: row }).group)).toEqual(["id", "name", "type", "description", "role"]);
+  });
   it("never ticks the caller, even with a gift that is not yet given for them", () => {
     const ctx = w.giftContext(); ctx.recipients.set(IDS.recipientJoe, { id: IDS.recipientJoe, name: "Sam", person_id: SAM });
     const own = buildGiftViews(w.giftRows().map((r) => (r.id === IDS.giftHat ? { ...r, status: "ordered" as const } : r)), ctx);
