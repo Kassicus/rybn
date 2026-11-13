@@ -127,9 +127,9 @@ export async function updateEmailPreferences(preferences: EmailPreferences) {
  * field's privacy_settings, in the same call.
  *
  * The stored choice is what the Settings page shows. The two writes succeed
- * or fail together, so after a failure the page shows the choice from
- * before, which is what the fields still have, and choosing the new one
- * again is a change it saves.
+ * or fail together, so after a failure nothing has changed: the page shows
+ * the choice from before, and choosing the new one again is a change it
+ * saves.
  */
 export async function updatePrivacySettings(settings: PrivacySettings) {
   const supabase = await createClient();

@@ -1,8 +1,9 @@
 -- 20261112000000_profile_visibility.sql: profile_visibility, one row per
 -- person holding the kinds of group they chose to see their profile fields,
--- with its three policies; and start_profile_visibility(), the repair (D10)
--- and start (D11) the migration ran once for everyone with fields. This file
--- proves:
+-- with its three policies; start_profile_visibility(), the repair (D10) and
+-- start (D11) the migration ran once for everyone with fields; and
+-- set_profile_visibility(), which saves a person's choice and writes it onto
+-- every one of their fields in one call. This file proves:
 --
 --   1. The table's shape (assertions 1-4). user_id is text, not null, the
 --      only column of the only primary key, and the only column of the one
@@ -18,8 +19,9 @@
 --      default; a reads their own row; a sees nothing of b's row although
 --      the two share a family group; a's update of b's row touches nothing;
 --      a's update of their own row lands.
---   3. The function (assertions 15-16). Not SECURITY DEFINER, search_path
---      pinned, executable by none of anon, authenticated and service_role.
+--   3. start_profile_visibility (assertions 15-16). Not SECURITY DEFINER,
+--      search_path pinned, executable by none of anon, authenticated and
+--      service_role.
 --   4. The repair and the start, on this file's own people (assertions
 --      17-23). hidden's five fields name no kind of group (an empty list, an
 --      empty list with no restrictToGroup key, an empty object, a list
@@ -37,6 +39,18 @@
 --      and between work and custom the enum's order puts work first. none
 --      has no fields and gets no row. a and b, not passed to the function,
 --      keep their field and rows as they were.
+--   5. set_profile_visibility (assertions 24-35). saver has three fields
+--      with three different settings, one tied to the group, and no stored
+--      row. A call with {friends} stores it and leaves all three naming
+--      exactly ["friends"] with no tie; a call with {work,family,NULL,work}
+--      stores {family,work} (once each, in the enum's order, the null
+--      dropped) and writes that; a call with {} (only you) stores {} and
+--      leaves the fields naming no kind. a's and b's rows, a's field and
+--      hidden's row are untouched. anon cannot execute it and authenticated
+--      can; it is SECURITY INVOKER with search_path pinned; it stores the
+--      choice before it writes the fields (the migration's lock order); and
+--      it refuses a signed-out call with 28000 and a null argument with 22023
+--      before either write.
 --
 -- REFUSALS THAT RAISE ARE NOT ATTEMPTED LIVE. A delete by authenticated
 -- (which holds no DELETE privilege) and an insert of another person's row
@@ -45,7 +59,11 @@
 -- file-wide. Assertion 8 holds the first at the privilege layer and
 -- assertion 7 the second in the policy's own text. The refusals that do not
 -- raise -- a's read and update of b's row, which the policies filter to no
--- rows -- are attempted live (12, 13).
+-- rows -- are attempted live (12, 13). set_profile_visibility's refusals of
+-- a signed-out call (28000) and a null argument (22023) raise too: they are
+-- held by line-anchored checks of the deployed definition (34, 35), with the
+-- no-block-comment floor beneath them (33) and a check that each refusal
+-- comes before the first write.
 --
 -- WHO RUNS THE FUNCTION. No API role may execute start_profile_visibility()
 -- (assertion 16), so it is called here as the connecting role, which runs it
@@ -53,10 +71,12 @@
 -- people this file made.
 --
 -- Convention: see 00_harness_smoke.sql. Fixtures are written as the
--- connecting (RLS-bypassing) role. Each impersonated read or write sets
--- request.jwt.claims and role around it, and `role` goes back to the
--- captured current_user before every catalog read and every read that
--- verifies a write. Each impersonated insert or update reads its row_count.
+-- connecting (RLS-bypassing) role. Each impersonated read, write or call
+-- sets request.jwt.claims and role around it (set_profile_visibility is
+-- called as the signed-in saver, as the website calls it), and `role` goes
+-- back to the captured current_user before every catalog read and every
+-- read that verifies a write. Each impersonated insert or update reads its
+-- row_count.
 
 create temp table _harness_result (token text);
 
@@ -71,12 +91,21 @@ declare
   v_mixed           text := 'user_pvis_mixed';
   v_tie             text := 'user_pvis_tie';
   v_none            text := 'user_pvis_none';
+  v_saver           text := 'user_pvis_saver';
   v_group           uuid;
   v_ring_settings   jsonb;
   v_tied_work_settings jsonb;
   v_settings        jsonb;
   v_count           int;
   v_count2          int;
+  v_count3          int;
+  v_count4          int;
+  -- A block-comment opener, built so this file holds none itself.
+  v_block_open      text := '/' || '*';
+  v_set_def         text;
+  v_pos_refusal     int;
+  v_pos_store       int;
+  v_pos_fields      int;
   v_type            text;
   v_typid           regtype;
   v_notnull         boolean;
@@ -115,7 +144,8 @@ begin
            (v_hidden, 'pvishidden', 'Pvis Hidden'),
            (v_mixed,  'pvismixed',  'Pvis Mixed'),
            (v_tie,    'pvistie',    'Pvis Tie'),
-           (v_none,   'pvisnone',   'Pvis None');
+           (v_none,   'pvisnone',   'Pvis None'),
+           (v_saver,  'pvissaver',  'Pvis Saver');
 
   -- add_group_creator_as_owner() adds a. b joins, so a and b share a
   -- "family" group: assertions 12 and 13 show that sharing it gives a
@@ -169,13 +199,23 @@ begin
            (v_tie,    'sizes',       'shirt_size', 'L',
             '{"visibleToGroupTypes": ["family", "friends"], "restrictToGroup": null}'::jsonb),
            (v_tie,    'sizes',       'ring_size',  '7',
-            '{"visibleToGroupTypes": ["custom"], "restrictToGroup": null}'::jsonb);
+            '{"visibleToGroupTypes": ["custom"], "restrictToGroup": null}'::jsonb),
+           -- saver's three fields, three different settings, the ring size
+           -- tied to the group (assertions 24-35).
+           (v_saver,  'sizes',       'shoe_size',  '8',
+            '{"visibleToGroupTypes": ["family"], "restrictToGroup": null}'::jsonb),
+           (v_saver,  'sizes',       'shirt_size', 'S',
+            '{"visibleToGroupTypes": ["work", "custom"], "restrictToGroup": null, "overrides": {"x": "y"}}'::jsonb),
+           (v_saver,  'sizes',       'ring_size',  '5',
+            v_ring_settings);
 
-  -- a's and b's stored rows go in after the fields. A field inserted for a
-  -- person who already has a stored row takes that row's kinds
-  -- (20261112000001_profile_fields_take_the_stored_choice.sql), and a's field
-  -- must still name no kind: assertion 23 shows that a, not passed to the
-  -- function, keeps it as written.
+  -- a's and b's stored rows go in after the fields, and nobody has a stored
+  -- row when their fields go in. Each field then holds exactly what the
+  -- fixture wrote, including once a new field takes its owner's stored row
+  -- on insert (20261112000001_profile_fields_take_the_stored_choice.sql,
+  -- applied after this file's migration). a's field must still name no kind:
+  -- assertion 23 shows that a, not passed to the function, keeps it as
+  -- written.
   insert into profile_visibility (user_id, visible_to_group_types)
     values (v_a, '{family}'::public.group_type[]),
            (v_b, '{friends}'::public.group_type[]);
@@ -674,8 +714,258 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 23 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 23', v_checks;
+  ---------------------------------------------------------------------------
+  -- Assertion 24: saver, with three fields of three different settings (one
+  -- tied) and no stored row, saves {friends}. The choice is stored.
+  ---------------------------------------------------------------------------
+  select count(*), count(distinct privacy_settings),
+         count(*) filter (where privacy_settings = v_ring_settings)
+    into v_count, v_count2, v_count3
+    from profile_info
+   where user_id = v_saver;
+
+  select count(*) into v_count4
+    from profile_visibility
+   where user_id = v_saver;
+
+  if v_count <> 3 or v_count2 <> 3 or v_count3 <> 1 or v_count4 <> 0 then
+    raise exception
+      'SAVE FAIL: before the first save % has % field(s) with % different setting(s), % tied, and % stored row(s); expected 3, 3, 1 and 0 -- the save below would prove nothing',
+      v_saver, v_count, v_count2, v_count3, v_count4;
+  end if;
+
+  perform set_config('request.jwt.claims',
+    '{"sub":"' || v_saver || '","role":"authenticated"}', true);
+  perform set_config('role', 'authenticated', true);
+
+  perform public.set_profile_visibility('{friends}'::public.group_type[]);
+
+  perform set_config('role', v_orig_role, true);
+
+  select visible_to_group_types into v_kinds
+    from profile_visibility
+   where user_id = v_saver;
+
+  if v_kinds is distinct from '{friends}'::public.group_type[] then
+    raise exception
+      'SAVE FAIL: after saving {friends}, %''s stored row reads %, expected {friends}',
+      v_saver, v_kinds;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 25: every one of saver's three fields, the tied one included,
+  -- now names exactly ["friends"] with no tie, and nothing else (the shirt
+  -- size's overrides are gone).
+  ---------------------------------------------------------------------------
+  select count(*),
+         count(*) filter (where privacy_settings = '{"visibleToGroupTypes": ["friends"], "restrictToGroup": null}'::jsonb)
+    into v_count, v_count2
+    from profile_info
+   where user_id = v_saver;
+
+  if v_count <> 3 or v_count2 <> 3 then
+    raise exception
+      'SAVE FAIL: after saving {friends}, % of %''s % field(s) read exactly {"visibleToGroupTypes": ["friends"], "restrictToGroup": null}; expected 3 of 3',
+      v_count2, v_saver, v_count;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 26: a save naming a kind twice, out of order and with a null
+  -- stores each kind once, in the enum's order, the null dropped. saver's
+  -- row exists now, so this is the update path.
+  ---------------------------------------------------------------------------
+  perform set_config('role', 'authenticated', true);
+
+  perform public.set_profile_visibility('{work,family,NULL,work}'::public.group_type[]);
+
+  perform set_config('role', v_orig_role, true);
+
+  select visible_to_group_types into v_kinds
+    from profile_visibility
+   where user_id = v_saver;
+
+  if v_kinds is distinct from '{family,work}'::public.group_type[] then
+    raise exception
+      'SAVE FAIL: after saving {work,family,NULL,work}, %''s stored row reads %, expected {family,work}',
+      v_saver, v_kinds;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 27: and every field names exactly ["family", "work"].
+  ---------------------------------------------------------------------------
+  select count(*),
+         count(*) filter (where privacy_settings = '{"visibleToGroupTypes": ["family", "work"], "restrictToGroup": null}'::jsonb)
+    into v_count, v_count2
+    from profile_info
+   where user_id = v_saver;
+
+  if v_count <> 3 or v_count2 <> 3 then
+    raise exception
+      'SAVE FAIL: after saving {work,family,NULL,work}, % of %''s % field(s) read exactly {"visibleToGroupTypes": ["family", "work"], "restrictToGroup": null}; expected 3 of 3',
+      v_count2, v_saver, v_count;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 28: an empty choice (only you) is stored as empty, not as no
+  -- row and not as null.
+  ---------------------------------------------------------------------------
+  perform set_config('role', 'authenticated', true);
+
+  perform public.set_profile_visibility('{}'::public.group_type[]);
+
+  perform set_config('role', v_orig_role, true);
+
+  select count(*) into v_count
+    from profile_visibility
+   where user_id = v_saver;
+
+  select visible_to_group_types into v_kinds
+    from profile_visibility
+   where user_id = v_saver;
+
+  if v_count <> 1 or v_kinds is distinct from '{}'::public.group_type[] then
+    raise exception
+      'SAVE FAIL: after saving {}, % has % stored row(s) reading %; expected 1 reading {}',
+      v_saver, v_count, v_kinds;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 29: and every field names no kind, with no tie.
+  ---------------------------------------------------------------------------
+  select count(*),
+         count(*) filter (where privacy_settings = '{"visibleToGroupTypes": [], "restrictToGroup": null}'::jsonb)
+    into v_count, v_count2
+    from profile_info
+   where user_id = v_saver;
+
+  if v_count <> 3 or v_count2 <> 3 then
+    raise exception
+      'SAVE FAIL: after saving {}, % of %''s % field(s) read exactly {"visibleToGroupTypes": [], "restrictToGroup": null}; expected 3 of 3',
+      v_count2, v_saver, v_count;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 30: saver's saves touched nobody else. a's and b's rows, a's
+  -- field and hidden's row are as assertions 23 and 19 left them.
+  ---------------------------------------------------------------------------
+  select visible_to_group_types into v_kinds
+    from profile_visibility
+   where user_id = v_a;
+
+  select visible_to_group_types into v_kinds2
+    from profile_visibility
+   where user_id = v_b;
+
+  select count(*) into v_count
+    from profile_info
+   where user_id = v_a
+     and category = 'sizes'
+     and field_name = 'shoe_size'
+     and privacy_settings = '{"visibleToGroupTypes": [], "restrictToGroup": null}'::jsonb;
+
+  select count(*) into v_count2
+    from profile_visibility
+   where user_id = v_hidden
+     and visible_to_group_types = '{family,friends,work,custom}'::public.group_type[];
+
+  if v_kinds is distinct from '{family,work}'::public.group_type[]
+     or v_kinds2 is distinct from '{friends}'::public.group_type[]
+     or v_count <> 1 or v_count2 <> 1 then
+    raise exception
+      'SAVE FAIL: after %''s saves, %''s row reads % (expected {family,work}), %''s reads % (expected {friends}), %''s field is unchanged in % row(s) (expected 1), and %''s row is unchanged in % row(s) (expected 1)',
+      v_saver, v_a, v_kinds, v_b, v_kinds2, v_a, v_count, v_hidden, v_count2;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 31: anon cannot execute set_profile_visibility; authenticated
+  -- can.
+  ---------------------------------------------------------------------------
+  select has_function_privilege('anon', 'public.set_profile_visibility(public.group_type[])', 'execute'),
+         has_function_privilege('authenticated', 'public.set_profile_visibility(public.group_type[])', 'execute')
+    into v_can_anon, v_can_authed;
+
+  if v_can_anon is distinct from false or v_can_authed is distinct from true then
+    raise exception
+      'GUARD FAIL: set_profile_visibility is executable by anon: %, authenticated: %; expected false and true',
+      v_can_anon, v_can_authed;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 32: it runs as its caller (row-level security confines both
+  -- writes to the caller's own rows), with search_path pinned.
+  ---------------------------------------------------------------------------
+  select p.prosecdef, p.proconfig into v_secdef, v_config
+    from pg_proc p
+   where p.oid = 'public.set_profile_visibility(public.group_type[])'::regprocedure;
+
+  if v_secdef is distinct from false
+     or not coalesce('search_path=public' = any(v_config), false) then
+    raise exception
+      'GUARD FAIL: set_profile_visibility has prosecdef % and proconfig %, expected prosecdef false (security invoker) and search_path=public among proconfig',
+      v_secdef, v_config;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 33: its definition has no block comment (the floor beneath
+  -- assertions 34 and 35), and it stores the choice before it writes the
+  -- fields: the migration's lock order, a person's profile_visibility row
+  -- before their profile_info rows.
+  ---------------------------------------------------------------------------
+  v_set_def := pg_get_functiondef('public.set_profile_visibility(public.group_type[])'::regprocedure);
+  v_pos_store := position('insert into profile_visibility' in v_set_def);
+  v_pos_fields := position('update profile_info' in v_set_def);
+
+  if position(v_block_open in v_set_def) <> 0
+     or v_pos_store = 0 or v_pos_fields = 0 or v_pos_store > v_pos_fields then
+    raise exception
+      'GUARD FAIL: set_profile_visibility''s definition has a block comment at character % (expected 0), or stores the choice at character % and writes the fields at character % (expected both present, the store first)',
+      position(v_block_open in v_set_def), v_pos_store, v_pos_fields;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 34: a signed-out call raises 28000, before either write. The
+  -- caller is the requesting user, and the refusal comes before the first
+  -- write.
+  ---------------------------------------------------------------------------
+  v_pos_refusal := position('raise exception ''not authenticated'' using errcode = ''28000'';' in v_set_def);
+
+  if not v_set_def ~ '(?n)^\s*v_caller text := \(select public\.requesting_user_id\(\)\);$'
+     or not v_set_def ~ '(?n)^\s*if v_caller is null then$'
+     or not v_set_def ~ '(?n)^\s*raise exception ''not authenticated'' using errcode = ''28000'';$'
+     or v_pos_refusal = 0 or v_pos_refusal > v_pos_store then
+    raise exception
+      'GUARD FAIL: set_profile_visibility no longer takes the caller from requesting_user_id() and refuses a signed-out call with 28000 before its first write, not line-commented (refusal at character %, first write at %)',
+      v_pos_refusal, v_pos_store;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 35: a null argument raises 22023, before either write, so it
+  -- changes nothing.
+  ---------------------------------------------------------------------------
+  v_pos_refusal := position('raise exception ''choose which kinds of group can see your details'' using errcode = ''22023'';' in v_set_def);
+
+  if not v_set_def ~ '(?n)^\s*if p_kinds is null then$'
+     or not v_set_def ~ '(?n)^\s*raise exception ''choose which kinds of group can see your details'' using errcode = ''22023'';$'
+     or v_pos_refusal = 0 or v_pos_refusal > v_pos_store then
+    raise exception
+      'GUARD FAIL: set_profile_visibility no longer refuses a null argument with 22023 before its first write, not line-commented (refusal at character %, first write at %)',
+      v_pos_refusal, v_pos_store;
+  end if;
+  v_checks := v_checks + 1;
+
+  if v_checks < 35 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 35', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_23_profile_visibility');

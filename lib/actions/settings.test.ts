@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 /**
  * The Settings page's "Who can see your profile fields?" is one choice per
@@ -160,6 +160,12 @@ beforeEach(() => {
   supabase = createSupabaseMock({});
 });
 
+// Puts back what a test's vi.spyOn replaced (console.error, silenced in the
+// failure test), so no later test runs with it silenced.
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("getMySettings", () => {
   it("reads the stored choice, not the first field's", async () => {
     supabase = createSupabaseMock({
@@ -228,8 +234,8 @@ describe("getMySettings", () => {
 
 describe("updatePrivacySettings", () => {
   // One call: set_profile_visibility stores the choice and writes it onto
-  // every field of the caller's in the same statement, so the two succeed or
-  // fail together and the page never shows a choice the fields do not have.
+  // every field of the caller's in the same call, so the two succeed or fail
+  // together.
   it("makes exactly one database call, set_profile_visibility, with the kinds once each in order", async () => {
     supabase = createSupabaseMock({ "rpc:set_profile_visibility": [OK] });
 

@@ -1422,13 +1422,13 @@ export type Database = {
         Returns: undefined
       }
       // Saves the CALLER's choice of which kinds of group may see their
-      // profile fields, in one step (20261112000001_profile_fields_take_
-      // the_stored_choice.sql): stores the kinds, once each in the enum's
-      // order, in profile_visibility, and sets every one of the caller's
-      // profile_info rows to exactly those kinds and no group. Both writes
-      // happen in the one call, so they succeed or fail together. SECURITY
-      // INVOKER: row-level security confines both writes to the caller's
-      // own rows. An empty list means only the caller.
+      // profile fields, in one step (20261112000000_profile_visibility.sql):
+      // stores the kinds, once each in the enum's order, in
+      // profile_visibility, and sets every one of the caller's profile_info
+      // rows to exactly those kinds and no group. Both writes happen in the
+      // one call, so they succeed or fail together. SECURITY INVOKER:
+      // row-level security confines both writes to the caller's own rows.
+      // An empty list means only the caller.
       //
       // Error codes, verified against the migration:
       //   28000 NOT AUTHENTICATED -- no Clerk JWT
