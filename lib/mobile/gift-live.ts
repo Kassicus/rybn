@@ -74,9 +74,10 @@ export async function giftListAnswer(userId: string, season: string | null): Pro
   const today = todayISO();
   const store = await createGiftStore(userId);
   await reconcileGifts(store, today);
-  // The occasions, and the groups with their members, do not depend on the gifts or on each other.
-  const [views, upcoming, members] = await Promise.all([
+  // The recipients' notes, the occasions, and the groups with their members do not depend on the gifts or on each other.
+  const [views, recipients, upcoming, members] = await Promise.all([
     loadGiftViews(userId, store, today),
+    store.recipientNotes(),
     upcomingForCaller(),
     myGroupMembers(),
   ]);
@@ -88,6 +89,7 @@ export async function giftListAnswer(userId: string, season: string | null): Pro
     season: season === null ? null : Number(season),
     currentYear: Number(today.slice(0, 4)),
     choices: buildChoices({ callerId: userId, upcoming, members }),
+    recipients,
   });
 }
 

@@ -1,5 +1,6 @@
 import { resend, EMAIL_FROM, EMAIL_FROM_NAME } from "./client";
 import { WelcomeEmail } from "./templates/WelcomeEmail";
+import { AccountDeletedEmail } from "./templates/AccountDeletedEmail";
 import { GroupInviteEmail } from "./templates/GroupInviteEmail";
 import { DateReminderEmail } from "./templates/DateReminderEmail";
 import { TestEmail } from "./templates/TestEmail";
@@ -28,6 +29,37 @@ export async function sendWelcomeEmail(email: string, username: string) {
     text: emailText,
     headers: {
       'X-Entity-Ref-ID': `welcome-${Date.now()}`,
+    },
+  });
+}
+
+/**
+ * Tells a person their account has been deleted, and where to write if they
+ * did not do it. Sent at most once per try, by deleteAccount
+ * (lib/actions/account.ts); it is not a mailing, so it carries no unsubscribe
+ * headers.
+ */
+export async function sendAccountDeletedEmail(email: string) {
+  const supportEmail = process.env.EMAIL_SUPPORT || 'support@rybn.app';
+
+  const emailHtml = await render(
+    <AccountDeletedEmail supportEmail={supportEmail} />
+  );
+
+  const emailText = await render(
+    <AccountDeletedEmail supportEmail={supportEmail} />,
+    { plainText: true }
+  );
+
+  return await resend.emails.send({
+    from: `${EMAIL_FROM_NAME} <${EMAIL_FROM}>`,
+    to: email,
+    replyTo: supportEmail,
+    subject: "Your Rybn account has been deleted",
+    html: emailHtml,
+    text: emailText,
+    headers: {
+      'X-Entity-Ref-ID': `account-deleted-${Date.now()}`,
     },
   });
 }

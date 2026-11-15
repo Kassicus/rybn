@@ -12,8 +12,16 @@
     "wrapped": 0,
     "given": 1
   },
+  "totals": {
+    "spent": 106.99,
+    "planned": 89,
+    "gifts": 4,
+    "people": 3,
+    "finished": 1
+  },
   "groups": [
     {
+      "key": "person:user_2alxABC",
       "person": {
         "id": "user_2alxABC",
         "name": "Alex Rivera",
@@ -21,6 +29,8 @@
         "avatarUrl": "https://img.clerk.com/alex"
       },
       "name": "Alex Rivera",
+      "spent": 49.99,
+      "notes": null,
       "gifts": [
         {
           "id": "e1f2a3b4-0003-4b00-8000-000000000003",
@@ -64,6 +74,7 @@
       ]
     },
     {
+      "key": "person:user_2momABC",
       "person": {
         "id": "user_2momABC",
         "name": "Mom",
@@ -71,6 +82,8 @@
         "avatarUrl": "https://img.clerk.com/mom"
       },
       "name": "Mom",
+      "spent": 35,
+      "notes": "Medium in tops. Loves anything green.",
       "gifts": [
         {
           "id": "e1f2a3b4-0001-4b00-8000-000000000001",
@@ -153,8 +166,11 @@
       ]
     },
     {
+      "key": "recipient:f0e1d2c3-0003-4c00-8000-000000000003",
       "person": null,
       "name": "Grandpa Joe",
+      "spent": 22,
+      "notes": "Fishes most Sundays",
       "gifts": [
         {
           "id": "e1f2a3b4-0004-4b00-8000-000000000004",

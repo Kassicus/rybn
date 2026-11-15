@@ -145,10 +145,32 @@ describe("createGiftStore", () => {
     expect(callsOf("select")).toEqual([["id, name, person_id"]]);
   });
 
-  it.each([["gifts"], ["recipients"], ["activeClaims"]] as const)(
+  it("reads each recipient's notes with named columns, the caller's only", async () => {
+    scripted = [{
+      data: [
+        { id: "r1", person_id: "user_2momABC", notes: "Medium in tops.", name: "Mom", user_id: ME },
+        { id: "r2", person_id: null, notes: null },
+      ],
+      error: null,
+    }];
+    expect(await (await createGiftStore(ME)).recipientNotes()).toEqual([
+      { id: "r1", person_id: "user_2momABC", notes: "Medium in tops." },
+      { id: "r2", person_id: null, notes: null },
+    ]);
+    expect(calls).toEqual([
+      ["from", "gift_recipients"],
+      ["select", "id, person_id, notes"],
+      ["eq", "user_id", ME],
+      ["order", "id", { ascending: true }],
+      ["range", 0, 999],
+    ]);
+  });
+
+  it.each([["gifts"], ["recipients"], ["recipientNotes"], ["activeClaims"]] as const)(
     "%s asks again for the next range when a page comes back full, and not when it comes back short", async (method) => {
       const store = await createGiftStore(ME);
       const row = method === "recipients" ? { id: "r", name: "n", person_id: null }
+        : method === "recipientNotes" ? { id: "r", person_id: null, notes: null }
         : method === "gifts" ? { id: "g" }
         : { item_id: "i", occasion_id: null, occasions: null, wishlist_items: null };
       const full = Array.from({ length: 1000 }, () => row);

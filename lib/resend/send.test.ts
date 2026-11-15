@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 /**
  * The invitation email's subject carries the group's name. A name is tidied
@@ -16,7 +16,7 @@ vi.mock("./client", () => ({
   EMAIL_FROM_NAME: "Rybn",
 }));
 
-const { sendGroupInviteEmail } = await import("./send");
+const { sendGroupInviteEmail, sendAccountDeletedEmail } = await import("./send");
 
 /** Invisible characters, written as escapes, never typed. */
 const RLO = "\u{202E}"; // right-to-left override
@@ -46,5 +46,34 @@ describe("sendGroupInviteEmail", () => {
       to: "gran@example.com",
       subject,
     });
+  });
+});
+
+/**
+ * The email a person gets once their account is deleted: what went, and where
+ * to write if they did not do it. It is not a mailing, so it carries no
+ * unsubscribe headers.
+ */
+describe("sendAccountDeletedEmail", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("sends the deletion email to the address given, saying what went and where to write", async () => {
+    vi.stubEnv("EMAIL_SUPPORT", "help@example.com");
+
+    await sendAccountDeletedEmail("sam@example.com");
+
+    expect(send).toHaveBeenCalledTimes(1);
+    const message = send.mock.calls[0][0];
+    expect(message).toMatchObject({
+      to: "sam@example.com",
+      subject: "Your Rybn account has been deleted",
+      replyTo: "help@example.com",
+    });
+    expect(message.text).toContain("Your Rybn account and everything in it have been removed");
+    expect(message.text).toContain("If you didn't delete your account, write to us at help@example.com.");
+    expect(message.headers["X-Entity-Ref-ID"]).toMatch(/^account-deleted-\d+$/);
+    expect(Object.keys(message.headers)).toEqual(["X-Entity-Ref-ID"]);
   });
 });

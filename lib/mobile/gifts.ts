@@ -286,24 +286,66 @@ export interface GiftChoices {
   people: PersonChoice[];
   groupDates: MobileOccasion[];
 }
+/** A season's money and progress, over the gifts its counts count. Money is in the gifts' own units, to the cent. */
+export interface GiftTotals {
+  /** What the gifts at Ordered, Arrived, Wrapped and Given cost. */
+  spent: number;
+  /** What the gifts at Claimed and Planned cost. */
+  planned: number;
+  gifts: number;
+  /** How many headings. */
+  people: number;
+  /** How many gifts are at Wrapped or Given. */
+  finished: number;
+}
+/** One of the caller's tracker rows (gift_recipients), with the note they keep on it. */
+export interface RecipientNotes {
+  id: string;
+  person_id: string | null;
+  notes: string | null;
+}
 export interface GiftGroup {
+  /** person:<id> for someone the caller can see, recipient:<id> for a typed name: what PUT /gifts/notes is sent. */
+  key: string;
   person: MobilePerson | null;
   name: string;
+  /** As totals.spent, for this heading's gifts. */
+  spent: number;
+  /** The note on the caller's row for this person, or on this typed name's row; null when there is none. */
+  notes: string | null;
   gifts: MobileGift[];
 }
 export interface GiftListAnswer {
   season: number;
   seasons: number[];
   counts: Record<GiftStage, number>;
+  totals: GiftTotals;
   groups: GiftGroup[];
   choices: GiftChoices;
 }
+
+const SPENT: readonly GiftStage[] = ["ordered", "arrived", "wrapped", "given"];
+const PLANNED: readonly GiftStage[] = ["claimed", "planned"];
+const FINISHED: readonly GiftStage[] = ["wrapped", "given"];
+
+/** Each price as whole cents, summed as integers, so 0.1 and 0.2 make 0.3; a gift with no price adds nothing. */
+export function sumMoney(prices: readonly (number | null)[]): number {
+  let cents = 0;
+  for (const price of prices) if (price !== null) cents += Math.round(price * 100);
+  return cents / 100;
+}
+
+/** What the gifts at these stages cost. */
+const costAt = (gifts: readonly MobileGift[], stages: readonly GiftStage[]) =>
+  sumMoney(gifts.filter((g) => stages.includes(g.status)).map((g) => g.price));
 
 export function buildGiftList(input: {
   views: GiftView[];
   season: number | null;
   currentYear: number;
   choices: GiftChoices;
+  /** Every tracker row of the caller's, with its notes. */
+  recipients: readonly RecipientNotes[];
 }): GiftListAnswer {
   const live = input.views.filter((v) => !v.archived);
   const seasons = [...new Set([...live.map((v) => v.gift.seasonYear), input.currentYear])].sort((a, b) => b - a);
@@ -313,22 +355,50 @@ export function buildGiftList(input: {
   const counts: Record<GiftStage, number> = { claimed: 0, planned: 0, ordered: 0, arrived: 0, wrapped: 0, given: 0 };
   for (const v of inSeason) counts[v.gift.status] += 1;
 
-  const byKey = new Map<string, { person: MobilePerson | null; name: string; gifts: MobileGift[] }>();
+  // A person's heading carries the note on the row tied to them, whichever rows its gifts are filed under: a gift from
+  // their list can sit under a typed row with another name.
+  const personNotes = new Map<string, string | null>();
+  const rowNotes = new Map<string, string | null>();
+  for (const r of input.recipients) {
+    rowNotes.set(r.id, r.notes);
+    if (r.person_id !== null) personNotes.set(r.person_id, r.notes);
+  }
+
+  const byKey = new Map<string, GiftGroup>();
   for (const v of inSeason) {
     const key = v.personId !== null ? `person:${v.personId}` : `recipient:${v.recipientId}`;
     let group = byKey.get(key);
     if (!group) {
-      group = { person: v.gift.person, name: v.gift.person?.name ?? v.gift.recipientName, gifts: [] };
+      group = {
+        key,
+        person: v.gift.person,
+        name: v.gift.person?.name ?? v.gift.recipientName,
+        spent: 0,
+        notes: (v.personId !== null ? personNotes.get(v.personId) : rowNotes.get(v.recipientId)) ?? null,
+        gifts: [],
+      };
       byKey.set(key, group);
     }
     group.gifts.push(v.gift);
   }
   const all = [...byKey.values()];
-  for (const g of all) g.gifts.sort(compareGifts);
+  for (const g of all) {
+    g.gifts.sort(compareGifts);
+    g.spent = costAt(g.gifts, SPENT);
+  }
   const people = all.filter((g) => g.person !== null).sort((a, b) => byPersonName(a.person!, b.person!));
   const typed = all.filter((g) => g.person === null).sort((a, b) => a.name.localeCompare(b.name, "en"));
 
-  return { season, seasons, counts, groups: [...people, ...typed], choices: input.choices };
+  const gifts = inSeason.map((v) => v.gift);
+  const totals: GiftTotals = {
+    spent: costAt(gifts, SPENT),
+    planned: costAt(gifts, PLANNED),
+    gifts: gifts.length,
+    people: all.length,
+    finished: gifts.filter((g) => FINISHED.includes(g.status)).length,
+  };
+
+  return { season, seasons, counts, totals, groups: [...people, ...typed], choices: input.choices };
 }
 
 const RECIPIENT_MAX = 100;

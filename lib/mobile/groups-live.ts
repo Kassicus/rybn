@@ -1,11 +1,12 @@
 import { createGroup, deleteGroup, leaveGroup } from "@/lib/actions/groups";
-import { joinGroupByCode, sendGroupInvitation } from "@/lib/actions/invitations";
+import { acceptInvitation, joinGroupByCode, sendGroupInvitation } from "@/lib/actions/invitations";
 import { actionAnswer } from "./action-response";
 import { pathUuid } from "./database";
 import { callerRole, groupSummary, inviteCodeOf } from "./group-reads";
 import {
   GROUP_ROUTE_ANSWERS,
   invitationAnswer,
+  parseAcceptBody,
   parseInvitationBody,
   parseJoinBody,
   parseNewGroupBody,
@@ -42,6 +43,25 @@ export async function joinGroupAnswer(raw: unknown): Promise<Response | { group:
   const failed = actionAnswer(result, "joinGroupByCode", GROUP_ROUTE_ANSWERS.join);
   if (failed) return failed;
   return { group: await summaryAfter((result as { data: { id: string } }).data.id, "joinGroupByCode") };
+}
+
+/**
+ * Accept the emailed invitation whose token the body holds, through the website's own action, and answer the group's
+ * summary as the join route does. The token goes to the action and nowhere else: a refusal is one of the action's
+ * fixed sentences, and a fault reaches mobileRoute's log line as its kind alone, never its text or its cause.
+ */
+export async function acceptInvitationAnswer(raw: unknown): Promise<Response | { group: GroupSummary }> {
+  const parsed = parseAcceptBody(raw);
+  if (!parsed.ok) return mobileError("invalid", parsed.message);
+  let result: Awaited<ReturnType<typeof acceptInvitation>>;
+  try {
+    result = await acceptInvitation(parsed.token);
+  } catch (thrown) {
+    throw new Error(`acceptInvitation threw ${thrown instanceof Error ? thrown.name : typeof thrown}`);
+  }
+  const failed = actionAnswer(result, "acceptInvitation", GROUP_ROUTE_ANSWERS.accept);
+  if (failed) return failed;
+  return { group: await summaryAfter((result as { data: { id: string } }).data.id, "acceptInvitation") };
 }
 
 /** The group's invite code, to one of its members. Anyone else is told the group is not there. */

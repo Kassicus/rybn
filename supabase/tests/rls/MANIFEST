@@ -42,3 +42,4 @@
 22_shopping_links.sql
 23_profile_visibility.sql
 24_profile_fields_take_the_stored_choice.sql
+25_delete_account.sql

@@ -422,7 +422,11 @@ export async function markOutOfStock(itemId: string) {
     .single();
 
   if (error) {
-    return { error: error.message };
+    // `notFound`: no item was the caller's to mark -- their own (the .neq
+    // above), one RLS hides from them, or one that is gone. PGRST116 is what
+    // .single() returns when the update matched no row. Any other error is
+    // infrastructure, not a missing item, as in getWishlistItem.
+    return { error: error.message, notFound: error.code === "PGRST116" };
   }
 
   revalidatePath("/wishlist");
@@ -454,7 +458,8 @@ export async function unmarkOutOfStock(itemId: string) {
     .single();
 
   if (error) {
-    return { error: error.message };
+    // `notFound` as in markOutOfStock: the update matched no row (PGRST116).
+    return { error: error.message, notFound: error.code === "PGRST116" };
   }
 
   revalidatePath("/wishlist");

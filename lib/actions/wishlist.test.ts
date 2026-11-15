@@ -9,16 +9,19 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * broken rewrite would pass `tsc` and lint and only fail at runtime. That is
  * exactly the class of bug this file exists to catch before it ships.
  *
- * Every other exported function here (getMyWishlist, createWishlistItem,
- * etc.) is unchanged by Task 5's rewrite and is not re-tested here.
+ * markOutOfStock() and unmarkOutOfStock() are pinned too, for what they
+ * answer when their update matched no row: the mobile route answers 404 from
+ * their `notFound`. Every other exported function here (getMyWishlist,
+ * createWishlistItem, etc.) is not re-tested here.
  *
  * Follows the mocking pattern established in ./occasions.test.ts, with the
  * chainable table mock extended by `is` (needed for
- * `.is("released_at", null)`) the way item-occasions.test.ts extends it with
- * `in`. next/cache and @/lib/supabase/signed-image are both mocked:
- * markAsPurchased calls revalidatePath and withSignedWishlistImage, neither
- * of which this file's tests care about, and the real signed-image module
- * reaches the admin/service-role client, which must not run in a unit test.
+ * `.is("released_at", null)`) and `neq` (for `.neq("user_id", userId)`) the
+ * way item-occasions.test.ts extends it with `in`. next/cache and
+ * @/lib/supabase/signed-image are both mocked: these actions call
+ * revalidatePath and withSignedWishlistImage, neither of which this file's
+ * tests care about, and the real signed-image module reaches the
+ * admin/service-role client, which must not run in a unit test.
  */
 
 const getUserId = vi.fn();
@@ -35,6 +38,7 @@ vi.mock("@/lib/supabase/signed-image", () => ({
 }));
 
 const eqSpy = vi.fn();
+const neqSpy = vi.fn();
 const isSpy = vi.fn();
 const updateSpy = vi.fn();
 
@@ -58,6 +62,10 @@ function createSupabaseMock(script: Record<string, unknown[]>) {
         select: () => chain,
         eq: (...args: unknown[]) => {
           eqSpy(table, ...args);
+          return chain;
+        },
+        neq: (...args: unknown[]) => {
+          neqSpy(table, ...args);
           return chain;
         },
         is: (...args: unknown[]) => {
@@ -84,7 +92,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => supabase,
 }));
 
-const { markAsPurchased } = await import("./wishlist");
+const { markAsPurchased, markOutOfStock, unmarkOutOfStock } = await import("./wishlist");
 
 const ITEM_ID = "11111111-1111-1111-8111-111111111111";
 
@@ -270,5 +278,53 @@ describe("markAsPurchased", () => {
 
     expect(result).toEqual({ error: "connection reset" });
     expect(updateSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("markOutOfStock and unmarkOutOfStock", () => {
+  const NO_ROWS = "JSON object requested, multiple (or no) rows returned";
+
+  it("answers notFound when no item was the caller's to mark: their own, one they cannot see, or one that is gone", async () => {
+    // The update is filtered by .neq("user_id", userId), so the caller's own
+    // item matches no row, exactly as one row-level security hides from them
+    // or one that was deleted does; .single() then answers PGRST116.
+    for (const action of [markOutOfStock, unmarkOutOfStock]) {
+      neqSpy.mockClear();
+      supabase = createSupabaseMock({
+        wishlist_items: [{ data: null, error: { code: "PGRST116", message: NO_ROWS } }],
+      });
+
+      const result = await action(ITEM_ID);
+
+      expect(result).toEqual({ error: NO_ROWS, notFound: true });
+      expect(neqSpy).toHaveBeenCalledWith("wishlist_items", "user_id", "user_claimer");
+    }
+  });
+
+  it("answers notFound false for any other database error", async () => {
+    for (const action of [markOutOfStock, unmarkOutOfStock]) {
+      supabase = createSupabaseMock({
+        wishlist_items: [{ data: null, error: { code: "08006", message: "connection failure" } }],
+      });
+
+      const result = await action(ITEM_ID);
+
+      expect(result).toEqual({ error: "connection failure", notFound: false });
+    }
+  });
+
+  it("marks an item as before", async () => {
+    const row = { id: ITEM_ID, out_of_stock_marked_by: "user_claimer", out_of_stock_marked_at: "now" };
+    supabase = createSupabaseMock({ wishlist_items: [{ data: row, error: null }] });
+
+    const result = await markOutOfStock(ITEM_ID);
+
+    expect(result).toEqual({ data: row });
+    expect(updateSpy).toHaveBeenCalledWith(
+      "wishlist_items",
+      expect.objectContaining({ out_of_stock_marked_by: "user_claimer" })
+    );
+    expect(eqSpy).toHaveBeenCalledWith("wishlist_items", "id", ITEM_ID);
+    expect(neqSpy).toHaveBeenCalledWith("wishlist_items", "user_id", "user_claimer");
   });
 });

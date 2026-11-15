@@ -1,5 +1,5 @@
 import type { GiftStatus } from "@/lib/schemas/gift-tracking";
-import type { ClaimRow, RecipientRow, StoredGift } from "./gifts";
+import type { ClaimRow, RecipientNotes, RecipientRow, StoredGift } from "./gifts";
 
 /** A gift to insert: every column the step sets. season_year is always a number, though a stored one can be null. */
 export type NewGift = Omit<StoredGift, "id" | "is_archived" | "created_at" | "updated_at" | "season_year"> & { season_year: number };
@@ -13,6 +13,8 @@ export interface GiftStore {
   /** Every gift of the caller's, archived included, oldest first. */
   gifts(): Promise<StoredGift[]>;
   recipients(): Promise<RecipientRow[]>;
+  /** Every recipient row of the caller's, with its notes. */
+  recipientNotes(): Promise<RecipientNotes[]>;
   insertRecipient(row: {
     name: string;
     person_id: string | null;

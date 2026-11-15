@@ -1,10 +1,11 @@
 // Tests only. A GiftStore that behaves as the database would, including its two unique indexes.
 import type { GiftStatus } from "@/lib/schemas/gift-tracking";
-import type { ClaimRow, RecipientRow, StoredGift } from "./gifts";
+import type { ClaimRow, RecipientNotes, RecipientRow, StoredGift } from "./gifts";
 import type { GiftPatch, GiftStore, NewGift } from "./gift-store";
 
 type OwnedGift = StoredGift & { user_id: string };
-type OwnedRecipient = RecipientRow & { user_id: string };
+/** A seeded recipient may carry notes; without them it has none (null), as a new row has. */
+type OwnedRecipient = RecipientRow & { user_id: string; notes?: string | null };
 
 export type MemoryGiftStore = GiftStore & {
   allGifts(): OwnedGift[];
@@ -21,7 +22,7 @@ export function memoryGiftStore(
 ): MemoryGiftStore {
   const claims: ClaimRow[] = [...(seed.claims ?? [])];
   const gifts: OwnedGift[] = (seed.gifts ?? []).map((g) => ({ ...g }));
-  const recipients: OwnedRecipient[] = (seed.recipients ?? []).map((r) => ({ ...r }));
+  const recipients: OwnedRecipient[] = (seed.recipients ?? []).map((r) => ({ ...r, notes: r.notes ?? null }));
   const writes: string[] = [];
   const mine = <T extends { user_id: string }>(rows: T[]) => rows.filter((r) => r.user_id === userId);
   const strip = (g: OwnedGift): StoredGift => {
@@ -30,6 +31,7 @@ export function memoryGiftStore(
     return rest as StoredGift;
   };
   const stripRecipient = (r: OwnedRecipient): RecipientRow => ({ id: r.id, name: r.name, person_id: r.person_id });
+  const recipientNotesOf = (r: OwnedRecipient): RecipientNotes => ({ id: r.id, person_id: r.person_id, notes: r.notes ?? null });
 
   return {
     writes,
@@ -51,6 +53,10 @@ export function memoryGiftStore(
       await tick();
       return mine(recipients).map(stripRecipient);
     },
+    async recipientNotes() {
+      await tick();
+      return mine(recipients).map(recipientNotesOf);
+    },
     async insertRecipient(row) {
       await tick();
       const nameClash = mine(recipients).some((r) => r.name === row.name);
@@ -59,7 +65,7 @@ export function memoryGiftStore(
       if (seed.personClashFirst && personClash) return { ok: false, clash: "person" };
       if (nameClash) return { ok: false, clash: "name" };
       if (personClash) return { ok: false, clash: "person" };
-      const made: OwnedRecipient = { id: crypto.randomUUID(), user_id: userId, name: row.name, person_id: row.person_id };
+      const made: OwnedRecipient = { id: crypto.randomUUID(), user_id: userId, name: row.name, person_id: row.person_id, notes: null };
       recipients.push(made);
       writes.push(`insertRecipient:${row.name}`);
       return { ok: true, row: stripRecipient(made) };
