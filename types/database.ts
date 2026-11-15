@@ -1453,7 +1453,8 @@ export type Database = {
       // recorded as the maker of the group and of each exchange the caller
       // made there. A group gift the caller made goes to its longest-standing
       // contributor who is neither the caller nor the person it is for, or
-      // is removed when nobody else has joined it. An exchange not yet held
+      // is removed when nobody else is in it but the person it is for, or
+      // nobody at all. An exchange not yet held
       // (or with no date) has its matches cleared, to be drawn again. Then
       // the caller's profile is deleted, and the rest of theirs goes by
       // cascade. A second call changes nothing. SECURITY DEFINER; takes no

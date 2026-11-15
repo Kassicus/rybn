@@ -2,7 +2,8 @@
 -- given an on-delete action (invitations.invited_by on delete cascade;
 -- group_gifts.target_user_id and gift_exchange_participants.assigned_to on
 -- delete set null); delete_account(), which deletes the caller's account and
--- hands each group they own to the member who has been there longest; and no
+-- hands each group they own to its owner if it has another, else an admin,
+-- else a member, and among those the one who has been there longest; and no
 -- policy that lets a signed-in person delete their profile row directly.
 -- This file proves:
 --
@@ -711,7 +712,7 @@ begin
   ---------------------------------------------------------------------------
   v_pos_heir := position('for update of gm' in v_def);
 
-  if not v_def ~ '(?n)^\s*for update of gm$'
+  if not v_def ~ '(?n)^\s*for update of gm;$'
      or v_pos_heir = 0 or v_pos_lock = 0 or v_pos_role = 0
      or v_pos_heir < v_pos_lock or v_pos_heir > v_pos_role then
     raise exception

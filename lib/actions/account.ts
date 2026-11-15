@@ -74,8 +74,8 @@ function emailErrorKind(error: unknown): string {
 /**
  * Deletes the caller's account, in steps that can be run again: their
  * pictures in both buckets, then their account in the database
- * (delete_account(), which hands each group they own to the member who has
- * been there longest), then the email telling them so, then their sign-in
+ * (delete_account(), which hands each group they own to another owner, else
+ * an admin, else a member, the longest-standing first), then the email telling them so, then their sign-in
  * account. A step that fails answers ACCOUNT_SENTENCES.deleteFailed and stops
  * the ones after it; the next try finds less to do and finishes the rest.
  *
