@@ -316,9 +316,9 @@ export async function getWishlistItem(itemId: string) {
  *
  * A claimer who can no longer see the item (they left the group they shared
  * with its owner, or the owner changed who may see it) still has their claim
- * row read here, but the update finds no row to change, so the action answers
- * an error and writes nothing. release_wishlist_claim() still releases such a
- * claim.
+ * row read here, and the action writes nothing for them: a lapsed claim is
+ * refused, and the update of an active one finds no row to change and answers
+ * its error. release_wishlist_claim() still releases such a claim.
  *
  * The update asks back the item's id alone, and that id is the answer.
  */
@@ -343,10 +343,8 @@ export async function markAsPurchased(itemId: string, purchased: boolean) {
     return { error: claimError.message };
   }
 
-  // Same message for "no claim row" and "claim exists but has lapsed". The
-  // caller is not entitled to learn which, and one message keeps this from
-  // becoming an oracle about other people's claims -- the same reason
-  // claim_wishlist_item() collapses its own two refusal paths into one raise.
+  // Same message for no claim row and a claim that has lapsed, as
+  // claim_wishlist_item() answers its own two refusals with one.
   const refusal = {
     error: "Only the person who claimed this item can mark it purchased",
   };

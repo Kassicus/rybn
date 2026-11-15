@@ -497,12 +497,12 @@ describe("markAsPurchased", () => {
   });
 
   it("refuses the claimer when their own claim has LAPSED", async () => {
-    // What would make this fail: dropping the isClaimActive() call and going
-    // back to "a row came back, therefore authorized". What this does NOT
-    // catch: whether Postgres would have lapsed this same claim at the same
-    // instant -- claim_rpcs.sql:102 compares against `current_date` in the
-    // session TimeZone while this compares ISO strings in UTC, and they
-    // agree only because the database is configured to UTC.
+    // What would make this fail: dropping the isClaimActive() call, so that
+    // any claim row authorizes. What this does NOT catch: whether Postgres
+    // would have lapsed this same claim at the same instant --
+    // claim_rpcs.sql:102 compares against `current_date` in the session
+    // TimeZone while this compares ISO strings in UTC, and they agree only
+    // because the database is configured to UTC.
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-15T12:00:00Z"));
     try {

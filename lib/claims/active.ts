@@ -5,9 +5,9 @@
  * and in 20260911100002_claim_rpcs.sql's header. This module is the one
  * definition every TypeScript caller shares -- getActiveClaims(),
  * markAsPurchased()'s check and the mobile gift tracker (lib/mobile/gifts.ts)
- * -- so a change to the rule is made here once. claim_wishlist_item() keeps
- * its own copy of the rule for its lapsed-release, because that runs inside
- * the database function.
+ * -- so a change to the rule is made here once. claim_wishlist_item() (its
+ * lapsed-release) and set_claim_occasion() (its lookup) keep their own copies
+ * of the rule, because they run inside the database.
  */
 
 /** Exactly what deciding activity needs -- nothing about who claimed it. */

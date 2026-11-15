@@ -303,21 +303,24 @@ export async function sendGroupInvitation(data: {
 }
 
 /**
- * Consumes an invitation token for the signed-in user.
+ * Accepts an invitation for the signed-in user, by its token.
  *
- * This does NOT read the invitations table and does NOT insert into
- * group_members. It cannot: group_members has no INSERT policy at all (a
- * self-grantable membership was a self-grantable key to nearly everything the
- * schema protects -- roster, invite code, private wishlist items, profile
- * fields, Secret Santa assignments -- to anyone holding the group UUID, which
- * is in the URL), and the email-based SELECT policy that once let an invitee
- * read their own invitation row is gone too. The invitee presents the token to
- * accept_group_invitation(); they never see the row behind it.
+ * The token goes to accept_group_invitation(), a SECURITY DEFINER function
+ * that takes the caller from requesting_user_id() and no user argument. It
+ * finds the invitation the token belongs to, which must not be accepted yet
+ * and must not have expired; adds the caller to its group as a member (a
+ * caller already in the group stays as they are); marks the invitation
+ * accepted; and answers the group's id. An unknown, accepted or expired token
+ * raises 22023, one error for all three, and a call with no signed-in caller
+ * raises 28000. The action itself reads no invitation row and writes no
+ * membership, and it calls the function with the signed-in person's own
+ * client.
  *
- * The function is SECURITY DEFINER, pins the new member to
- * requesting_user_id(), and takes no user parameter -- so it must be called on
- * the USER-SCOPED client. The admin client would carry no Clerk subject and
- * the call would raise 28000.
+ * It answers `{ data: { id } }` with the group's id;
+ * GROUP_SENTENCES.invitationInvalid for a token that opens nothing; "Not
+ * authenticated" when nobody is signed in; GROUP_SENTENCES.stillSettingUp
+ * when the caller's profile is not there yet (23503); and
+ * GROUP_SENTENCES.acceptFailed for any other failure, or no group id.
  */
 export async function acceptInvitation(token: string): Promise<
   | { error: string; data?: never }

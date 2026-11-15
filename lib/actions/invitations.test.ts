@@ -530,9 +530,9 @@ describe("sendGroupInvitation", () => {
 });
 
 /**
- * What the action logs: a failure's kind or code alone. No log holds the typed
- * address, the inviter's own email, the group's name or the email service's
- * message.
+ * What the action logs when an invitation write or the email fails: the
+ * failure's code or kind alone. No log holds the typed address, the inviter's
+ * own email, the group's name or the email service's message.
  */
 describe("sendGroupInvitation logs", () => {
   const ADDRESS = "invitee@example.com";
