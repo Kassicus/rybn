@@ -43,3 +43,4 @@
 23_profile_visibility.sql
 24_profile_fields_take_the_stored_choice.sql
 25_delete_account.sql
+26_own_contact_and_item_marks.sql
