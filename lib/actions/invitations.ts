@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getUserId, requireAuthWithProfile } from "@/lib/auth/require-auth";
 import {
   generateInviteToken,
@@ -52,9 +53,12 @@ const INVITE_CODE_SHAPE = /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/;
  * group the invitation is for.
  *
  * The membership is read first: someone not in the group is answered "You are
- * not a member of this group" before any other read. An address with an
- * invitation another member sent that has not been accepted answers
- * GROUP_SENTENCES.alreadyInvited, before anything is written.
+ * not a member of this group" before any other read. After the hourly limit,
+ * the ids of the accounts holding the address are read with the admin client;
+ * one of them in the group answers GROUP_SENTENCES.alreadyInGroup, and the
+ * email tells the invitee to create an account only when none holds it. An
+ * address with an invitation another member sent that has not been accepted
+ * answers GROUP_SENTENCES.alreadyInvited, before anything is written.
  *
  * Once the invitation is made it answers `emailSent`, `isResend` (an
  * invitation of the caller's already waiting was sent again) and, when the
@@ -138,22 +142,33 @@ export async function sendGroupInvitation(data: {
     return { error: GROUP_SENTENCES.hourlyLimit };
   }
 
-  // Check if email is already a member
-  const { data: existingUser } = await supabase
+  // The accounts holding the address (more than one can), read on the
+  // server with the admin client, ids alone. Read only after the membership
+  // check and the hourly limit; the address is never logged, and the ids
+  // never leave this function. A failed read counts as no account.
+  const { data: holders, error: holdersError } = await createAdminClient()
     .from("user_profiles")
     .select("id")
-    .eq("email", email)
-    .maybeSingle();
+    .eq("email", email);
 
-  if (existingUser) {
+  if (holdersError) {
+    console.error(
+      `sendGroupInvitation: could not look up the address (${holdersError.code || "no code"})`
+    );
+  }
+  const holderIds = holdersError ? [] : (holders ?? []).map((holder) => holder.id);
+
+  // Whether one of those accounts is already in the group, asked of the
+  // caller's own client.
+  if (holderIds.length > 0) {
     const { data: alreadyMember } = await supabase
       .from("group_members")
       .select("id")
       .eq("group_id", data.groupId)
-      .eq("user_id", existingUser.id)
-      .maybeSingle();
+      .in("user_id", holderIds)
+      .limit(1);
 
-    if (alreadyMember) {
+    if (alreadyMember && alreadyMember.length > 0) {
       return { error: GROUP_SENTENCES.alreadyInGroup };
     }
   }
@@ -258,8 +273,9 @@ export async function sendGroupInvitation(data: {
       inviteToken: token,
       // Looked up above, to check whether this person is already in the
       // group. Reused rather than re-queried -- and it is the reason the
-      // template can stop telling account holders to create an account.
-      isNewUser: !existingUser,
+      // template can stop telling account holders to create an account. New
+      // only when no account holds the address.
+      isNewUser: holderIds.length === 0,
     });
 
     if (sendError) {
