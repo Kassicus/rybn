@@ -54,12 +54,14 @@ type StorageError = { message: string };
  * what the first one left.
  *
  * `buckets` holds each bucket's paths. `list(prefix, { limit, offset })`
- * answers the names directly under `prefix`, by name, as Supabase does;
+ * answers the names directly under `prefix`, by name, as Supabase does, and
+ * never more than `pageCap` of them however many are asked for;
  * `remove(paths)` deletes them. `profile` is the caller's user_profiles row,
  * and `rpc` empties it. Every method called on user_profiles is recorded.
  */
 type World = {
   buckets: Record<string, Set<string>>;
+  pageCap: number;
   profile: { email: string | null } | null;
   readError: { code: string; message: string } | null;
   listError: Record<string, StorageError>;
@@ -70,6 +72,7 @@ type World = {
 function createWorld(seed: Partial<World> = {}): World {
   return {
     buckets: { "wishlist-images": new Set(), "gift-photos": new Set() },
+    pageCap: Infinity,
     profile: { email: ADDRESS },
     readError: null,
     listError: {},
@@ -107,7 +110,7 @@ function fakeClient() {
               .map((path) => path.slice(prefix.length + 1))
               .filter((name) => !name.includes("/"))
               .sort();
-            const page = names.slice(options.offset, options.offset + options.limit);
+            const page = names.slice(options.offset, options.offset + Math.min(options.limit, world.pageCap));
             return { data: page.map((name) => ({ name, id: `id-${name}` })), error: null };
           },
           async remove(paths: string[]) {
@@ -229,12 +232,37 @@ describe("deleteAccount", () => {
 
     expect(result).toEqual({ success: true });
     expect(left("wishlist-images")).toEqual([]);
+    // Listing stops at the first empty page.
     expect(
       lists.filter((l) => l.bucket === "wishlist-images").map((l) => l.options)
     ).toEqual([
       { limit: 1000, offset: 0 },
       { limit: 1000, offset: 1000 },
+      { limit: 1000, offset: 1001 },
     ]);
+  });
+
+  it("removes every picture when the storage service answers fewer names than asked", async () => {
+    const many = Array.from(
+      { length: 250 },
+      (_, i) => `user_2abcDEF/${String(i).padStart(3, "0")}-x.jpg`
+    );
+    world = createWorld({
+      buckets: { "wishlist-images": new Set(many), "gift-photos": new Set(["user_2abcDEF/3-c.jpg"]) },
+      pageCap: 100,
+    });
+
+    const result = await deleteAccount();
+
+    expect(result).toEqual({ success: true });
+    expect(left("wishlist-images")).toEqual([]);
+    expect(left("gift-photos")).toEqual([]);
+    // Each page starts after the names already received, and every page is
+    // read before the one remove of all 250.
+    expect(
+      lists.filter((l) => l.bucket === "wishlist-images").map((l) => l.options.offset)
+    ).toEqual([0, 100, 200, 250]);
+    expect(steps.filter((s) => s === "remove:wishlist-images")).toHaveLength(1);
   });
 
   it("emails the address read before the database deleted the account", async () => {
@@ -253,21 +281,31 @@ describe("deleteAccount", () => {
     expect(steps.indexOf("rpc:delete_account")).toBeLessThan(steps.indexOf(`email:${ADDRESS}`));
   });
 
-  it("still succeeds when the email is refused or throws, and logs it", async () => {
+  it("still succeeds when the email is refused or throws, and logs each by its name and status or code alone", async () => {
+    // Both quote the address, as the email service's words can.
     sendAccountDeletedEmail.mockResolvedValueOnce({
       data: null,
-      error: { message: "domain not verified" },
+      error: {
+        name: "validation_error",
+        statusCode: 403,
+        message: `You can only send testing emails to your own address, not ${ADDRESS}.`,
+      },
     });
 
     expect(await deleteAccount()).toEqual({ success: true });
 
     world = createWorld();
-    sendAccountDeletedEmail.mockRejectedValueOnce(new Error("fetch failed"));
+    sendAccountDeletedEmail.mockRejectedValueOnce(
+      Object.assign(new TypeError(`fetch failed sending to ${ADDRESS}`), { code: "ECONNRESET" })
+    );
 
     expect(await deleteAccount()).toEqual({ success: true });
 
     expect(deleteSignInAccount).toHaveBeenCalledTimes(2);
-    expect(console.error).toHaveBeenCalled();
+    expect(vi.mocked(console.error).mock.calls).toEqual([
+      ["deleteAccount: the email was refused (validation_error, 403)"],
+      ["deleteAccount: the email failed (TypeError, ECONNRESET)"],
+    ]);
     for (const spy of consoleSpies) {
       for (const call of spy.mock.calls) {
         expect(inspect(call, { depth: 10 })).not.toContain(ADDRESS);

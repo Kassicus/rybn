@@ -25,22 +25,35 @@ export async function deleteSignInAccount(userId: string): Promise<void> {
 
 /**
  * Sets the picture on the sign-in account with this id, and answers the
- * address the sign-in provider gives for it. Any failure is thrown.
+ * address the sign-in provider gives for it. An answer with no address, or an
+ * empty one, is thrown as a failure, as is any other failure, so the caller
+ * writes nothing.
  */
 export async function setSignInPicture(userId: string, file: Blob): Promise<string> {
   const user = await (await clerkClient()).users.updateUserProfileImage(userId, { file });
-  return user.imageUrl;
+  const address: unknown = user.imageUrl;
+  if (typeof address !== "string" || address === "") {
+    throw new Error("setSignInPicture: the sign-in provider answered no address for the picture");
+  }
+  return address;
 }
 
 /**
  * Removes the picture from the sign-in account with this id.
  *
- * An answer of 404 counts as removed: an earlier try already removed it, so
- * a second try finishes. Any other failure is thrown.
+ * The account is read first. One the provider says has no picture of its own
+ * (`hasImage` false: it shows the provider's placeholder) is left as it is,
+ * and no removal is asked for. Otherwise the picture is removed, and an
+ * answer of 404 counts as removed: an earlier try already removed it, so a
+ * second try finishes. A failure to read the account, or any other failure
+ * of the removal, is thrown.
  */
 export async function removeSignInPicture(userId: string): Promise<void> {
+  const users = (await clerkClient()).users;
+  const user = await users.getUser(userId);
+  if (user.hasImage === false) return;
   try {
-    await (await clerkClient()).users.deleteUserProfileImage(userId);
+    await users.deleteUserProfileImage(userId);
   } catch (error) {
     if (isClerkAPIResponseError(error) && error.status === 404) return;
     throw error;

@@ -63,13 +63,13 @@ const upload = (type: string, bytes: Uint8Array) =>
 const remove = () => bearer(url, { method: "DELETE" });
 const ctx = { params: Promise.resolve({}) };
 
-/** The one picture the sign-in account was given. */
-function sentPicture(): Blob {
+/** The one picture the sign-in account was given: a named file, as an upload form sends. */
+function sentPicture(): File {
   expect(setSignInPicture).toHaveBeenCalledTimes(1);
   const [userId, file] = setSignInPicture.mock.calls[0];
   expect(userId).toBe("user_2abcDEF");
-  expect(file).toBeInstanceOf(Blob);
-  return file as Blob;
+  expect(file).toBeInstanceOf(File);
+  return file as File;
 }
 
 beforeEach(() => {
@@ -95,7 +95,7 @@ describe("POST and DELETE /api/mobile/v1/profile/picture", () => {
     expect([res.status, res.headers.get("cache-control")]).toEqual([200, "no-store"]);
     expect(await res.json()).toEqual(fixture("profile-picture"));
     const file = sentPicture();
-    expect([file.type, file.size]).toEqual(["image/jpeg", JPEG.length]);
+    expect([file.name, file.type, file.size]).toEqual(["picture.jpg", "image/jpeg", JPEG.length]);
     expect(new Uint8Array(await file.arrayBuffer())).toEqual(JPEG);
     expect(db.tables).toEqual(["user_profiles"]);
     expect(db.updates).toEqual([{ avatar_url: ADDRESS }]);
@@ -109,7 +109,8 @@ describe("POST and DELETE /api/mobile/v1/profile/picture", () => {
 
     expect(res.status).toBe(200);
     const file = sentPicture();
-    expect([file.type, file.size]).toEqual(["image/png", PNG.length]);
+    expect([file.name, file.type, file.size]).toEqual(["picture.png", "image/png", PNG.length]);
+    expect(new Uint8Array(await file.arrayBuffer())).toEqual(PNG);
     expect(db.updates).toEqual([{ avatar_url: ADDRESS }]);
   });
 

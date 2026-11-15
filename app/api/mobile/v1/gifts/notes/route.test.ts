@@ -77,7 +77,8 @@ describe("PUT /api/mobile/v1/gifts/notes", () => {
 
   it("saves a note on the row tied to a person, never its name", async () => {
     expect((await PUT(put({ key: "person:user_2momABC", notes: "Medium" }), ctx)).status).toBe(204);
-    expect(updateRecipient.mock.calls).toEqual([[IDS.recipientMom, { notes: "Medium" }]]);
+    // Strict: a `name` key, even one holding undefined, fails it.
+    expect(updateRecipient.mock.calls).toStrictEqual([[IDS.recipientMom, { notes: "Medium" }]]);
     expect(holder.current.store.writes).toEqual([]);
   });
 
@@ -118,6 +119,21 @@ describe("PUT /api/mobile/v1/gifts/notes", () => {
     ] as const) {
       const res = await PUT(put(body), ctx);
       expect([res.status, (await res.json()).error]).toEqual([422, { code: "invalid", message }]);
+    }
+    expect(updateRecipient).not.toHaveBeenCalled();
+    expect(holder.current.store.writes).toEqual([]);
+  });
+
+  it("refuses a name or notes with characters Rybn can't save, as the gift door does, writing nothing", async () => {
+    for (const body of [
+      { ...request(), name: "Grandpa\u0000Joe" },
+      { ...request(), notes: "Size\u0000L" },
+      { key: "person:user_2dadABC", notes: "Size 10\u0007" },
+    ]) {
+      const res = await PUT(put(body), ctx);
+      const text = await res.text();
+      expect([res.status, text === "" ? "" : JSON.parse(text).error])
+        .toEqual([422, { code: "invalid", message: "That has characters Rybn can't save. Try typing it again." }]);
     }
     expect(updateRecipient).not.toHaveBeenCalled();
     expect(holder.current.store.writes).toEqual([]);

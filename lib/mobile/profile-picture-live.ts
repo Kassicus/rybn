@@ -25,14 +25,15 @@ async function saveAvatar(userId: string, avatarUrl: string | null): Promise<voi
 /**
  * The body of POST /profile/picture: the phone sends the picture's raw bytes (the route has no `body` option, which
  * would read JSON). A picture the other picture routes refuse answers 422 with their sentence, changing nothing.
- * Otherwise the picture is set on the sign-in account, the address it answers is written to avatar_url, and that
- * address is answered.
+ * Otherwise the picture is set on the sign-in account, as a file named `picture.jpg` or `picture.png` (the name an
+ * upload form would send), the address it answers is written to avatar_url, and that address is answered.
  */
 export async function setProfilePictureAnswer(userId: string, request: Request): Promise<Response | { avatarUrl: string }> {
   const bytes = new Uint8Array(await request.arrayBuffer());
   const kind = checkPicture(request.headers.get("content-type"), bytes);
   if (!kind.ok) return mobileError("invalid", kind.message);
-  const avatarUrl = await setSignInPicture(userId, new Blob([bytes], { type: kind.contentType }));
+  const file = new File([bytes], `picture.${kind.extension}`, { type: kind.contentType });
+  const avatarUrl = await setSignInPicture(userId, file);
   await saveAvatar(userId, avatarUrl);
   return { avatarUrl };
 }

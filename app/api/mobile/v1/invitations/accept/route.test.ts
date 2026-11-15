@@ -78,9 +78,14 @@ describe("POST /api/mobile/v1/invitations/accept", () => {
   });
 
   it("refuses a token that is not 64 characters of 0-9 and a-f before calling the action", async () => {
-    for (const token of [TOKEN.toUpperCase(), TOKEN.slice(1), TOKEN + "0", "z".repeat(64), 64]) {
+    // Each token is named by what was done to it, so a failure says which without printing it.
+    for (const [what, token] of [
+      ["upper-cased", TOKEN.toUpperCase()], ["one character short", TOKEN.slice(1)], ["one character long", TOKEN + "0"],
+      ["64 z's", "z".repeat(64)], ["the number 64", 64],
+      ["with a leading space", " " + TOKEN], ["with a trailing newline", TOKEN + "\n"],
+    ] as const) {
       const res = await POST(post({ token }), ctx);
-      expect([res.status, (await res.json()).error]).toEqual([422, { code: "invalid", message: INVALID }]);
+      expect([what, res.status, (await res.json()).error]).toEqual([what, 422, { code: "invalid", message: INVALID }]);
     }
     expect(accepts()).toBe(0);
   });
@@ -107,6 +112,7 @@ describe("POST /api/mobile/v1/invitations/accept", () => {
     holder.current.acceptInvitation.mockRejectedValueOnce(new Error(`connect ECONNREFUSED while accepting ${TOKEN}`));
     expect(await answered({ token: TOKEN })).toBe(500);
     expect(vi.mocked(console.error).mock.calls.length).toBeGreaterThan(errorsBefore);
+    expect(logged().includes("acceptInvitation threw Error")).toBe(true);
   });
 
   it("answers 401 when nobody is signed in, and 500 for anything else", async () => {

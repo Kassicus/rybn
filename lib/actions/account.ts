@@ -14,15 +14,17 @@ import type { ImageBucket } from "@/lib/supabase/signed-image";
  */
 const PICTURE_BUCKETS: readonly ImageBucket[] = ["wishlist-images", "gift-photos"];
 
-/** The most names one list answers, and the most paths one remove is given. */
+/** The most names one list asks for, and the most paths one remove is given. */
 const PAGE_SIZE = 1000;
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
 /**
  * Removes everything filed under `<userId>/` in one bucket, and answers
- * whether it could. Every page of names is read before anything is removed,
- * so removing never moves a name out from under the next page.
+ * whether it could. Pages of names are read until one comes back empty, each
+ * starting after the names already received, since the storage service may
+ * answer fewer than are asked for. Every page is read before anything is
+ * removed, so removing never moves a name out from under the next page.
  */
 async function removePictures(
   supabase: Supabase,
@@ -32,14 +34,14 @@ async function removePictures(
   const storage = supabase.storage.from(bucket);
 
   const names: string[] = [];
-  for (let offset = 0; ; offset += PAGE_SIZE) {
-    const { data, error } = await storage.list(userId, { limit: PAGE_SIZE, offset });
+  for (;;) {
+    const { data, error } = await storage.list(userId, { limit: PAGE_SIZE, offset: names.length });
     if (error) {
       console.error(`deleteAccount: could not list the pictures in ${bucket}`, error);
       return false;
     }
+    if (data.length === 0) break;
     names.push(...data.map((file) => file.name));
-    if (data.length < PAGE_SIZE) break;
   }
 
   for (let start = 0; start < names.length; start += PAGE_SIZE) {
@@ -57,6 +59,19 @@ async function removePictures(
 }
 
 /**
+ * What is logged of the email service's error: its name, and its status or
+ * code. Never its message, which can quote the address.
+ */
+function emailErrorKind(error: unknown): string {
+  if (typeof error !== "object" || error === null) return typeof error;
+  const { name, statusCode, code } = error as { name?: unknown; statusCode?: unknown; code?: unknown };
+  const parts = [name, statusCode ?? code].filter(
+    (part) => typeof part === "string" || typeof part === "number"
+  );
+  return parts.length > 0 ? parts.join(", ") : "no name";
+}
+
+/**
  * Deletes the caller's account, in steps that can be run again: their
  * pictures in both buckets, then their account in the database
  * (delete_account(), which hands each group they own to the member who has
@@ -69,7 +84,7 @@ async function removePictures(
  *
  * The address is read before the database deletes the profile it is in. The
  * email is sent only when there is one, and a refused or failed email is
- * logged without the address while the deletion goes on.
+ * logged by its name and status or code alone while the deletion goes on.
  */
 export async function deleteAccount(): Promise<{ success: true } | { error: string }> {
   const userId = await getUserId();
@@ -111,10 +126,10 @@ export async function deleteAccount(): Promise<{ success: true } | { error: stri
       // request itself fails, so both are logged.
       const { error: sendError } = await sendAccountDeletedEmail(email);
       if (sendError) {
-        console.error("deleteAccount: the email was refused", sendError);
+        console.error(`deleteAccount: the email was refused (${emailErrorKind(sendError)})`);
       }
     } catch (error) {
-      console.error("deleteAccount: the email failed", error);
+      console.error(`deleteAccount: the email failed (${emailErrorKind(error)})`);
     }
   }
 

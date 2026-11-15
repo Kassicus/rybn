@@ -104,6 +104,7 @@ describe("parseAcceptBody", () => {
   it.each([
     ["upper-cased", TOKEN.toUpperCase()], ["one character short", TOKEN.slice(1)], ["one character long", TOKEN + "0"],
     ["64 g's", "g".repeat(64)], ["the number 64", 64], ["null", null],
+    ["with a leading space", " " + TOKEN], ["with a trailing newline", TOKEN + "\n"],
   ])("refuses the token %s with the website's sentence", (_what, token) => {
     expect(shown(parseAcceptBody({ token }))).toEqual({ ok: false, message: INVALID });
   });

@@ -35,8 +35,9 @@ export async function sendWelcomeEmail(email: string, username: string) {
 
 /**
  * Tells a person their account has been deleted, and where to write if they
- * did not do it. Sent once, by deleteAccount (lib/actions/account.ts); it is
- * not a mailing, so it carries no unsubscribe headers.
+ * did not do it. Sent at most once per try, by deleteAccount
+ * (lib/actions/account.ts); it is not a mailing, so it carries no unsubscribe
+ * headers.
  */
 export async function sendAccountDeletedEmail(email: string) {
   const supportEmail = process.env.EMAIL_SUPPORT || 'support@rybn.app';

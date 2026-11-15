@@ -7,12 +7,15 @@ import { ClerkAPIResponseError } from "@clerk/nextjs/errors";
  * again finishes; any other failure is thrown to the caller.
  *
  * setSignInPicture sets the picture on the sign-in account and answers the
- * address the provider gives for it; removeSignInPicture removes it, counting
- * one already gone as removed, so a second try finishes.
+ * address the provider gives for it, throwing when it gives none.
+ * removeSignInPicture reads the account first and asks for a removal only
+ * when it has a picture of its own, counting one already gone as removed, so
+ * a second try finishes.
  *
  * The sign-in provider's client is a fake: nothing reaches the network.
  */
 const deleteUser = vi.fn();
+const getUser = vi.fn();
 const updateUserProfileImage = vi.fn();
 const deleteUserProfileImage = vi.fn();
 
@@ -20,6 +23,7 @@ vi.mock("@clerk/nextjs/server", () => ({
   clerkClient: async () => ({
     users: {
       deleteUser: (...args: unknown[]) => deleteUser(...args),
+      getUser: (...args: unknown[]) => getUser(...args),
       updateUserProfileImage: (...args: unknown[]) => updateUserProfileImage(...args),
       deleteUserProfileImage: (...args: unknown[]) => deleteUserProfileImage(...args),
     },
@@ -86,28 +90,74 @@ describe("setSignInPicture", () => {
 
     await expect(setSignInPicture("user_2abcDEF", new Blob([]))).rejects.toBe(networkError);
   });
+
+  it("throws when the answer holds no address, an empty one too", async () => {
+    for (const answer of [{ id: "user_2abcDEF" }, { id: "user_2abcDEF", imageUrl: "" }, { id: "user_2abcDEF", imageUrl: null }]) {
+      updateUserProfileImage.mockResolvedValueOnce(answer);
+
+      await expect(setSignInPicture("user_2abcDEF", new Blob([]))).rejects.toThrow(Error);
+    }
+    expect(updateUserProfileImage).toHaveBeenCalledTimes(3);
+  });
 });
 
 describe("removeSignInPicture", () => {
-  it("removes the picture, counting one already gone as removed", async () => {
-    deleteUserProfileImage.mockResolvedValueOnce({ id: "user_2abcDEF", imageUrl: "https://img.clerk.com/default" });
+  /** The account as getUser answers it: a picture of its own, or the provider's placeholder. */
+  const account = (hasImage: boolean) => ({ id: "user_2abcDEF", hasImage, imageUrl: "https://img.clerk.com/sam" });
+
+  it("asks for no removal when the account has no picture of its own", async () => {
+    getUser.mockResolvedValueOnce(account(false));
 
     await expect(removeSignInPicture("user_2abcDEF")).resolves.toBeUndefined();
 
+    expect(deleteUserProfileImage).not.toHaveBeenCalled();
+    expect(getUser.mock.calls).toEqual([["user_2abcDEF"]]);
+  });
+
+  it("removes a picture of its own, once", async () => {
+    getUser.mockResolvedValueOnce(account(true));
+    deleteUserProfileImage.mockResolvedValueOnce({ ...account(false), imageUrl: "https://img.clerk.com/default" });
+
+    await expect(removeSignInPicture("user_2abcDEF")).resolves.toBeUndefined();
+
+    expect(getUser.mock.calls).toEqual([["user_2abcDEF"]]);
+    expect(deleteUserProfileImage.mock.calls).toEqual([["user_2abcDEF"]]);
+  });
+
+  it("counts a picture already gone as removed", async () => {
+    getUser.mockResolvedValueOnce(account(true));
     deleteUserProfileImage.mockRejectedValueOnce(new ClerkAPIResponseError("Not Found", { data: [], status: 404 }));
 
     await expect(removeSignInPicture("user_2abcDEF")).resolves.toBeUndefined();
 
+    expect(deleteUserProfileImage.mock.calls).toEqual([["user_2abcDEF"]]);
+  });
+
+  it("throws any other failure of the removal", async () => {
     const serverError = new ClerkAPIResponseError("Internal Server Error", { data: [], status: 500 });
+    getUser.mockResolvedValueOnce(account(true));
     deleteUserProfileImage.mockRejectedValueOnce(serverError);
 
     await expect(removeSignInPicture("user_2abcDEF")).rejects.toBe(serverError);
 
     const networkError = new Error("fetch failed");
+    getUser.mockResolvedValueOnce(account(true));
     deleteUserProfileImage.mockRejectedValueOnce(networkError);
 
     await expect(removeSignInPicture("user_2abcDEF")).rejects.toBe(networkError);
+  });
 
-    expect(deleteUserProfileImage.mock.calls).toEqual([["user_2abcDEF"], ["user_2abcDEF"], ["user_2abcDEF"], ["user_2abcDEF"]]);
+  it("throws when the account cannot be read, asking for no removal", async () => {
+    const serverError = new ClerkAPIResponseError("Internal Server Error", { data: [], status: 500 });
+    getUser.mockRejectedValueOnce(serverError);
+
+    await expect(removeSignInPicture("user_2abcDEF")).rejects.toBe(serverError);
+
+    const networkError = new Error("fetch failed");
+    getUser.mockRejectedValueOnce(networkError);
+
+    await expect(removeSignInPicture("user_2abcDEF")).rejects.toBe(networkError);
+
+    expect(deleteUserProfileImage).not.toHaveBeenCalled();
   });
 });

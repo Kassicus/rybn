@@ -16,6 +16,7 @@ import {
   recipientNames,
   sumMoney,
   type GiftRow,
+  type GiftStage,
   type StepDirection,
   type StepFacts,
   type StepPlan,
@@ -186,6 +187,22 @@ describe("buildGiftList", () => {
       .toEqual({ spent: 106.99, planned: 89, gifts: 4, people: 3, finished: 1 });
     expect(buildGiftList({ views, season: 2025, currentYear: 2026, choices, recipients }).totals)
       .toEqual({ spent: 15, planned: 0, gifts: 1, people: 1, finished: 1 });
+  });
+  // One priced gift (the photo book, 35) at each stage in turn, alone in its season: spent at Ordered, Arrived, Wrapped
+  // and Given; planned at Claimed and Planned; finished at Wrapped and Given.
+  it.each<[GiftStage, { spent: number; planned: number; finished: number }]>([
+    ["claimed", { spent: 0, planned: 35, finished: 0 }],
+    ["planned", { spent: 0, planned: 35, finished: 0 }],
+    ["ordered", { spent: 35, planned: 0, finished: 0 }],
+    ["arrived", { spent: 35, planned: 0, finished: 0 }],
+    ["wrapped", { spent: 35, planned: 0, finished: 1 }],
+    ["given", { spent: 35, planned: 0, finished: 1 }],
+  ])("totals one priced gift at %s, and its heading's spent, by the contract's stages", (stage, expected) => {
+    const book = view(IDS.giftPhotoBook);
+    const answer = buildGiftList({ views: [{ ...book, gift: { ...book.gift, status: stage } }], season: null, currentYear: 2026,
+      choices, recipients });
+    expect(answer.totals).toEqual({ ...expected, gifts: 1, people: 1 });
+    expect(answer.groups.map((g) => [g.key, g.spent])).toEqual([["person:user_2momABC", expected.spent]]);
   });
   it("adds money in whole cents, and a gift with no price as nothing", () => {
     expect(sumMoney([0.1, 0.2])).toBe(0.3);
