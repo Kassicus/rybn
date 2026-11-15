@@ -22,3 +22,27 @@ export async function deleteSignInAccount(userId: string): Promise<void> {
     throw error;
   }
 }
+
+/**
+ * Sets the picture on the sign-in account with this id, and answers the
+ * address the sign-in provider gives for it. Any failure is thrown.
+ */
+export async function setSignInPicture(userId: string, file: Blob): Promise<string> {
+  const user = await (await clerkClient()).users.updateUserProfileImage(userId, { file });
+  return user.imageUrl;
+}
+
+/**
+ * Removes the picture from the sign-in account with this id.
+ *
+ * An answer of 404 counts as removed: an earlier try already removed it, so
+ * a second try finishes. Any other failure is thrown.
+ */
+export async function removeSignInPicture(userId: string): Promise<void> {
+  try {
+    await (await clerkClient()).users.deleteUserProfileImage(userId);
+  } catch (error) {
+    if (isClerkAPIResponseError(error) && error.status === 404) return;
+    throw error;
+  }
+}
