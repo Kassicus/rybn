@@ -8,7 +8,8 @@ import { inspect } from "node:util";
  * delete_account() once more, so that nothing made for the person while the
  * deletion ran stays. A step that fails stops the ones after it, and the next
  * try finishes what is left without making a profile on the way; the last
- * step's error is logged by its code alone, and the deletion answers success.
+ * step's error is logged by its code or HTTP status alone, and the deletion
+ * answers success.
  *
  * Nothing here reaches the network: the sign-in provider, storage, the
  * database and the email service are all fakes.
@@ -61,9 +62,11 @@ type StorageError = { message: string };
  * `remove(paths)` deletes them. `profile` is the caller's user_profiles row,
  * and `rpc` empties it. Every method called on user_profiles is recorded.
  * `rpcErrors` is what each call of `rpc` answers in turn (null for no error);
- * once they are used up, every call answers `rpcError`.
+ * once they are used up, every call answers `rpcError`. An error's `status`
+ * is the answer's HTTP status (400 when it gives none), not part of the error.
  */
 type DbError = { code: string; message: string };
+type RpcError = { code?: string; message: string; status?: number };
 type World = {
   buckets: Record<string, Set<string>>;
   pageCap: number;
@@ -71,8 +74,8 @@ type World = {
   readError: DbError | null;
   listError: Record<string, StorageError>;
   removeError: Record<string, StorageError>;
-  rpcErrors: (DbError | null)[];
-  rpcError: DbError | null;
+  rpcErrors: (RpcError | null)[];
+  rpcError: RpcError | null;
 };
 
 function createWorld(seed: Partial<World> = {}): World {
@@ -97,10 +100,13 @@ let profileCalls: Call[] = [];
 
 const rpc = vi.fn(async (name: string) => {
   steps.push(`rpc:${name}`);
-  const error = world.rpcErrors.length > 0 ? (world.rpcErrors.shift() ?? null) : world.rpcError;
-  if (error) return { data: null, error };
+  const failure = world.rpcErrors.length > 0 ? (world.rpcErrors.shift() ?? null) : world.rpcError;
+  if (failure) {
+    const { status = 400, ...error } = failure;
+    return { data: null, error, status };
+  }
   world.profile = null;
-  return { data: null, error: null };
+  return { data: null, error: null, status: 204 };
 });
 
 function fakeClient() {
@@ -231,16 +237,21 @@ describe("deleteAccount", () => {
   });
 
   it("removes a profile made for the person while the deletion ran", async () => {
+    let emptiedFirst: boolean | undefined;
     deleteSignInAccount.mockImplementationOnce(async (id: string) => {
-      // The first database step emptied the profile; a request from another
-      // tab makes one again before the sign-in account is gone.
-      expect(world.profile).toBeNull();
-      world.profile = { email: ADDRESS };
       steps.push(`signIn:${id}`);
+      emptiedFirst = world.profile === null;
+      // The fake's deletion puts a profile back after an await, so the row
+      // appears while that deletion is still on its way, then resolves.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      world.profile = { email: ADDRESS };
     });
 
     expect(await deleteAccount()).toEqual({ success: true });
 
+    // The first database step emptied the profile, and the last one removed
+    // the one the fake put back.
+    expect(emptiedFirst).toBe(true);
     expect(world.profile).toBeNull();
     expect(steps.slice(-2)).toEqual(["signIn:user_2abcDEF", "rpc:delete_account"]);
     // The last step reads no address and sends no second email.
@@ -262,6 +273,32 @@ describe("deleteAccount", () => {
     expect(deleteSignInAccount).toHaveBeenCalledTimes(1);
     expect(vi.mocked(console.error).mock.calls).toEqual([
       ["deleteAccount: the last delete_account failed (XX000)"],
+    ]);
+    for (const spy of consoleSpies) {
+      for (const call of spy.mock.calls) {
+        expect(inspect(call, { depth: 10 })).not.toContain(ADDRESS);
+      }
+    }
+  });
+
+  it("logs the status of a last database step's error that has no code, and a fixed word when there is neither", async () => {
+    // An error body that is not JSON comes back as its text alone, with the status.
+    world = createWorld({
+      rpcErrors: [null, { message: `<html>could not delete ${ADDRESS}</html>`, status: 503 }],
+    });
+
+    expect(await deleteAccount()).toEqual({ success: true });
+
+    // A fetch that fails comes back with an empty code and status 0.
+    world = createWorld({
+      rpcErrors: [null, { code: "", message: `TypeError: fetch failed for ${ADDRESS}`, status: 0 }],
+    });
+
+    expect(await deleteAccount()).toEqual({ success: true });
+
+    expect(vi.mocked(console.error).mock.calls).toEqual([
+      ["deleteAccount: the last delete_account failed (status 503)"],
+      ["deleteAccount: the last delete_account failed (no code)"],
     ]);
     for (const spy of consoleSpies) {
       for (const call of spy.mock.calls) {

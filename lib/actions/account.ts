@@ -80,7 +80,8 @@ function emailErrorKind(error: unknown): string {
  * more, so that nothing made for them while the deletion ran stays. A step
  * that fails answers ACCOUNT_SENTENCES.deleteFailed and stops the ones after
  * it; the next try finds less to do and finishes the rest. The last step's
- * error is logged by its code alone, and the deletion answers success.
+ * error is logged by its code or HTTP status alone, and the deletion answers
+ * success.
  *
  * It knows the caller from getUserId alone and never makes a profile: a try
  * after one that stopped half way finds no profile, and must not make one.
@@ -146,10 +147,12 @@ export async function deleteAccount(): Promise<{ success: true } | { error: stri
   // The client's token is the one this request came with
   // (lib/supabase/server.ts), so this call is the caller's own. The account
   // and the sign-in account are gone by now, so the deletion answers success
-  // whatever this call answers, and its error is logged by its code alone.
-  const { error: lastError } = await supabase.rpc("delete_account");
+  // whatever this call answers. Its error is logged by its code alone, else
+  // by the answer's HTTP status, else as "no code".
+  const { error: lastError, status } = await supabase.rpc("delete_account");
   if (lastError) {
-    console.error(`deleteAccount: the last delete_account failed (${lastError.code})`);
+    const kind = lastError.code || (status ? `status ${status}` : "no code");
+    console.error(`deleteAccount: the last delete_account failed (${kind})`);
   }
 
   return { success: true };
