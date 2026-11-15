@@ -1,5 +1,13 @@
 import { SearchResult, SearchResultType } from "./searchEngine";
 
+/** A PostgREST `or` filter: either column contains the text, matched without regard to case. The text is a quoted value, whatever characters it holds. */
+export function eitherContains(columnA: string, columnB: string, query: string): string {
+  // Inside PostgREST's double quotes a backslash and a double quote are each
+  // written with a backslash before them.
+  const pattern = `%${query.toLowerCase()}%`.replace(/[\\"]/g, (char) => `\\${char}`);
+  return `${columnA}.ilike."${pattern}",${columnB}.ilike."${pattern}"`;
+}
+
 // Helper function to calculate relevance score
 export function calculateRelevance(text: string, query: string): number {
   const lowerText = text.toLowerCase();
