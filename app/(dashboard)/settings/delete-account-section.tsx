@@ -17,9 +17,11 @@ const QUESTION = "Delete your account? This can't be undone.";
 
 /**
  * Settings' last section. It asks before anything is deleted, then runs
- * deleteAccount; once the account is gone it signs out to the front page. A
- * failure shows the action's sentence and the person stays signed in, and
- * trying again finishes what is left.
+ * deleteAccount; once the account is gone it signs out to the front page. The
+ * question stays up until the deletion has answered, so a failure always shows
+ * the action's sentence, the person stays signed in, and trying again
+ * finishes what is left. Each time the question opens it starts fresh, with
+ * the keyboard on Cancel.
  */
 export function DeleteAccountSection() {
   const { signOut } = useClerk();
@@ -31,6 +33,11 @@ export function DeleteAccountSection() {
   // that lands before the button renders disabled finds it set and sends
   // nothing.
   const deleting = useRef(false);
+
+  const openQuestion = () => {
+    setError(null);
+    setShowConfirm(true);
+  };
 
   const handleDelete = async () => {
     if (deleting.current) return;
@@ -53,7 +60,12 @@ export function DeleteAccountSection() {
       return;
     }
 
-    await signOut({ redirectUrl: "/" });
+    try {
+      await signOut({ redirectUrl: "/" });
+    } catch {
+      // The account is gone either way, so go to the front page.
+      window.location.assign("/");
+    }
   };
 
   return (
@@ -64,15 +76,15 @@ export function DeleteAccountSection() {
           {SIGN_IN_WITH_APPLE}
         </Text>
       </div>
-      <Button type="button" variant="destructive" onClick={() => setShowConfirm(true)}>
+      <Button type="button" variant="destructive" onClick={openQuestion}>
         <Trash2 className="w-4 h-4" />
         Delete my account
       </Button>
 
       {showConfirm && (
         <>
-          {/* Backdrop */}
-          <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setShowConfirm(false)} />
+          {/* Backdrop. Only Cancel closes the question, and not while the deletion runs. */}
+          <div className="fixed inset-0 bg-black/50 z-40" />
 
           {/* Confirmation */}
           <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
@@ -103,6 +115,8 @@ export function DeleteAccountSection() {
                   type="button"
                   variant="secondary"
                   onClick={() => setShowConfirm(false)}
+                  disabled={isDeleting}
+                  autoFocus
                   className="flex-1"
                 >
                   Cancel

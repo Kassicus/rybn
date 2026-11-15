@@ -25,6 +25,8 @@ const ask = () => {
 };
 const confirmButton = (question: HTMLElement) =>
   within(question).getByRole("button", { name: "Delete account" }) as HTMLButtonElement;
+const cancelButton = (question: HTMLElement) =>
+  within(question).getByRole("button", { name: "Cancel" }) as HTMLButtonElement;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -33,6 +35,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 describe("DeleteAccountSection", () => {
@@ -128,5 +131,60 @@ describe("DeleteAccountSection", () => {
 
     await act(async () => finish({ success: true }));
     await waitFor(() => expect(signOut).toHaveBeenCalledTimes(1));
+  });
+
+  it("keeps the question up until the deletion has answered", async () => {
+    let answer: (result: { error: string }) => void = () => {};
+    deleteAccount.mockImplementation(
+      () => new Promise((resolve) => {
+        answer = resolve;
+      })
+    );
+    render(<DeleteAccountSection />);
+
+    const question = ask();
+    fireEvent.click(confirmButton(question));
+    expect(cancelButton(question).disabled).toBe(true);
+    fireEvent.click(cancelButton(question));
+    expect(screen.getByText(QUESTION)).toBeTruthy();
+
+    // A deletion that stopped half way says so in the panel, which is still open.
+    await act(async () => answer({ error: DELETE_FAILED }));
+    const stillOpen = screen.getByRole("dialog", { name: QUESTION });
+    expect(within(stillOpen).getByText(DELETE_FAILED)).toBeTruthy();
+    expect(cancelButton(stillOpen).disabled).toBe(false);
+  });
+
+  it("goes to the front page when signing out fails after the account is deleted", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    deleteAccount.mockResolvedValue({ success: true });
+    signOut.mockRejectedValue(new Error("Failed to fetch"));
+    render(<DeleteAccountSection />);
+
+    fireEvent.click(confirmButton(ask()));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("/"));
+    expect(signOut).toHaveBeenCalledWith({ redirectUrl: "/" });
+  });
+
+  it("starts fresh each time the question opens", async () => {
+    deleteAccount.mockResolvedValue({ error: DELETE_FAILED });
+    render(<DeleteAccountSection />);
+
+    const question = ask();
+    fireEvent.click(confirmButton(question));
+    expect(await within(question).findByText(DELETE_FAILED)).toBeTruthy();
+    fireEvent.click(cancelButton(question));
+    expect(screen.queryByText(QUESTION)).toBeNull();
+
+    ask();
+    expect(screen.queryByText(DELETE_FAILED)).toBeNull();
+  });
+
+  it("puts the keyboard on Cancel when the question opens", () => {
+    render(<DeleteAccountSection />);
+    const question = ask();
+    expect(document.activeElement).toBe(cancelButton(question));
   });
 });
