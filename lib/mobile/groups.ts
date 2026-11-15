@@ -27,6 +27,7 @@ export const GROUP_ROUTE_ANSWERS = {
   join: {
     refusals: [GROUP_SENTENCES.invalidCode, GROUP_SENTENCES.alreadyMember, GROUP_SENTENCES.stillSettingUp],
   },
+  accept: { refusals: [GROUP_SENTENCES.invitationInvalid, GROUP_SENTENCES.stillSettingUp] },
   invitation: {
     notFound: [GROUP_SENTENCES.notAMember],
     refusals: [
@@ -105,6 +106,23 @@ const joinBodySchema = z.object({ code: z.string().max(CODE_MAX) });
 export function parseJoinBody(raw: unknown): { ok: true; code: string } | { ok: false; message: string } {
   const result = joinBodySchema.safeParse(raw);
   return result.success ? { ok: true, code: result.data.code } : { ok: false, message: GROUP_SENTENCES.invalidCode };
+}
+
+/** An emailed invitation's token as generateInviteToken makes it (lib/utils/groups.ts): 64 lower-case hex digits. */
+const INVITATION_TOKEN = /^[0-9a-f]{64}$/;
+
+const acceptBodySchema = z.object({ token: z.string().regex(INVITATION_TOKEN) });
+
+/**
+ * The token of the invitation to accept, as the app sent it. A body without one, or with one of any other shape, is
+ * refused with the website's sentence for an invitation that is not there, before the action. The refusal is that
+ * sentence alone: it never holds the token.
+ */
+export function parseAcceptBody(raw: unknown): { ok: true; token: string } | { ok: false; message: string } {
+  const result = acceptBodySchema.safeParse(raw);
+  return result.success
+    ? { ok: true, token: result.data.token }
+    : { ok: false, message: GROUP_SENTENCES.invitationInvalid };
 }
 
 const invitationBodySchema = z.object({ email: z.string().refine((email) => email.trim().length <= EMAIL_MAX) });

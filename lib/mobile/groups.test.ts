@@ -8,6 +8,7 @@ import {
   groupDateOccasion,
   groupRole,
   invitationAnswer,
+  parseAcceptBody,
   parseGroupDateBody,
   parseInvitationBody,
   parseJoinBody,
@@ -87,6 +88,31 @@ it("refuses a code longer than 64 characters as it refuses any other bad code", 
   expect(parseJoinBody({ code: "K".repeat(5_000_000) })).toEqual({ ok: false, message: "Invalid invite code" });
 });
 
+describe("parseAcceptBody", () => {
+  const TOKEN: string = fixture("invitation-accept-request").token;
+  const INVALID = "This invitation is invalid or has expired";
+  // An answer with every run of 16 or more hex digits written as "<hex>": a failure prints neither the fixture's token
+  // nor a piece of it. Each token below is named by what was done to it, never by its value.
+  const shown = (answer: unknown) => JSON.parse(JSON.stringify(answer).replace(/[0-9a-f]{16,}/gi, "<hex>"));
+
+  it("takes the request fixture's token", () => {
+    const parsed = parseAcceptBody(fixture("invitation-accept-request"));
+    expect(shown(parsed)).toEqual({ ok: true, token: "<hex>" });
+    expect(parsed.ok && parsed.token === TOKEN).toBe(true);
+  });
+
+  it.each([
+    ["upper-cased", TOKEN.toUpperCase()], ["one character short", TOKEN.slice(1)], ["one character long", TOKEN + "0"],
+    ["64 g's", "g".repeat(64)], ["the number 64", 64], ["null", null],
+  ])("refuses the token %s with the website's sentence", (_what, token) => {
+    expect(shown(parseAcceptBody({ token }))).toEqual({ ok: false, message: INVALID });
+  });
+
+  it("refuses a body with no token with the same sentence", () => {
+    for (const raw of [[], {}]) expect(parseAcceptBody(raw)).toEqual({ ok: false, message: INVALID });
+  });
+});
+
 it("refuses an address longer than 254 characters, once trimmed, as it refuses any other bad address", () => {
   const longest = `${"a".repeat(64)}@${"b".repeat(185)}.com`;   // 254
   expect(longest).toHaveLength(254);
@@ -128,6 +154,7 @@ describe("the sentences the group routes match", () => {
         "Description must be less than 200 characters", "Choose a kind of group.", "Please enter a valid email address"],
     },
     join: { refusals: ["Invalid invite code", "You are already a member of this group", "Your account is still being set up. Please try again."] },
+    accept: { refusals: ["This invitation is invalid or has expired", "Your account is still being set up. Please try again."] },
     invitation: {
       notFound: ["You are not a member of this group"],
       refusals: ["Please enter a valid email address",

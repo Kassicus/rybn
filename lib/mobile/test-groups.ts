@@ -43,7 +43,7 @@ export function roleIn(groupId: string, personId: string): GroupRole {
 }
 
 export type GroupMocks = Record<
-  | "createGroup" | "joinGroupByCode" | "sendGroupInvitation" | "leaveGroup" | "deleteGroup"
+  | "createGroup" | "joinGroupByCode" | "acceptInvitation" | "sendGroupInvitation" | "leaveGroup" | "deleteGroup"
   | "createGroupDate" | "updateGroupDate" | "deleteGroupDate"
   | "groupSummary" | "callerRole" | "inviteCodeOf" | "groupNameOf" | "groupDateRow",
   Mock
@@ -82,6 +82,8 @@ export function groupMocks(): GroupMocks {
       },
     })),
     joinGroupByCode: vi.fn(async () => ({ data: { id: IDS.rivera } })),
+    // The emailed invitation was to Rivera Family.
+    acceptInvitation: vi.fn(async () => ({ data: { id: IDS.rivera } })),
     // As the action answers a first invitation whose email went.
     sendGroupInvitation: vi.fn(async () => ({ emailSent: true, isResend: false })),
     leaveGroup: vi.fn(async () => ({ success: true })),
