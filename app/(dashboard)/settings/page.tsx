@@ -20,6 +20,7 @@ import {
 } from "@/lib/actions/settings";
 import { VISIBILITY_MIXED } from "@/lib/profile/sentences";
 import { savesPrivacy } from "./privacy-save";
+import { DeleteAccountSection } from "./delete-account-section";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -341,6 +342,10 @@ export default function SettingsPage() {
           Save Settings
         </Button>
       </div>
+
+      <Separator />
+
+      <DeleteAccountSection />
     </div>
   );
 }
