@@ -4,9 +4,11 @@ import { inspect } from "node:util";
 /**
  * deleteAccount deletes the caller's account in steps that can be run again:
  * their pictures in both buckets, then delete_account() in the database, then
- * the email to the address read before it, then the sign-in account. A step
- * that fails stops the ones after it, and the next try finishes what is left
- * without making a profile on the way.
+ * the email to the address read before it, then the sign-in account, then
+ * delete_account() once more, so that nothing made for the person while the
+ * deletion ran stays. A step that fails stops the ones after it, and the next
+ * try finishes what is left without making a profile on the way; the last
+ * step's error is logged by its code alone, and the deletion answers success.
  *
  * Nothing here reaches the network: the sign-in provider, storage, the
  * database and the email service are all fakes.
@@ -58,15 +60,19 @@ type StorageError = { message: string };
  * never more than `pageCap` of them however many are asked for;
  * `remove(paths)` deletes them. `profile` is the caller's user_profiles row,
  * and `rpc` empties it. Every method called on user_profiles is recorded.
+ * `rpcErrors` is what each call of `rpc` answers in turn (null for no error);
+ * once they are used up, every call answers `rpcError`.
  */
+type DbError = { code: string; message: string };
 type World = {
   buckets: Record<string, Set<string>>;
   pageCap: number;
   profile: { email: string | null } | null;
-  readError: { code: string; message: string } | null;
+  readError: DbError | null;
   listError: Record<string, StorageError>;
   removeError: Record<string, StorageError>;
-  rpcError: { code: string; message: string } | null;
+  rpcErrors: (DbError | null)[];
+  rpcError: DbError | null;
 };
 
 function createWorld(seed: Partial<World> = {}): World {
@@ -77,6 +83,7 @@ function createWorld(seed: Partial<World> = {}): World {
     readError: null,
     listError: {},
     removeError: {},
+    rpcErrors: [],
     rpcError: null,
     ...seed,
   };
@@ -90,7 +97,8 @@ let profileCalls: Call[] = [];
 
 const rpc = vi.fn(async (name: string) => {
   steps.push(`rpc:${name}`);
-  if (world.rpcError) return { data: null, error: world.rpcError };
+  const error = world.rpcErrors.length > 0 ? (world.rpcErrors.shift() ?? null) : world.rpcError;
+  if (error) return { data: null, error };
   world.profile = null;
   return { data: null, error: null };
 });
@@ -189,7 +197,7 @@ afterEach(() => {
 });
 
 describe("deleteAccount", () => {
-  it("removes the caller's pictures in both buckets, then the account, then emails, then deletes the sign-in account", async () => {
+  it("removes the caller's pictures in both buckets, then the account, then emails, then deletes the sign-in account, then runs the database step once more", async () => {
     world = createWorld({
       buckets: {
         "wishlist-images": new Set([
@@ -210,13 +218,68 @@ describe("deleteAccount", () => {
       "rpc:delete_account",
       "email:sam@example.com",
       "signIn:user_2abcDEF",
+      "rpc:delete_account",
     ]);
     expect(left("wishlist-images")).toEqual(["user_2momABC/9-z.jpg"]);
     expect(left("gift-photos")).toEqual([]);
     expect(lists.length).toBeGreaterThan(0);
     expect(lists.every((l) => l.prefix === CALLER)).toBe(true);
-    expect(rpc).toHaveBeenCalledWith("delete_account");
+    expect(rpc.mock.calls).toEqual([["delete_account"], ["delete_account"]]);
+    // Both calls are made with the one client.
+    expect(createClient).toHaveBeenCalledTimes(1);
     expect(deleteSignInAccount).toHaveBeenCalledWith(CALLER);
+  });
+
+  it("removes a profile made for the person while the deletion ran", async () => {
+    deleteSignInAccount.mockImplementationOnce(async (id: string) => {
+      // The first database step emptied the profile; a request from another
+      // tab makes one again before the sign-in account is gone.
+      expect(world.profile).toBeNull();
+      world.profile = { email: ADDRESS };
+      steps.push(`signIn:${id}`);
+    });
+
+    expect(await deleteAccount()).toEqual({ success: true });
+
+    expect(world.profile).toBeNull();
+    expect(steps.slice(-2)).toEqual(["signIn:user_2abcDEF", "rpc:delete_account"]);
+    // The last step reads no address and sends no second email.
+    expect(sendAccountDeletedEmail).toHaveBeenCalledTimes(1);
+    expect(profileCalls.filter((c) => c.method === "maybeSingle")).toHaveLength(1);
+  });
+
+  it("answers success when the last database step fails, logging its code alone", async () => {
+    world = createWorld({
+      rpcErrors: [
+        null,
+        { code: "XX000", message: `could not delete the profile of ${ADDRESS}` },
+      ],
+    });
+
+    expect(await deleteAccount()).toEqual({ success: true });
+
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(deleteSignInAccount).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(console.error).mock.calls).toEqual([
+      ["deleteAccount: the last delete_account failed (XX000)"],
+    ]);
+    for (const spy of consoleSpies) {
+      for (const call of spy.mock.calls) {
+        expect(inspect(call, { depth: 10 })).not.toContain(ADDRESS);
+      }
+    }
+  });
+
+  it("runs the database step once only when the sign-in account cannot be deleted", async () => {
+    deleteSignInAccount.mockImplementationOnce(async (id: string) => {
+      steps.push(`signIn:${id}`);
+      throw new Error("sign-in provider unavailable");
+    });
+
+    expect(await deleteAccount()).toEqual({ error: DELETE_FAILED });
+
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(steps).toEqual(["rpc:delete_account", "email:sam@example.com", "signIn:user_2abcDEF"]);
   });
 
   it("removes more than one page of pictures", async () => {
@@ -331,7 +394,7 @@ describe("deleteAccount", () => {
     steps = [];
     expect(await deleteAccount()).toEqual({ success: true });
 
-    expect(steps).toEqual(["rpc:delete_account", "signIn:user_2abcDEF"]);
+    expect(steps).toEqual(["rpc:delete_account", "signIn:user_2abcDEF", "rpc:delete_account"]);
     expect(sendAccountDeletedEmail).toHaveBeenCalledTimes(1);
     expect(deleteSignInAccount).toHaveBeenCalledTimes(2);
     expect(profileCalls.some((c) => c.method === "insert" || c.method === "upsert")).toBe(false);
