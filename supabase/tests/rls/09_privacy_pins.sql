@@ -78,6 +78,7 @@ declare
   v_text      text;
   v_type      text;
   v_json      jsonb;
+  v_rows      int;
   v_checks    int := 0;
 begin
   select current_user into v_orig_role;
@@ -89,13 +90,17 @@ begin
   --    Everything absent from that list is owner-only, so this single
   --    comparison is what stands between a co-member who can see an item and
   --    a co-member who can rename it, re-price it, re-point it at themselves
-  --    or WIDEN its privacy_settings. A non-owner only ever needs the five
-  --    columns named here (lib/actions/wishlist.ts: purchase, out-of-stock;
-  --    claiming itself is no longer a write to this table at all -- it goes
-  --    through wishlist_claims / claim_wishlist_item(), which this trigger
-  --    never sees), and updated_at is among them because
-  --    update_wishlist_items_updated_at sorts after 'pin_' and writes it on
-  --    the non-owner's behalf.
+  --    or WIDEN its privacy_settings. A non-owner writes only the four marks
+  --    named here (lib/actions/wishlist.ts: purchase, out-of-stock; claiming
+  --    itself is no longer a write to this table at all -- it goes through
+  --    wishlist_claims / claim_wishlist_item(), which this trigger never
+  --    sees), and updated_at is the fifth name on the list.
+  --    update_wishlist_items_updated_at sorts after 'pin_' and sets
+  --    updated_at to now() only for a statement that writes one of the
+  --    item's own eight columns, or updated_at itself
+  --    (20261115000001_private_columns.sql), so a non-owner's write of the
+  --    marks leaves updated_at as it was, and a write that names updated_at
+  --    gets now().
   --
   --    The whole definition is compared, not just the arguments, so a trigger
   --    quietly re-pointed at another function, or demoted from BEFORE to
@@ -104,10 +109,9 @@ begin
   --
   --    claimed_by/claimed_at left this list in 20260911100003_drop_item_claim_
   --    columns.sql -- claiming moved to wishlist_claims / claim_wishlist_item()
-  --    (Task 2/3) -- so the permitted set is now exactly the five columns a
-  --    non-owner still writes directly on the item: purchase and out-of-stock
-  --    state, plus updated_at, which update_wishlist_items_updated_at sorts
-  --    after 'pin_' and writes on the claimer's behalf.
+  --    (Task 2/3) -- so the permitted set is now exactly the four marks a
+  --    non-owner writes directly on the item, purchase and out-of-stock
+  --    state, plus updated_at.
   ---------------------------------------------------------------------------
   select replace(pg_get_triggerdef(t.oid), 'FUNCTION public.', 'FUNCTION '),
          t.tgenabled::text
@@ -373,20 +377,34 @@ begin
   --    this one. If this write is ever narrowed, `purchased` loses its cover
   --    entirely; widen it or add back a dedicated assertion rather than
   --    trimming the column list.
+  --
+  --    The write is the co-member's; the row count is read from the update
+  --    itself, and the marks are read back as the connecting role, because
+  --    authenticated selects none of the four marks
+  --    (20261115000001_private_columns.sql). role goes back to authenticated
+  --    for the assertions that follow.
   ---------------------------------------------------------------------------
   update wishlist_items
      set purchased = true,
          purchased_at = now(),
          out_of_stock_marked_by = 'user_pp_peer',
          out_of_stock_marked_at = now()
-   where id = '22222222-2222-2222-2222-222222222222'
-  returning purchased::text || ' ' || coalesce(out_of_stock_marked_by, '<null>')
-    into v_text;
+   where id = '22222222-2222-2222-2222-222222222222';
+  get diagnostics v_rows = row_count;
 
-  if v_text is distinct from 'true user_pp_peer' then
+  perform set_config('role', v_orig_role, true);
+
+  select purchased::text || ' ' || coalesce(out_of_stock_marked_by, '<null>')
+    into v_text
+    from wishlist_items
+   where id = '22222222-2222-2222-2222-222222222222';
+
+  perform set_config('role', 'authenticated', true);
+
+  if v_rows <> 1 or v_text is distinct from 'true user_pp_peer' then
     raise exception
-      'PRIVACY PIN: a co-member could not record purchase / out-of-stock state (got %, expected "true user_pp_peer"). markAsPurchased() and markOutOfStock() would both fail.',
-      coalesce(v_text, '<no row updated>');
+      'PRIVACY PIN: a co-member could not record purchase / out-of-stock state (% row(s) updated, and the item then reads %; expected 1 row and "true user_pp_peer"). markAsPurchased() and markOutOfStock() would both fail.',
+      v_rows, coalesce(v_text, '<no such item>');
   end if;
   v_checks := v_checks + 1;
 
