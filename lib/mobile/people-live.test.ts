@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 type Result = { data: unknown; error: unknown; count?: number | null };
 let responder: ((local: [string, ...unknown[]][]) => Result) | null = null;
+/** What a database function call answers, from its name and arguments; no row when not set. */
+let rpcResponder: ((name: string, args: unknown) => Result) | null = null;
 const calls: [string, ...unknown[]][] = [];
 let scripted: Result[] = [];
 const next = (): Promise<Result> => Promise.resolve(scripted.shift() ?? { data: [], error: null });
@@ -11,6 +13,10 @@ const getSharedGroups = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
+    rpc: (name: string, args: unknown) => {
+      calls.push(["rpc", name, args]);
+      return Promise.resolve(rpcResponder ? rpcResponder(name, args) : { data: [], error: null });
+    },
     from: (...a: unknown[]) => {
       calls.push(["from", ...a]);
       const chain: Record<string, unknown> = {};
@@ -40,11 +46,23 @@ const { IDS, world } = await import("./test-shopping");
 const callsOf = (name: string) => calls.filter((c) => c[0] === name).map((c) => c.slice(1));
 const PERSON = "id, username, display_name, avatar_url";
 const OCCASION = "id, kind, name, occasion_date, celebrant_id, partner_id, group_id, groups ( name )";
+const MARK_COLUMNS = ["purchased", "purchased_at", "out_of_stock_marked_by", "out_of_stock_marked_at"];
+
+/** visible_item_marks() answering these items bought, and no row for any other. */
+const boughtAre = (...ids: string[]) => (name: string, args: unknown): Result => {
+  expect(name).toBe("visible_item_marks");
+  const asked = (args as { p_item_ids: string[] }).p_item_ids;
+  return {
+    data: asked.filter((id) => ids.includes(id)).map((id) => ({ item_id: id, purchased: true, out_of_stock_marked_by: null })),
+    error: null,
+  };
+};
 
 beforeEach(() => {
   calls.length = 0;
   scripted = [];
   responder = null;
+  rpcResponder = null;
   vi.clearAllMocks();
 });
 
@@ -92,7 +110,7 @@ describe("people-live", () => {
       if (table === "user_profiles") return { data: asked.map((id) => ({ id, username: id, display_name: null, avatar_url: null })), error: null };
       if (table === "group_members") return { data: asked.map((g) => ({ group_id: g, user_id: "u1" })), error: null };
       if (table === "occasions") return { data: asked.map((id) => ({ id })), error: null };
-      return { data: asked.map((id) => ({ id, user_id: "owner", image_url: null, purchased: false })), error: null };
+      return { data: asked.map((id) => ({ id, user_id: "owner", image_url: null })), error: null };
     };
     withSignedWishlistImages.mockImplementation(async (rows: unknown[]) => rows);
     const askedFor = () => callsOf("in").map((c) => c[1] as string[]);
@@ -104,7 +122,9 @@ describe("people-live", () => {
     };
     expect((await people.occasionRows([...ids, ...ids])).length).toBe(250); check();
     expect((await people.memberCounts([...ids, "id1"])).size).toBe(250); check();
-    expect((await people.linkedItems(ids, "viewer")).size).toBe(250); check();
+    expect((await people.linkedItems(ids, "viewer")).size).toBe(250);
+    // The marks of every item that came back, in one call.
+    expect(callsOf("rpc").map((c) => ((c[1] as { p_item_ids: string[] }).p_item_ids).length)).toEqual([250]); check();
     expect((await people.profiles(ids)).size).toBe(250); check();
     responder = (local) => {
       const table = local[0][1];
@@ -129,15 +149,56 @@ describe("people-live", () => {
     await expect(people.groupMembers(ids)).rejects.toThrow("groupMembers failed: chunk broke");
   });
 
-  it("answers a viewer's own item as not bought, whatever the row says", async () => {
+  it("answers a viewer's own item as not bought: visible_item_marks() answers nothing about it", async () => {
     const rows = [
-      { id: "mine", user_id: "viewer", image_url: null, purchased: true },
-      { id: "theirs", user_id: "other", image_url: null, purchased: true },
+      { id: "mine", user_id: "viewer", image_url: null },
+      { id: "theirs", user_id: "other", image_url: null },
     ];
     scripted = [{ data: rows, error: null }];
+    // As the database answers: the item the viewer owns gets no row.
+    rpcResponder = boughtAre("theirs");
     withSignedWishlistImages.mockResolvedValue(rows);
     const found = await people.linkedItems(["mine", "theirs"], "viewer");
     expect([found.get("mine")!.purchased, found.get("theirs")!.purchased]).toEqual([false, true]);
+  });
+
+  it("reads whether each linked item is bought with one visible_item_marks() call for the items that came back, never from the row", async () => {
+    const rows = [
+      { id: "i1", user_id: "user_2momABC", image_url: null },
+      // More than was asked for: whether it is bought still comes from visible_item_marks() alone.
+      { id: "i2", user_id: "user_2momABC", image_url: null, purchased: true },
+    ];
+    scripted = [{ data: rows, error: null }];
+    rpcResponder = boughtAre("i1");
+    withSignedWishlistImages.mockImplementation(async (signed: unknown[]) => signed);
+    const found = await people.linkedItems(["i1", "i2", "i3"], "user_2abcDEF");
+    expect(callsOf("rpc")).toEqual([["visible_item_marks", { p_item_ids: ["i1", "i2"] }]]);
+    expect([...found].map(([id, item]) => [id, item.purchased])).toEqual([["i1", true], ["i2", false]]);
+  });
+
+  it("throws the function's name and the database's words when the marks cannot be read", async () => {
+    scripted = [{ data: [{ id: "i1", user_id: "user_2momABC", image_url: null }], error: null }];
+    rpcResponder = () => ({ data: null, error: { code: "57014", message: "marks broke" } });
+    withSignedWishlistImages.mockImplementation(async (signed: unknown[]) => signed);
+    await expect(people.linkedItems(["i1"], "user_2abcDEF")).rejects.toMatchObject({
+      message: "linkedItems failed: marks broke",
+      code: "57014",
+    });
+  });
+
+  it("never asks wishlist_items for a mark column, every column or a bare select", async () => {
+    scripted = [{ data: [{ id: "i1", user_id: "user_2momABC", image_url: null }], error: null }];
+    withSignedWishlistImages.mockImplementation(async (signed: unknown[]) => signed);
+    await people.linkedItems(["i1"], "user_2abcDEF");
+    await people.visibleItemCounts(["user_2momABC"]);
+    const selects = callsOf("select");
+    expect(selects).toHaveLength(2);
+    for (const [columns] of selects) {
+      expect(typeof columns).toBe("string");
+      const named = String(columns).split(/[\s,()]+/).filter(Boolean);
+      expect(named.length).toBeGreaterThan(0);
+      expect(named.filter((column) => column === "*" || MARK_COLUMNS.includes(column))).toEqual([]);
+    }
   });
 
   it("lists a group's members with their named columns, leaving out anyone whose profile is hidden", async () => {
@@ -152,12 +213,12 @@ describe("people-live", () => {
   });
 
   it("signs linked items' pictures for the viewer, and keeps only the named fields", async () => {
-    const rows = [{ id: "i1", user_id: "user_2momABC", image_url: "p/x.jpg", purchased: false }];
+    const rows = [{ id: "i1", user_id: "user_2momABC", image_url: "p/x.jpg" }];
     scripted = [{ data: rows, error: null }];
     withSignedWishlistImages.mockResolvedValue([{ ...rows[0], image_url: "https://signed", image_path: null }]);
     const found = await people.linkedItems(["i1"], "user_2abcDEF");
     expect(withSignedWishlistImages).toHaveBeenCalledWith(rows, "user_2abcDEF");
-    expect(callsOf("select")).toEqual([["id, user_id, image_url, purchased"]]);
+    expect(callsOf("select")).toEqual([["id, user_id, image_url"]]);
     expect(found).toEqual(new Map([["i1", { id: "i1", ownerId: "user_2momABC", purchased: false, imageUrl: "https://signed" }]]));
   });
 
@@ -169,6 +230,7 @@ describe("people-live", () => {
     expect(await people.occasionRows([])).toEqual([]);
     expect(await people.linkedItems([], "u")).toEqual(new Map());
     expect(callsOf("from")).toEqual([]);
+    expect(callsOf("rpc")).toEqual([]);
   });
 
   it("throws the function's name and the database's words on an error", async () => {

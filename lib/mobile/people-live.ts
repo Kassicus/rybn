@@ -3,6 +3,7 @@ import { getSharedGroups } from "@/lib/actions/profile";
 import { createClient } from "@/lib/supabase/server";
 import { withSignedWishlistImages } from "@/lib/supabase/signed-image";
 import type { UpcomingOccasion } from "@/lib/occasions/display";
+import { readVisibleMarks } from "@/lib/wishlist/marks";
 import { databaseFailure } from "./action-response";
 import { failure } from "./database";
 import type { LinkedItem } from "./gifts";
@@ -117,6 +118,9 @@ export async function occasionRows(ids: string[]): Promise<OccasionRow[]> {
 /**
  * The items these gifts point at, as the caller may see them. An item the owner hid or deleted is simply absent:
  * a gift's stored item id proves nothing about what the caller can still see.
+ *
+ * Whether each is bought comes from one visible_item_marks() call for the items that came back, which answers
+ * nothing about an item the caller owns, so their own item is never bought here.
  */
 export async function linkedItems(ids: string[], viewerId: string): Promise<Map<string, LinkedItem>> {
   const wanted = unique(ids);
@@ -124,20 +128,19 @@ export async function linkedItems(ids: string[], viewerId: string): Promise<Map<
   if (wanted.length === 0) return items;
   const supabase = await createClient();
   const rows = await inChunks(wanted, async (chunk) => {
-    const { data, error } = await supabase
-      .from("wishlist_items")
-      .select("id, user_id, image_url, purchased")
-      .in("id", chunk);
+    const { data, error } = await supabase.from("wishlist_items").select("id, user_id, image_url").in("id", chunk);
     if (error) throw failure("linkedItems", error);
     return data ?? [];
   });
+  const read = await readVisibleMarks(supabase, rows.map((r) => r.id));
+  if ("error" in read) throw failure("linkedItems", read.error);
+  const { marks } = read;
   const signed = await withSignedWishlistImages(rows, viewerId);
   for (const r of signed) {
-    // An owner is never told their own item is bought (getUserWishlist blanks it too).
     items.set(r.id, {
       id: r.id,
       ownerId: r.user_id,
-      purchased: r.user_id !== viewerId && r.purchased === true,
+      purchased: marks.get(r.id)?.purchased === true,
       imageUrl: r.image_url,
     });
   }
