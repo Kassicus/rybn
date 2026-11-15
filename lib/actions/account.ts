@@ -75,9 +75,13 @@ function emailErrorKind(error: unknown): string {
  * Deletes the caller's account, in steps that can be run again: their
  * pictures in both buckets, then their account in the database
  * (delete_account(), which hands each group they own to another owner, else
- * an admin, else a member, the longest-standing first), then the email telling them so, then their sign-in
- * account. A step that fails answers ACCOUNT_SENTENCES.deleteFailed and stops
- * the ones after it; the next try finds less to do and finishes the rest.
+ * an admin, else a member, the longest-standing first), then the email
+ * telling them so, then their sign-in account, then the database step once
+ * more, so that nothing made for them while the deletion ran stays. A step
+ * that fails answers ACCOUNT_SENTENCES.deleteFailed and stops the ones after
+ * it; the next try finds less to do and finishes the rest. The last step's
+ * error is logged by its code or HTTP status alone, and the deletion answers
+ * success.
  *
  * It knows the caller from getUserId alone and never makes a profile: a try
  * after one that stopped half way finds no profile, and must not make one.
@@ -138,6 +142,17 @@ export async function deleteAccount(): Promise<{ success: true } | { error: stri
   } catch (error) {
     console.error("deleteAccount: could not delete the sign-in account", error);
     return { error: ACCOUNT_SENTENCES.deleteFailed };
+  }
+
+  // The client's token is the one this request came with
+  // (lib/supabase/server.ts), so this call is the caller's own. The account
+  // and the sign-in account are gone by now, so the deletion answers success
+  // whatever this call answers. Its error is logged by its code alone, else
+  // by the answer's HTTP status, else as "no code".
+  const { error: lastError, status } = await supabase.rpc("delete_account");
+  if (lastError) {
+    const kind = lastError.code || (status ? `status ${status}` : "no code");
+    console.error(`deleteAccount: the last delete_account failed (${kind})`);
   }
 
   return { success: true };
