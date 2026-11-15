@@ -8,6 +8,7 @@ import {
   visibleToSchema,
   VISIBILITY_INVALID,
 } from "@/lib/profile/visibility";
+import { readOwnContact } from "@/lib/profile/own-contact";
 
 import { getUserId } from "@/lib/auth/require-auth";
 
@@ -35,22 +36,23 @@ export interface UserSettings {
 }
 
 /**
- * The email_preferences a user_profiles row holds. The column is not in the
- * hand-kept Row type (types/database.ts), so it is read off the row here.
+ * The email preferences own_contact() answers, as the part of them that is
+ * stored: anything other than an object is none.
  */
-function storedEmailPreferences(profile: unknown): Partial<EmailPreferences> {
-  if (typeof profile !== "object" || profile === null) return {};
-  const stored = (profile as { email_preferences?: unknown }).email_preferences;
+function storedEmailPreferences(stored: unknown): Partial<EmailPreferences> {
   return typeof stored === "object" && stored !== null && !Array.isArray(stored)
     ? (stored as Partial<EmailPreferences>)
     : {};
 }
 
 /**
- * Get user's email preferences and privacy settings. The privacy setting is
- * the person's stored choice (profile_visibility; all four kinds of group
- * until they choose), and `mixed` says whether some field of theirs has
- * another setting, read from their own profile_info rows' privacy_settings.
+ * Get user's email preferences and privacy settings. The email preferences
+ * are the person's own, read through own_contact() and laid over the
+ * defaults; a failed read, or no row, answers "Failed to load settings". The
+ * privacy setting is the person's stored choice (profile_visibility; all four
+ * kinds of group until they choose), and `mixed` says whether some field of
+ * theirs has another setting, read from their own profile_info rows'
+ * privacy_settings.
  */
 export async function getMySettings() {
   const supabase = await createClient();
@@ -61,15 +63,14 @@ export async function getMySettings() {
     return { data: null, error: "Not authenticated" };
   }
 
-  // Get profile from user_profiles table
-  const { data: profile, error: profileError } = await supabase
-    .from("user_profiles")
-    .select("*")
-    .eq("id", userId)
-    .single();
-
-  if (profileError) {
-    console.error("Error fetching profile:", profileError);
+  // The person's own email preferences, through own_contact().
+  const own = await readOwnContact(supabase);
+  if ("error" in own) {
+    console.error(`getMySettings: could not read the contact details (${own.error.code || "no code"})`);
+    return { data: null, error: "Failed to load settings" };
+  }
+  if (!own.contact) {
+    console.error("getMySettings: own_contact() answered no row");
     return { data: null, error: "Failed to load settings" };
   }
 
@@ -96,7 +97,7 @@ export async function getMySettings() {
     email_gift_updates: true,
     email_exchange_notifications: true,
     email_marketing: false,
-    ...storedEmailPreferences(profile),
+    ...storedEmailPreferences(own.contact.emailPreferences),
   };
 
   const settings: UserSettings = {

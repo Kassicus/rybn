@@ -1,8 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { profileEditSchema, type ProfileEditFormData } from "@/lib/schemas/profile";
 import { PROFILE_FIELD_NAMES } from "@/lib/profile/fields";
+import { OWN_PROFILE_COLUMNS } from "@/lib/profile/own-contact";
 
 /**
+ * getMyProfile reads the person's own row by its named columns and their
+ * email through own_contact(). Every read of a user_profiles row here names
+ * its columns, never the email, the email preferences or every column.
+ *
  * updateProfile is what the browser's profile form calls, and the app's
  * PUT /profile route calls it too. These pin what a save does to each
  * profile_info row:
@@ -36,6 +41,7 @@ vi.mock("@/lib/auth/ensure-profile", () => ({
 
 type Call = { method: string; args: unknown[] };
 type Query = { table: string; calls: Call[] };
+type RpcCall = { name: string; args: unknown };
 type Row = Record<string, unknown>;
 
 /**
@@ -43,7 +49,9 @@ type Row = Record<string, unknown>;
  * method returns the chain, the chain is thenable and has the terminal
  * methods, and responses are queued PER TABLE in call order. Each `from()`
  * also records the methods called on it and their arguments, so a test can
- * read every payload and filter.
+ * read every payload and filter. A database function's answers are queued
+ * under "rpc:<name>", and each call is recorded in `rpcs`. `order` holds
+ * every table and "rpc:<name>" in the order they were asked.
  */
 function createSupabaseMock(script: Record<string, unknown[]>) {
   const queues: Record<string, unknown[]> = {};
@@ -51,12 +59,26 @@ function createSupabaseMock(script: Record<string, unknown[]>) {
     queues[table] = [...responses];
   }
   const queries: Query[] = [];
+  const rpcs: RpcCall[] = [];
+  const order: string[] = [];
 
   return {
     queries,
+    rpcs,
+    order,
+    rpc(name: string, args: unknown) {
+      rpcs.push({ name, args });
+      order.push(`rpc:${name}`);
+      const queue = queues[`rpc:${name}`];
+      if (!queue || queue.length === 0) {
+        throw new Error(`No scripted Supabase response left for rpc "${name}"`);
+      }
+      return Promise.resolve(queue.shift());
+    },
     from(table: string) {
       const query: Query = { table, calls: [] };
       queries.push(query);
+      order.push(table);
 
       const next = () => {
         const queue = queues[table];
@@ -100,7 +122,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => supabase,
 }));
 
-const { updateProfile, getUserProfile } = await import("./profile");
+const { getMyProfile, updateProfile, getUserProfile } = await import("./profile");
 
 /** Every query on `table` whose chain called `method`. */
 function queriesWith(table: string, method: string): Query[] {
@@ -111,6 +133,26 @@ function queriesWith(table: string, method: string): Query[] {
 
 function argsOf(query: Query, method: string): unknown[] {
   return query.calls.find((c) => c.method === method)?.args ?? [];
+}
+
+/**
+ * The arguments of every select() asked of user_profiles, each checked to be
+ * one string of named columns, none of them the email, the email preferences
+ * or "*". A bare select() fails it.
+ */
+function namedProfileSelects(): unknown[][] {
+  const selects = supabase.queries
+    .filter((q) => q.table === "user_profiles")
+    .flatMap((q) => q.calls.filter((c) => c.method === "select").map((c) => c.args));
+  for (const args of selects) {
+    expect(args).toHaveLength(1);
+    expect(typeof args[0]).toBe("string");
+    const named = String(args[0])
+      .split(",")
+      .map((column) => column.trim());
+    expect(named.filter((column) => ["*", "email", "email_preferences", ""].includes(column))).toEqual([]);
+  }
+  return selects;
 }
 
 /** The rows of each profile_info upsert, one list per call. */
@@ -188,7 +230,129 @@ beforeEach(() => {
   supabase = createSupabaseMock({});
 });
 
+// Puts back what a test's vi.spyOn replaced (console.error), so no later
+// test runs with it silenced.
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("getMyProfile", () => {
+  /** Sam's own row, as its named columns read it. */
+  const OWN_ROW = {
+    id: "user_123",
+    username: "sam",
+    display_name: "Sam Rivera",
+    avatar_url: "https://img.clerk.com/abc",
+    bio: "Coffee, maps and long walks.",
+    created_at: "2026-11-01T00:00:00Z",
+    updated_at: "2026-11-01T00:00:00Z",
+  };
+  const OWN_FIELDS = [
+    {
+      id: "f-1",
+      user_id: "user_123",
+      category: "sizes",
+      field_name: "shoe_size",
+      field_value: "10",
+      privacy_settings: { visibleToGroupTypes: ["family"], restrictToGroup: null },
+    },
+  ];
+  const CONTACT = {
+    data: [{ email: "sam@example.com", email_preferences: { email_marketing: true } }],
+    error: null,
+  };
+
+  it("reads the person's row by its named columns, then their email through own_contact()", async () => {
+    supabase = createSupabaseMock({
+      user_profiles: [{ data: OWN_ROW, error: null }],
+      "rpc:own_contact": [CONTACT],
+      profile_info: [{ data: OWN_FIELDS, error: null }],
+    });
+
+    const result = await getMyProfile();
+
+    // The row's columns, the email from own_contact(), and the fields: no
+    // email preferences.
+    expect(result).toEqual({
+      data: { ...OWN_ROW, email: "sam@example.com", profile_info: OWN_FIELDS },
+    });
+    const [read] = queriesWith("user_profiles", "select");
+    expect(argsOf(read, "select")).toEqual([OWN_PROFILE_COLUMNS]);
+    expect(argsOf(read, "eq")).toEqual(["id", "user_123"]);
+    expect(supabase.rpcs.map((call) => call.name)).toEqual(["own_contact"]);
+    expect(supabase.order).toEqual(["user_profiles", "rpc:own_contact", "profile_info"]);
+  });
+
+  it("answers the profile with no email, logging the error's code alone, when own_contact() fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    supabase = createSupabaseMock({
+      user_profiles: [{ data: OWN_ROW, error: null }],
+      "rpc:own_contact": [
+        {
+          data: null,
+          error: { code: "57014", message: "canceling statement due to statement timeout" },
+        },
+      ],
+      profile_info: [{ data: OWN_FIELDS, error: null }],
+    });
+
+    const result = await getMyProfile();
+
+    expect(result).toEqual({ data: { ...OWN_ROW, email: null, profile_info: OWN_FIELDS } });
+    expect(error.mock.calls).toEqual([["getMyProfile: could not read the contact details (57014)"]]);
+  });
+
+  it("answers the profile with no email when own_contact() answers no row", async () => {
+    supabase = createSupabaseMock({
+      user_profiles: [{ data: OWN_ROW, error: null }],
+      "rpc:own_contact": [{ data: [], error: null }],
+      profile_info: [{ data: OWN_FIELDS, error: null }],
+    });
+
+    const result = await getMyProfile();
+
+    expect(result).toEqual({ data: { ...OWN_ROW, email: null, profile_info: OWN_FIELDS } });
+  });
+
+  it("never asks user_profiles for the email, the email preferences or every column", async () => {
+    supabase = createSupabaseMock({
+      user_profiles: [{ data: OWN_ROW, error: null }],
+      "rpc:own_contact": [CONTACT],
+      profile_info: [{ data: OWN_FIELDS, error: null }],
+    });
+
+    await getMyProfile();
+
+    expect(namedProfileSelects()).toHaveLength(1);
+  });
+});
+
 describe("updateProfile", () => {
+  it("asks for the saved row back by its named columns", async () => {
+    supabase = createSupabaseMock({
+      user_profiles: [PROFILE_SAVED],
+      profile_info: [rowsRead(SHOE_ROW), MATCHED()],
+      profile_visibility: [choice(null)],
+    });
+
+    await updateProfile(form());
+
+    const [update] = queriesWith("user_profiles", "update");
+    expect(argsOf(update, "select")).toEqual([OWN_PROFILE_COLUMNS]);
+  });
+
+  it("never asks user_profiles for the email, the email preferences or every column", async () => {
+    supabase = createSupabaseMock({
+      user_profiles: [PROFILE_SAVED],
+      profile_info: [rowsRead(SHOE_ROW), MATCHED()],
+      profile_visibility: [choice(null)],
+    });
+
+    await updateProfile(form());
+
+    expect(namedProfileSelects()).toHaveLength(1);
+  });
+
   it("keeps the setting a saved field already has", async () => {
     supabase = createSupabaseMock({
       user_profiles: [PROFILE_SAVED],

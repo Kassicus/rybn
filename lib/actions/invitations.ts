@@ -11,6 +11,7 @@ import {
 import { GROUP_RULES, invitationEmailSchema } from "@/lib/schemas/groups";
 import { GROUP_SENTENCES } from "@/lib/groups/sentences";
 import { sendGroupInviteEmail } from "@/lib/resend/send";
+import { readOwnContact } from "@/lib/profile/own-contact";
 import { revalidatePath } from "next/cache";
 
 /**
@@ -108,16 +109,20 @@ export async function sendGroupInvitation(data: {
   }
   const groupName = membership.groups.name;
 
-  // Clerk's auth() only returns ids, so the inviter's display details come
-  // from their profile row.
+  // Clerk's auth() only returns ids, so the inviter is named by the username
+  // on their profile row, else by their own email from own_contact(), read
+  // only when there is no username, else "A friend".
   const { data: inviterProfile } = await supabase
     .from("user_profiles")
-    .select("username, email")
+    .select("username")
     .eq("id", userId)
     .maybeSingle();
 
-  const inviterName =
-    inviterProfile?.username || inviterProfile?.email || "A friend";
+  let inviterName = inviterProfile?.username || "";
+  if (!inviterName) {
+    const own = await readOwnContact(supabase);
+    inviterName = ("contact" in own && own.contact?.email) || "A friend";
+  }
 
   // Security: Rate limiting - check how many invitations this user has sent in the last hour
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();

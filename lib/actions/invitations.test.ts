@@ -127,14 +127,14 @@ const GROUP_ID = "4f1c2b3a-5d6e-4f70-8a9b-0c1d2e3f4a5b";
 /**
  * The happy-path query sequence sendGroupInvitation walks, per table, each in
  * order: group_members -> the caller's membership (the first read of all);
- * user_profiles -> inviter, then the invitee lookup; invitations -> rate
- * limit, then existing-invite lookup, then the insert. Individual tests
- * override only what they care about.
+ * user_profiles -> the inviter's username, then the invitee lookup;
+ * invitations -> rate limit, then existing-invite lookup, then the insert.
+ * Individual tests override only what they care about.
  */
 function happyPathScript() {
   return {
     user_profiles: [
-      { data: { username: "kason", email: "kason@example.com" }, error: null },
+      { data: { username: "kason" }, error: null },
       { data: null, error: null }, // invitee has no account yet
     ],
     invitations: [
@@ -148,6 +148,9 @@ function happyPathScript() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // An answer one test queued for the database function and never used is
+  // not left for the next test.
+  rpc.mockReset();
   getUserId.mockResolvedValue("user_123");
   requireAuthWithProfile.mockResolvedValue("user_123");
   supabase = createSupabaseMock(happyPathScript());
@@ -182,7 +185,7 @@ describe("sendGroupInvitation invitee copy", () => {
   it("marks the invitee as existing when they already have an account", async () => {
     supabase = createSupabaseMock({
       user_profiles: [
-        { data: { username: "kason", email: "kason@example.com" }, error: null },
+        { data: { username: "kason" }, error: null },
         { data: { id: "user-existing" }, error: null }, // invitee HAS an account
       ],
       group_members: [
@@ -205,6 +208,89 @@ describe("sendGroupInvitation invitee copy", () => {
     expect(sendGroupInviteEmail).toHaveBeenCalledWith(
       expect.objectContaining({ isNewUser: false })
     );
+  });
+});
+
+/**
+ * The invitation names the inviter by their username, else their own email,
+ * read through own_contact() only when there is no username, else "A friend".
+ */
+describe("sendGroupInvitation inviter's name", () => {
+  /** Every select() asked of user_profiles through the caller's client. */
+  const profileSelects = () =>
+    query.mock.calls
+      .filter(([table, method]) => table === "user_profiles" && method === "select")
+      .map(([, , ...args]) => args);
+
+  it("names the inviter by their username, reading that column alone, without own_contact()", async () => {
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
+
+    expect(query).toHaveBeenCalledWith("user_profiles", "select", "username");
+    expect(query).toHaveBeenCalledWith("user_profiles", "eq", "id", "user_123");
+    expect(rpc).not.toHaveBeenCalled();
+    expect(sendGroupInviteEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ inviterName: "kason" })
+    );
+  });
+
+  it.each([
+    ["has no profile row", { data: null, error: null }],
+    ["has an empty username", { data: { username: "" }, error: null }],
+  ])("names the inviter by their own email from own_contact() when the inviter %s", async (_case, inviter) => {
+    supabase = createSupabaseMock({
+      ...happyPathScript(),
+      user_profiles: [inviter, { data: null, error: null }],
+    });
+    rpc.mockResolvedValueOnce({
+      data: [{ email: "kason@example.com", email_preferences: null }],
+      error: null,
+    });
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
+
+    expect(rpc.mock.calls).toEqual([["own_contact"]]);
+    expect(sendGroupInviteEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ inviterName: "kason@example.com" })
+    );
+  });
+
+  it.each([
+    ["fails", { data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } }],
+    ["answers no row", { data: [], error: null }],
+    ["answers no email", { data: [{ email: null, email_preferences: null }], error: null }],
+  ])("names the inviter A friend when they have no username and own_contact() %s", async (_case, contact) => {
+    supabase = createSupabaseMock({
+      ...happyPathScript(),
+      user_profiles: [{ data: null, error: null }, { data: null, error: null }],
+    });
+    rpc.mockResolvedValueOnce(contact);
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    const result = await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
+
+    expect(result).toEqual({ emailSent: true, isResend: false });
+    expect(sendGroupInviteEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ inviterName: "A friend" })
+    );
+  });
+
+  it("never asks user_profiles for the email, the email preferences or every column through the caller's client", async () => {
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
+
+    const selects = profileSelects();
+    expect(selects.length).toBeGreaterThan(0);
+    for (const args of selects) {
+      expect(args).toHaveLength(1);
+      const named = String(args[0])
+        .split(",")
+        .map((column) => column.trim());
+      expect(named.filter((column) => ["*", "email", "email_preferences", ""].includes(column))).toEqual([]);
+    }
   });
 });
 
