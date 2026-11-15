@@ -139,7 +139,8 @@ describe("createGiftStore", () => {
     expect(selects.length).toBeGreaterThan(0);
     for (const [columns] of selects) {
       expect(typeof columns).toBe("string");
-      const named = String(columns).split(/[\s,()]+/).filter(Boolean);
+      // Split on ":" too, so a column under an alias (p:purchased) or with a cast (purchased::text) is seen by its name.
+      const named = String(columns).split(/[\s,():]+/).filter(Boolean);
       expect(named.length).toBeGreaterThan(0);
       expect(named.filter((column) => column === "*" || MARK_COLUMNS.includes(column))).toEqual([]);
     }

@@ -12,19 +12,16 @@ import {
 import { GROUP_RULES, invitationEmailSchema } from "@/lib/schemas/groups";
 import { GROUP_SENTENCES } from "@/lib/groups/sentences";
 import { sendGroupInviteEmail } from "@/lib/resend/send";
+import { emailErrorKind } from "@/lib/resend/error-kind";
 import { readOwnContact } from "@/lib/profile/own-contact";
 import { revalidatePath } from "next/cache";
 
 /**
  * What an inviter sees when the send fails (GROUP_SENTENCES.emailNotSent).
  *
- * Deliberately generic, and the genericness is the point. `emailError` holds
- * the provider's own words, which for the failure that prompted this read
- * "The rybn.app domain is not verified. Please, add and verify your domain on
- * https://resend.com/domains" -- a sentence addressed to whoever operates this
- * app, that was being shown verbatim to a group member trying to invite a
- * friend. The detail belongs in the server log, and that is now the only place
- * it goes.
+ * Deliberately generic: the email service's own words are addressed to
+ * whoever operates this app, and they reach neither the inviter nor the log.
+ * The log carries the failure's kind alone (emailErrorKind).
  *
  * "Try resending" is honest advice for every failure shape reaching here: the
  * invitation row is committed before the send is attempted, so a failed email
@@ -63,6 +60,10 @@ const INVITE_CODE_SHAPE = /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/;
  * Once the invitation is made it answers `emailSent`, `isResend` (an
  * invitation of the caller's already waiting was sent again) and, when the
  * email did not go, `warning`.
+ *
+ * Nothing it logs holds the address or the inviter's own email. A failed
+ * invitation write is logged by its code alone, and a failed email by its
+ * kind alone.
  */
 export async function sendGroupInvitation(data: {
   groupId: string;
@@ -214,9 +215,9 @@ export async function sendGroupInvitation(data: {
       .maybeSingle();
 
     if (updateError) {
-      console.error("Error updating invitation:", updateError);
-      console.error("Update error details:", JSON.stringify(updateError, null, 2));
-      console.error("Attempted to update invitation ID:", existingInvite.id);
+      console.error(
+        `sendGroupInvitation: could not update the invitation (${updateError.code || "no code"})`
+      );
       return { error: GROUP_SENTENCES.updateInvitationFailed };
     }
 
@@ -241,7 +242,9 @@ export async function sendGroupInvitation(data: {
       .maybeSingle();
 
     if (inviteError) {
-      console.error("Error creating invitation:", inviteError);
+      console.error(
+        `sendGroupInvitation: could not create the invitation (${inviteError.code || "no code"})`
+      );
       return { error: GROUP_SENTENCES.createInvitationFailed };
     }
 
@@ -263,7 +266,6 @@ export async function sendGroupInvitation(data: {
   // the 403 body underneath. Check the resolved value FIRST, then keep the
   // catch for the network.
   let emailSent = false;
-  let emailError = null;
 
   try {
     const { error: sendError } = await sendGroupInviteEmail({
@@ -279,23 +281,14 @@ export async function sendGroupInvitation(data: {
     });
 
     if (sendError) {
-      emailError = sendError.message || "Unknown error";
+      // Logged by its kind alone. See EMAIL_SEND_FAILED_MESSAGE.
+      console.error(`sendGroupInvitation: the email was refused (${emailErrorKind(sendError)})`);
     } else {
       emailSent = true;
     }
   } catch (error) {
-    emailError = error instanceof Error ? error.message : "Unknown error";
+    console.error(`sendGroupInvitation: the email failed (${emailErrorKind(error)})`);
     // Don't fail the invitation creation if email fails
-  }
-
-  if (!emailSent) {
-    // The provider's own words stop here. See EMAIL_SEND_FAILED_MESSAGE.
-    console.error("Invite email failed to send:", {
-      reason: emailError,
-      toEmail: email,
-      groupName,
-      inviterName,
-    });
   }
 
   const isResend = existingInvite && !existingInvite.accepted ? true : false;

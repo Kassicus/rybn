@@ -441,6 +441,7 @@ describe("sendGroupInvitation inviter's name", () => {
     const result = await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
 
     expect(result).toEqual({ emailSent: true, isResend: false });
+    expect(rpc.mock.calls).toEqual([["own_contact"]]);
     expect(sendGroupInviteEmail).toHaveBeenCalledWith(
       expect.objectContaining({ inviterName: "A friend" })
     );
@@ -483,9 +484,9 @@ describe("sendGroupInvitation", () => {
 
     expect(result.emailSent).toBe(false);
     expect(result.warning).toBe(EMAIL_SEND_FAILED_MESSAGE);
-    // The provider's message named the app's own sending domain and linked
-    // the Resend dashboard. A group member inviting a friend must never be
-    // handed either; both stay in the server log.
+    // The email service's message names the app's own sending domain. A
+    // group member inviting a friend is handed the generic warning instead,
+    // and the log carries the failure's kind alone.
     expect(result.warning).not.toContain("rybn.app");
     expect(result.warning).not.toContain("resend.com");
     // The invitation row itself is still created: a mail failure must not
@@ -525,6 +526,134 @@ describe("sendGroupInvitation", () => {
 
     expect(result.emailSent).toBe(true);
     expect(result.warning).toBeUndefined();
+  });
+});
+
+/**
+ * What the action logs: a failure's kind or code alone. No log holds the typed
+ * address, the inviter's own email, the group's name or the email service's
+ * message.
+ */
+describe("sendGroupInvitation logs", () => {
+  const ADDRESS = "invitee@example.com";
+  const OWN_EMAIL = "kason@example.com";
+
+  /** Every console method, silenced and recorded for one test. */
+  const spyOnLogs = () =>
+    (["log", "info", "warn", "error", "debug"] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => {})
+    );
+
+  /** The inviter has no username, so the invitation names them by their own email. */
+  const inviterByOwnEmail = () => {
+    rpc.mockResolvedValueOnce({ data: [{ email: OWN_EMAIL, email_preferences: null }], error: null });
+    return { user_profiles: [{ data: null, error: null }] };
+  };
+
+  /** Fails when anything logged holds the address, the inviter's email or the group's name. */
+  const expectNothingPersonalLogged = (logs: ReturnType<typeof spyOnLogs>) => {
+    const logged = JSON.stringify(logs.flatMap((spy) => spy.mock.calls));
+    expect(logged).not.toContain(ADDRESS);
+    expect(logged).not.toContain(OWN_EMAIL);
+    expect(logged).not.toContain("The Suchows");
+  };
+
+  it("logs a refused send by its kind alone", async () => {
+    const logs = spyOnLogs();
+    try {
+      supabase = createSupabaseMock({ ...happyPathScript(), ...inviterByOwnEmail() });
+      sendGroupInviteEmail.mockResolvedValue({
+        data: null,
+        error: { name: "validation_error", statusCode: 403, message: `Cannot send to ${ADDRESS}` },
+      });
+
+      const result = await sendGroupInvitation({ groupId: GROUP_ID, email: ADDRESS });
+
+      expect(result).toStrictEqual({ emailSent: false, isResend: false, warning: EMAIL_SEND_FAILED_MESSAGE });
+      expect(vi.mocked(console.error).mock.calls).toEqual([
+        ["sendGroupInvitation: the email was refused (validation_error, 403)"],
+      ]);
+      expectNothingPersonalLogged(logs);
+    } finally {
+      for (const spy of logs) spy.mockRestore();
+    }
+  });
+
+  it("logs a send that throws by its kind alone", async () => {
+    const logs = spyOnLogs();
+    try {
+      supabase = createSupabaseMock({ ...happyPathScript(), ...inviterByOwnEmail() });
+      sendGroupInviteEmail.mockRejectedValue(
+        Object.assign(new Error(`connect ECONNRESET while sending to ${ADDRESS}`), { code: "ECONNRESET" })
+      );
+
+      const result = await sendGroupInvitation({ groupId: GROUP_ID, email: ADDRESS });
+
+      expect(result).toStrictEqual({ emailSent: false, isResend: false, warning: EMAIL_SEND_FAILED_MESSAGE });
+      expect(vi.mocked(console.error).mock.calls).toEqual([
+        ["sendGroupInvitation: the email failed (Error, ECONNRESET)"],
+      ]);
+      expectNothingPersonalLogged(logs);
+    } finally {
+      for (const spy of logs) spy.mockRestore();
+    }
+  });
+
+  /** A refused write whose details hold the address, as a unique index's do. */
+  const DUPLICATE = {
+    data: null,
+    error: {
+      code: "23505",
+      message: 'duplicate key value violates unique constraint "invitations_group_email_unique_pending"',
+      details: `Key (group_id, email)=(${GROUP_ID}, ${ADDRESS}) already exists.`,
+      hint: null,
+    },
+  };
+
+  it("logs a failed insert by its code alone", async () => {
+    const logs = spyOnLogs();
+    try {
+      supabase = createSupabaseMock({
+        ...happyPathScript(),
+        ...inviterByOwnEmail(),
+        invitations: [{ data: [], error: null }, { data: [], error: null }, DUPLICATE],
+      });
+
+      const result = await sendGroupInvitation({ groupId: GROUP_ID, email: ADDRESS });
+
+      expect(result).toEqual({ error: "Failed to create invitation. Please try again." });
+      expect(vi.mocked(console.error).mock.calls).toEqual([
+        ["sendGroupInvitation: could not create the invitation (23505)"],
+      ]);
+      expectNothingPersonalLogged(logs);
+    } finally {
+      for (const spy of logs) spy.mockRestore();
+    }
+  });
+
+  it("logs a failed update by its code alone", async () => {
+    const logs = spyOnLogs();
+    try {
+      supabase = createSupabaseMock({
+        ...happyPathScript(),
+        ...inviterByOwnEmail(),
+        invitations: [
+          { data: [], error: null },
+          { data: [{ id: "invitation-1", accepted: false, invited_by: "user_123" }], error: null },
+          DUPLICATE,
+        ],
+      });
+
+      const result = await sendGroupInvitation({ groupId: GROUP_ID, email: ADDRESS });
+
+      expect(result).toEqual({ error: "Failed to update invitation. Please try again." });
+      expect(vi.mocked(console.error).mock.calls).toEqual([
+        ["sendGroupInvitation: could not update the invitation (23505)"],
+      ]);
+      expectNothingPersonalLogged(logs);
+    } finally {
+      for (const spy of logs) spy.mockRestore();
+    }
   });
 });
 

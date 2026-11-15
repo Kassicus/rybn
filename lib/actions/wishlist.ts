@@ -372,7 +372,9 @@ export async function markAsPurchased(itemId: string, purchased: boolean) {
     {
       occasionId: claimRow.occasion_id,
       occasionDate: claimRow.occasions?.occasion_date ?? null,
-      itemPurchased: read.marks.get(itemId)?.purchased ?? false,
+      // The database answers an item's id in lower case, whatever the case of
+      // the id it was asked about.
+      itemPurchased: read.marks.get(itemId.toLowerCase())?.purchased ?? false,
     },
     todayISO(),
   );

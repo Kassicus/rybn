@@ -179,14 +179,16 @@ const FORM = {
 
 /**
  * Fails when any select the fake recorded asks for a mark column or `*`
- * (embedded tables' columns included), or names no columns (a bare .select()).
+ * (embedded tables' columns included, and a column under an alias such as
+ * `p:purchased` or with a cast such as `purchased::text`), or names no columns
+ * (a bare .select()).
  */
 function expectNoMarkOrStarOrBareSelect() {
   expect(selectSpy).toHaveBeenCalled();
   for (const [table, columns] of selectSpy.mock.calls) {
     expect(typeof columns, `a select on ${table} names its columns`).toBe("string");
     const named = String(columns)
-      .split(/[\s,()]+/)
+      .split(/[\s,():]+/)
       .filter(Boolean);
     expect(named.length, `a select on ${table} names its columns`).toBeGreaterThan(0);
     expect(named.filter((column) => column === "*" || MARK_COLUMNS.includes(column))).toEqual([]);
@@ -565,6 +567,36 @@ describe("markAsPurchased", () => {
       const result = await markAsPurchased(ITEM_ID, false);
 
       expect(result).toEqual({ data: { id: ITEM_ID } });
+      expect(updateSpy).toHaveBeenCalledWith(
+        "wishlist_items",
+        expect.objectContaining({ purchased: false })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("takes the item's bought mark whatever the letter case of the id it was given", async () => {
+    // A lapsed claim on a bought item counts as active only through its mark,
+    // and visible_item_marks() answers the id in lower case.
+    const lettered = "abcdef12-3456-4abc-8def-abcdef123456";
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-15T12:00:00Z"));
+    try {
+      supabase = createSupabaseMock({
+        wishlist_claims: [
+          {
+            data: { id: "claim-1", occasion_id: "occ-1", occasions: { occasion_date: "2026-06-01" } },
+            error: null,
+          },
+        ],
+        "rpc:visible_item_marks": [marks({ item_id: lettered, purchased: true, out_of_stock_marked_by: null })],
+        wishlist_items: [{ data: { id: lettered }, error: null }],
+      });
+
+      const result = await markAsPurchased(lettered.toUpperCase(), false);
+
+      expect(result).toEqual({ data: { id: lettered } });
       expect(updateSpy).toHaveBeenCalledWith(
         "wishlist_items",
         expect.objectContaining({ purchased: false })
