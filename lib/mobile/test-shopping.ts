@@ -7,6 +7,7 @@ import {
   type GiftRow,
   type GiftView,
   type LinkedItem,
+  type RecipientNotes,
   type RecipientRow,
   type StoredGift,
 } from "./gifts";
@@ -118,6 +119,12 @@ export function world() {
     { id: IDS.recipientAlex, name: "Alex Rivera", person_id: people.alex.id },
     { id: IDS.recipientJoe, name: "Grandpa Joe", person_id: null },
   ];
+  /** The same rows' notes, as the tracker keeps a note on each person the caller gives to. */
+  const recipientNotes: RecipientNotes[] = [
+    { id: IDS.recipientMom, person_id: "user_2momABC", notes: "Medium in tops. Loves anything green." },
+    { id: IDS.recipientAlex, person_id: "user_2alxABC", notes: null },
+    { id: IDS.recipientJoe, person_id: null, notes: "Fishes most Sundays" },
+  ];
   const gift = (
     id: string, recipient: string, name: string, description: string | null, photo: string | null, link: string | null,
     price: number, status: StoredGift["status"], item: string | null, fromList: boolean, occasion: string | null,
@@ -183,6 +190,6 @@ export function world() {
 
   return {
     people, profiles, members, memberCounts, itemCounts, upcoming, occasionRows, momItems, activeClaims, tags,
-    recipients, gifts, claims, linkedItems, signedGiftPhoto, giftRows, giftContext, giftViews,
+    recipients, recipientNotes, gifts, claims, linkedItems, signedGiftPhoto, giftRows, giftContext, giftViews,
   };
 }

@@ -14,6 +14,7 @@ import {
   planStep,
   recipientNameChoices,
   recipientNames,
+  sumMoney,
   type GiftRow,
   type StepDirection,
   type StepFacts,
@@ -155,26 +156,57 @@ describe("typed-name groups", () => {
     ctx.recipients = new Map(rows.map((r, i) => [r.recipient_id, { id: r.recipient_id, name: i === 0 ? "Zed" : "Abe", person_id: null }]));
     const typed = buildGiftViews(rows, ctx);
     const all = [...views.filter((v) => v.personId !== null), ...typed];
-    const names = buildGiftList({ views: all, season: null, currentYear: 2026, choices: fixture("gifts").choices }).groups.map((g) => g.name);
+    const names = buildGiftList({ views: all, season: null, currentYear: 2026, choices: fixture("gifts").choices, recipients: w.recipientNotes })
+      .groups.map((g) => g.name);
     expect(names).toEqual(["Alex Rivera", "Mom", "Abe", "Zed"]);
   });
 });
 describe("buildGiftList", () => {
   const choices = fixture("gifts").choices;
-  it("matches the gifts fixture", () => expect(buildGiftList({ views, season: null, currentYear: 2026, choices })).toEqual(fixture("gifts")));
+  const recipients = w.recipientNotes;
+  it("matches the gifts fixture", () =>
+    expect(buildGiftList({ views, season: null, currentYear: 2026, choices, recipients })).toEqual(fixture("gifts")));
   it("answers another season", () => {
-    const answer = buildGiftList({ views, season: 2025, currentYear: 2026, choices });
+    const answer = buildGiftList({ views, season: 2025, currentYear: 2026, choices, recipients });
     expect(answer.groups.map((g) => [g.name, g.gifts.map((x) => x.name)])).toEqual([["Grandpa Joe", ["Wool gloves"]]]);
     expect(answer.counts.given).toBe(1);
   });
   it("offers next year's season for a gift filed under next January's birthday", () => {      // Review Focus 3
     const moved = withRows((r) => (r.id === IDS.giftPhotoBook ? { ...r, occasion_id: IDS.momBirthday } : r));
-    expect(buildGiftList({ views: moved, season: null, currentYear: 2026, choices }).seasons).toEqual([2027, 2026, 2025]);
-    expect(buildGiftList({ views: moved, season: 2027, currentYear: 2026, choices }).groups.map((g) => g.name)).toEqual(["Mom"]);
+    expect(buildGiftList({ views: moved, season: null, currentYear: 2026, choices, recipients }).seasons).toEqual([2027, 2026, 2025]);
+    expect(buildGiftList({ views: moved, season: 2027, currentYear: 2026, choices, recipients }).groups.map((g) => g.name)).toEqual(["Mom"]);
   });
   it("leaves archived gifts out", () => {
     const archived = withRows((r) => (r.id === IDS.giftHat ? { ...r, is_archived: true } : r));
-    expect(buildGiftList({ views: archived, season: null, currentYear: 2026, choices }).groups.map((g) => g.name)).toEqual(["Alex Rivera", "Mom"]);
+    expect(buildGiftList({ views: archived, season: null, currentYear: 2026, choices, recipients }).groups.map((g) => g.name))
+      .toEqual(["Alex Rivera", "Mom"]);
+  });
+  it("totals the season: spent from Ordered on, planned at Claimed and Planned, gifts, people and finished", () => {
+    expect(buildGiftList({ views, season: null, currentYear: 2026, choices, recipients }).totals)
+      .toEqual({ spent: 106.99, planned: 89, gifts: 4, people: 3, finished: 1 });
+    expect(buildGiftList({ views, season: 2025, currentYear: 2026, choices, recipients }).totals)
+      .toEqual({ spent: 15, planned: 0, gifts: 1, people: 1, finished: 1 });
+  });
+  it("adds money in whole cents, and a gift with no price as nothing", () => {
+    expect(sumMoney([0.1, 0.2])).toBe(0.3);
+    expect(sumMoney([49.99, 35, 22])).toBe(106.99);
+    expect(sumMoney([null, 5])).toBe(5);
+  });
+  it("carries a person's own row's notes, not those of a typed row whose gift shows under them", () => {
+    // The scarf, from Mom's list, filed under a typed row "Mum": it still shows under Mom, and comes before her photo book.
+    const ctx = w.giftContext();
+    ctx.recipients.set("r-mum", { id: "r-mum", name: "Mum", person_id: null });
+    const moved = withRows((r) => (r.id === IDS.giftScarf ? { ...r, recipient_id: "r-mum" } : r), ctx);
+    const answer = buildGiftList({ views: moved, season: null, currentYear: 2026, choices,
+      recipients: [...recipients, { id: "r-mum", person_id: null, notes: "typed note" }] });
+    const mom = answer.groups.find((g) => g.key === "person:user_2momABC")!;
+    expect([mom.gifts.map((g) => g.name), mom.notes]).toEqual([["Cashmere scarf", "Photo book"], "Medium in tops. Loves anything green."]);
+    expect(answer.groups.map((g) => g.key)).not.toContain("recipient:r-mum");
+  });
+  it("has no notes for a person the caller has no row for", () => {
+    const answer = buildGiftList({ views, season: null, currentYear: 2026, choices,
+      recipients: recipients.filter((r) => r.id !== IDS.recipientMom) });
+    expect(answer.groups.map((g) => [g.name, g.notes])).toEqual([["Alex Rivera", null], ["Mom", null], ["Grandpa Joe", "Fishes most Sundays"]]);
   });
 });
 describe("recipientNames", () => {

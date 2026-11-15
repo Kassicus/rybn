@@ -66,10 +66,15 @@ describe("GET /api/mobile/v1/gifts", () => {
     for (const q of ["?season=abc", "?season=26", "?season=20266", "?season="]) expect((await GET(get(q), ctx)).status).toBe(422);
   });
   it("never sends another person's claim or an email", async () => expect(await (await GET(get(""), ctx)).text()).not.toMatch(/claimedBy|email|@example\.com|SECRET12/));
-  it("carries no recipient id and no user id, and is never cached", async () => {
+  it("carries no user id, a recipient's id only in a typed heading's key, and is never cached", async () => {
     const res = await GET(get(""), ctx);
     expect(res.headers.get("cache-control")).toBe("no-store");
-    expect(await res.text()).not.toMatch(/recipient_id|recipientId|user_id|userId|claimed_by|out_of_stock/);
+    const text = await res.text();
+    expect(text).not.toMatch(/recipient_id|recipientId|user_id|userId|claimed_by|out_of_stock/);
+    expect(text.split(IDS.recipientJoe)).toHaveLength(2);
+    expect(text).toContain(`"key":"recipient:${IDS.recipientJoe}"`);
+    expect(text).not.toContain(IDS.recipientMom);
+    expect(text).not.toContain(IDS.recipientAlex);
   });
   it("answers 401 when the groups cannot be read for want of a sign-in, and 500 for any other failure", async () => {
     holder.current.getMyGroups.mockResolvedValue({ error: "Not authenticated" });

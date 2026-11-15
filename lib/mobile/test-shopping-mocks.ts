@@ -14,13 +14,20 @@ export type WorldMocks = { store: MemoryGiftStore; rpc: Mock; todayISO: Mock } &
   Mock
 >;
 
-/** Sam's store: the world's gifts and recipients (user_id SAM) with these claims. The one store set-up Tasks 4–6 share. */
+/**
+ * Sam's store: the world's gifts and recipients (user_id SAM), each recipient with its notes, and these claims. The one
+ * store set-up Tasks 4–6 share.
+ */
 export function worldStore(claims: ClaimRow[] = world().claims): MemoryGiftStore {
   const w = world();
   return memoryGiftStore(SAM, {
     claims,
     gifts: w.gifts.map((g) => ({ ...g, user_id: SAM })),
-    recipients: w.recipients.map((r) => ({ ...r, user_id: SAM })),
+    recipients: w.recipients.map((r) => ({
+      ...r,
+      user_id: SAM,
+      notes: w.recipientNotes.find((n) => n.id === r.id)?.notes ?? null,
+    })),
   });
 }
 

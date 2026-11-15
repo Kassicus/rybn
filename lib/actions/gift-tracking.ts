@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { RECIPIENT_SENTENCES } from "@/lib/gift-tracking/sentences";
 import type { RecipientFormData, TrackedGiftFormData, GiftStatus, GiftTrackingStats } from "@/lib/schemas/gift-tracking";
 import {
   withSignedGiftPhoto,
@@ -110,7 +111,7 @@ export async function createRecipient(formData: RecipientFormData) {
 
   if (error) {
     if (error.code === "23505") {
-      return { error: "You already have a recipient with this name" };
+      return { error: RECIPIENT_SENTENCES.nameTaken };
     }
     return { error: error.message };
   }
@@ -145,7 +146,7 @@ export async function updateRecipient(recipientId: string, formData: Partial<Rec
 
   if (error) {
     if (error.code === "23505") {
-      return { error: "You already have a recipient with this name" };
+      return { error: RECIPIENT_SENTENCES.nameTaken };
     }
     return { error: error.message };
   }

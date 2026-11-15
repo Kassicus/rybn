@@ -3,12 +3,13 @@ import type { GiftStatus } from "@/lib/schemas/gift-tracking";
 import { resolveStoredImageValue } from "@/lib/storage/image-value";
 import { failure, type DbError } from "./database";
 import type { GiftPatch, GiftStore, NewGift } from "./gift-store";
-import type { ClaimRow, RecipientRow, StoredGift } from "./gifts";
+import type { ClaimRow, RecipientNotes, RecipientRow, StoredGift } from "./gifts";
 import type { PersonRow } from "./occasions";
 
 const GIFT_COLUMNS =
   "id, recipient_id, name, description, photo_url, product_link, price, status, wishlist_item_id, from_list, occasion_id, season_year, notes, is_archived, created_at, updated_at";
 const RECIPIENT_COLUMNS = "id, name, person_id";
+const RECIPIENT_NOTES_COLUMNS = "id, person_id, notes";
 const CLAIM_COLUMNS =
   "item_id, occasion_id, claimed_at, occasions ( occasion_date ), wishlist_items ( id, user_id, title, description, url, price, image_url, purchased )";
 const OWNER_COLUMNS = "id, username, display_name, avatar_url";
@@ -59,6 +60,7 @@ const toGift = (r: StoredGift): StoredGift => ({
 });
 
 const toRecipient = (r: RecipientRow): RecipientRow => ({ id: r.id, name: r.name, person_id: r.person_id });
+const toRecipientNotes = (r: RecipientNotes): RecipientNotes => ({ id: r.id, person_id: r.person_id, notes: r.notes });
 
 interface ClaimDbRow {
   item_id: string;
@@ -162,6 +164,18 @@ export async function createGiftStore(userId: string): Promise<GiftStore> {
           .range(a, b),
       );
       return rows.map(toRecipient);
+    },
+
+    async recipientNotes() {
+      const rows = await readAll("recipientNotes", (a, b) =>
+        supabase
+          .from("gift_recipients")
+          .select(RECIPIENT_NOTES_COLUMNS)
+          .eq("user_id", userId)
+          .order("id", { ascending: true })
+          .range(a, b),
+      );
+      return rows.map(toRecipientNotes);
     },
 
     async insertRecipient(row) {
