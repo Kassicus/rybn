@@ -475,21 +475,10 @@ describe("markAsPurchased", () => {
   });
 
   it("refuses a co-member who can see the item but does not hold an active claim on it", async () => {
-    // This is the authorization-regression case Correction 1 exists to
-    // prevent: dropping the guard entirely (rather than rewriting it) would
-    // let ANY co-member who can see the item mark somebody else's claim
-    // purchased, since the RLS policy governing this UPDATE
-    // ("Users can claim visible wishlist items") admits any non-owner who
-    // can see the item, not just the claimer -- confirmed by reading that
-    // policy's own USING/WITH CHECK clause, which has no claimed_by
-    // conjunct at all. What would make this fail: returning the generic
-    // "not found" behavior of .maybeSingle() (null, no error) as a success,
-    // or reaching the wishlist_items update despite no claim row existing.
-    // What this does NOT catch: a hypothetical bug where the query is
-    // correct here but a DIFFERENT, more permissive RLS policy on
-    // wishlist_claims lets a non-claimer read someone else's claim row --
-    // 16_claim_visibility.sql's assertion 2 (owner-blindness) and its "same
-    // shape as wishlist_item_occasions" reasoning is what rules that out.
+    // Someone with no active claim on the item is refused, and nothing is
+    // written. What would make this fail: answering .maybeSingle()'s null
+    // (no claim row, no error) as a success, or reaching the wishlist_items
+    // update without a claim row.
     supabase = createSupabaseMock({
       wishlist_claims: [{ data: null, error: null }],
       "rpc:visible_item_marks": [BOUGHT],
@@ -506,13 +495,6 @@ describe("markAsPurchased", () => {
   });
 
   it("refuses the claimer when their own claim has LAPSED", async () => {
-    // The gap the final review caught: this function used to check only
-    // `released_at is null`, a LOOSER rule than the one getActiveClaims()
-    // applies to the very same row. So a claim the read path had already
-    // told every viewer did not exist could still authorize a purchase --
-    // permanently marking an item purchased that the UI was showing as
-    // available to claim.
-    //
     // What would make this fail: dropping the isClaimActive() call and going
     // back to "a row came back, therefore authorized". What this does NOT
     // catch: whether Postgres would have lapsed this same claim at the same

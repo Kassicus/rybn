@@ -240,9 +240,9 @@ export async function getActiveClaims(
     // `?.` collapses both "no embed" shapes to the same `null` fallback.
     const occasionDate = row.occasions?.occasion_date ?? null;
 
-    // Every reason a claim is or is not active now lives in one place --
-    // lib/claims/active.ts -- shared with markAsPurchased()'s authorization
-    // check, which used to spell out a LOOSER version of this same rule.
+    // Whether a claim is active is decided by lib/claims/active.ts, the one
+    // definition every TypeScript caller shares, markAsPurchased()'s check
+    // included.
     const active = isClaimActive(
       {
         occasionId: row.occasion_id,

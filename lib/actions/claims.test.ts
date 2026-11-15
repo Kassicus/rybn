@@ -526,8 +526,8 @@ describe("getActiveClaims", () => {
       //
       // The bought mark comes from visible_item_marks(). What this does NOT
       // catch: whether visible_item_marks() answers the item for this caller
-      // -- it does for an item they can see and do not own, which is every
-      // item whose claims they can read; 26_own_contact_and_item_marks.sql
+      // -- it does for an item they can see and do not own, which every item
+      // on a list they have just read is; 26_own_contact_and_item_marks.sql
       // covers the function itself.
       rpc.mockResolvedValue(marks({ item_id: "item-1", purchased: true, out_of_stock_marked_by: null }));
       supabase = createSupabaseMock({

@@ -308,38 +308,19 @@ export async function getWishlistItem(itemId: string) {
  * "Purchase is terminal... stays on wishlist_items").
  *
  * AUTHORIZATION: only the person holding an ACTIVE claim on this item may
- * record its purchase state. This used to be `.eq("claimed_by", userId)`
- * against wishlist_items -- that column is gone, so the same rule is now
- * checked against where the fact actually lives: a wishlist_claims row for
- * this item, this caller, with released_at is null. It is the same
- * authorization, re-pointed at the new source of truth, not a weaker one --
- * the RLS layer alone would not stop this: "Users can claim visible
- * wishlist items" (the policy still governing this UPDATE, per that
- * migration's own comment) admits any non-owner who can see the item, and
- * the pin_wishlist_item_owner_fields trigger only restricts WHICH columns a
- * non-owner may touch, not WHICH non-owner. Skipping this check would let
- * any co-member who can see the item mark somebody else's claim purchased.
+ * record its purchase state. The check reads the caller's own wishlist_claims
+ * row for this item (released_at is null) and decides activity with
+ * lib/claims/active.ts, as getActiveClaims() does. Whether the item is
+ * bought, which that decision needs, is read through visible_item_marks(),
+ * once there is a claim row to decide about.
  *
- * One caveat, stated because the obvious reading is wrong: the claimer can
- * NOT always read their own claim row here. wishlist_claims' SELECT policy
- * admits a row only on an item the caller can still see, and item visibility
- * is revocable AFTER the claim -- the claimer leaves the shared group, or the
- * owner narrows privacy_settings. The claim survives; the claimer's ability to
- * see it does not. Such a caller is refused here even though they do hold the
- * claim. That is the safe direction to fail, and release_wishlist_claim() is
- * SECURITY DEFINER and performs no visibility check, so the claim can still be
- * released -- but do not build on "they can see it by construction", because
- * they cannot.
+ * A claimer who can no longer see the item (they left the group they shared
+ * with its owner, or the owner changed who may see it) still has their claim
+ * row read here, but the update finds no row to change, so the action answers
+ * an error and writes nothing. release_wishlist_claim() still releases such a
+ * claim.
  *
- * Activity is decided by lib/claims/active.ts, the same predicate
- * getActiveClaims() uses. Before that module existed this function checked
- * only `released_at is null`, so a claim the read path had already told every
- * viewer did not exist could still authorize a purchase -- permanently marking
- * an item purchased that the UI was showing as available.
- *
- * Whether the item is bought, which that predicate needs, is read through
- * visible_item_marks(), once there is a claim row to decide about. The update
- * asks back the item's id alone, and that id is the answer.
+ * The update asks back the item's id alone, and that id is the answer.
  */
 export async function markAsPurchased(itemId: string, purchased: boolean) {
   const supabase = await createClient();
