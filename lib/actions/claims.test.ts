@@ -7,12 +7,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
  * needed here.
  *
  * Every function under test calls .rpc() (claimItem, releaseClaim) or
- * .from(...).select() (getActiveClaims), never insert/update/delete, so the
- * chainable table mock only needs select/eq/in/is plus the thenable
- * terminal -- borrowed from item-occasions.test.ts's shape, including
- * fromSpy (not just the chained methods) so a test can assert the database
- * was never reached at all, which getActiveClaims([]) and every "signed out"
- * case require.
+ * .from(...).select() plus .rpc("visible_item_marks") (getActiveClaims),
+ * never insert/update/delete, so the chainable table mock only needs
+ * select/eq/in/is plus the thenable terminal -- borrowed from
+ * item-occasions.test.ts's shape, including fromSpy (not just the chained
+ * methods) so a test can assert the database was never reached at all, which
+ * getActiveClaims([]) and every "signed out" case require. `rpc` is reset
+ * before every test, so each test answers the database functions it reaches.
  */
 
 const getUserId = vi.fn();
@@ -87,8 +88,17 @@ const OCCASION_ID = "22222222-2222-2222-8222-222222222222";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  rpc.mockReset();
   getUserId.mockResolvedValue("user_123");
   supabase = createSupabaseMock({});
+});
+
+const MARK_COLUMNS = ["purchased", "purchased_at", "out_of_stock_marked_by", "out_of_stock_marked_at"];
+
+/** What visible_item_marks() answers: one row for each marked item the caller may see and does not own. */
+const marks = (...rows: { item_id: string; purchased: boolean; out_of_stock_marked_by: string | null }[]) => ({
+  data: rows,
+  error: null,
 });
 
 /**
@@ -287,6 +297,12 @@ describe("releaseClaim", () => {
 });
 
 describe("getActiveClaims", () => {
+  // Unless a test says otherwise, no claimed item is bought or marked out of
+  // stock: visible_item_marks() answers no row.
+  beforeEach(() => {
+    rpc.mockResolvedValue(marks());
+  });
+
   it("returns {} for an empty list WITHOUT touching the database", async () => {
     // What would make this fail: removing the early return, or replacing it
     // with one that still calls getUserId()/createClient()/.from() first.
@@ -301,6 +317,90 @@ describe("getActiveClaims", () => {
     expect(result).toEqual({ data: {} });
     expect(getUserId).not.toHaveBeenCalled();
     expect(fromSpy).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("reads the claims by their own columns and occasion date, and the claimed items' marks with one visible_item_marks() call", async () => {
+    supabase = createSupabaseMock({
+      wishlist_claims: [
+        {
+          data: [
+            { item_id: "item-1", claimed_by: "user_a", occasion_id: null, occasions: null },
+            { item_id: "item-2", claimed_by: "user_b", occasion_id: null, occasions: null },
+          ],
+          error: null,
+        },
+      ],
+    });
+
+    await getActiveClaims(["item-1", "item-2", "item-3"]);
+
+    expect(selectSpy.mock.calls).toEqual([
+      ["wishlist_claims", "item_id, claimed_by, occasion_id, occasions ( occasion_date )"],
+    ]);
+    expect(rpc.mock.calls).toEqual([["visible_item_marks", { p_item_ids: ["item-1", "item-2"] }]]);
+  });
+
+  it("never asks for a mark column, every column or a bare select, embedded or not", async () => {
+    supabase = createSupabaseMock({
+      wishlist_claims: [
+        {
+          data: [{ item_id: "item-1", claimed_by: "user_a", occasion_id: null, occasions: null }],
+          error: null,
+        },
+      ],
+    });
+
+    await getActiveClaims(["item-1"]);
+
+    expect(selectSpy).toHaveBeenCalled();
+    for (const [table, columns] of selectSpy.mock.calls) {
+      expect(typeof columns, `a select on ${table} names its columns`).toBe("string");
+      // Split on ":" too, so a column under an alias (p:purchased) or with a
+      // cast (purchased::text) is seen by its name.
+      const named = String(columns)
+        .split(/[\s,():]+/)
+        .filter(Boolean);
+      expect(named.length).toBeGreaterThan(0);
+      expect(named.filter((column) => column === "*" || MARK_COLUMNS.includes(column))).toEqual([]);
+    }
+  });
+
+  it("asks nothing about marks when no claim comes back", async () => {
+    supabase = createSupabaseMock({
+      wishlist_claims: [{ data: [], error: null }],
+    });
+
+    expect(await getActiveClaims(["item-1"])).toEqual({ data: {} });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("logs an error reading the marks and answers a generic message, without leaking provider detail", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failure = { code: "57014", message: "canceling statement due to statement timeout" };
+    rpc.mockResolvedValue({ data: null, error: failure });
+    supabase = createSupabaseMock({
+      wishlist_claims: [
+        {
+          data: [{ item_id: "item-1", claimed_by: "user_a", occasion_id: null, occasions: null }],
+          error: null,
+        },
+      ],
+    });
+
+    try {
+      const result = await getActiveClaims(["item-1"]);
+
+      expect(result).toEqual({
+        error: "Failed to load claims. Please try again.",
+      });
+      expect(logged).toHaveBeenCalledWith("getActiveClaims: visible_item_marks failed", {
+        message: failure.message,
+        code: failure.code,
+      });
+    } finally {
+      logged.mockRestore();
+    }
   });
 
   it("maps active claims by item id", async () => {
@@ -426,11 +526,12 @@ describe("getActiveClaims", () => {
       // person who actually bought it loses their own Undo/Unclaim controls,
       // because those derive from this result.
       //
-      // What this does NOT catch: whether a real PostgREST response embeds
-      // `wishlist_items` as a bare object rather than an array (same
-      // live-wiring risk as the `occasions` embed above), nor whether the
-      // caller can actually SELECT the item row -- they can, since the item
-      // ids came from a list they just read.
+      // The bought mark comes from visible_item_marks(). What this does NOT
+      // catch: whether visible_item_marks() answers the item for this caller
+      // -- it does for an item they can see and do not own, which every item
+      // on a list they have just read is; 26_own_contact_and_item_marks.sql
+      // covers the function itself.
+      rpc.mockResolvedValue(marks({ item_id: "item-1", purchased: true, out_of_stock_marked_by: null }));
       supabase = createSupabaseMock({
         wishlist_claims: [
           {
@@ -440,7 +541,6 @@ describe("getActiveClaims", () => {
                 claimed_by: "user_a",
                 occasion_id: OCCASION_ID,
                 occasions: { occasion_date: "2026-06-01" },
-                wishlist_items: { purchased: true },
               },
             ],
             error: null,

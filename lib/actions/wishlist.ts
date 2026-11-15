@@ -11,10 +11,18 @@ import { resolveStoredImageValue } from "@/lib/storage/image-value";
 
 import { getUserId } from "@/lib/auth/require-auth";
 import { isClaimActive, todayISO } from "@/lib/claims/active";
+import {
+  WISHLIST_ITEM_COLUMNS,
+  readVisibleMarks,
+  unmarked,
+  withMarks,
+} from "@/lib/wishlist/marks";
 
 /**
  * INVARIANT for this file: every wishlist_items row that leaves a server action
- * has passed through withSignedWishlistImage(s).
+ * has passed through withSignedWishlistImage(s). The three mark actions
+ * (markAsPurchased, markOutOfStock, unmarkOutOfStock) answer the item's id
+ * alone, not a row.
  *
  * `image_url` is stored as an object path in the PRIVATE `wishlist-images`
  * bucket (or an external URL the user pasted). A path is not renderable, so
@@ -26,13 +34,19 @@ import { isClaimActive, todayISO } from "@/lib/claims/active";
  * hand only if the caller was permitted to read it. Holding the invariant for
  * EVERY return -- including the ones nothing renders today -- is what stops the
  * next caller from picking the one function that forgot.
+ *
+ * Every read of a wishlist_items row names WISHLIST_ITEM_COLUMNS, which hold no
+ * mark. A row leaves here in the site's item shape, with its four mark fields
+ * (purchased, purchased_at, out_of_stock_marked_by, out_of_stock_marked_at):
+ * on another person's item they come from visible_item_marks() (withMarks); on
+ * the caller's own item they are unmarked (unmarked), and nothing is asked
+ * about its marks. Claims live in wishlist_claims, whose own SELECT policy
+ * leaves out the item's owner.
  */
 
 /**
- * Get the current user's wishlist
- * Note: purchase/stock data is stripped since owners should not see whether
- * or by whom their items were marked purchased or out of stock. Claim data
- * needs no stripping here -- see the comment inside this function.
+ * Get the current user's wishlist, each item unmarked: nothing is asked about
+ * the marks on the caller's own items.
  */
 export async function getMyWishlist() {
   const supabase = await createClient();
@@ -45,7 +59,7 @@ export async function getMyWishlist() {
 
   const { data: items, error } = await supabase
     .from("wishlist_items")
-    .select("*")
+    .select(WISHLIST_ITEM_COLUMNS)
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -53,27 +67,17 @@ export async function getMyWishlist() {
     return { error: error.message };
   }
 
-  // Strip purchase/stock data - owners should never see whether or by whom
-  // their items were marked purchased or out of stock. Claim data no longer
-  // needs stripping here at all: claimed_by/claimed_at left wishlist_items
-  // in 20260911100003_drop_item_claim_columns.sql, and owner-blindness for
-  // claims is now enforced structurally by wishlist_claims' own SELECT
-  // policy (it excludes the item's owner outright), not by this function
-  // remembering to null out two columns that no longer exist.
-  const sanitizedItems = items?.map((item) => ({
-    ...item,
-    purchased: false,
-    purchased_at: null,
-    out_of_stock_marked_by: null,
-    out_of_stock_marked_at: null,
-  }));
-
-  return { data: await withSignedWishlistImages(sanitizedItems || [], userId) };
+  return { data: await withSignedWishlistImages((items ?? []).map(unmarked), userId) };
 }
 
 /**
  * Get another user's wishlist (filtered by privacy)
  * Returns currentUserId for UI to determine claim permissions
+ *
+ * Another person's items carry their marks from visible_item_marks(); a list
+ * whose marks cannot be read is not answered, since it could show a bought
+ * item as available. The caller's own list (the mobile app asks for it this
+ * way) is answered unmarked, and nothing is asked about its marks.
  */
 export async function getUserWishlist(userId: string) {
   const supabase = await createClient();
@@ -87,7 +91,7 @@ export async function getUserWishlist(userId: string) {
   // RLS handles privacy filtering
   const { data: items, error } = await supabase
     .from("wishlist_items")
-    .select("*")
+    .select(WISHLIST_ITEM_COLUMNS)
     .eq("user_id", userId)
     .order("priority", { ascending: false }) // Show high priority first
     .order("created_at", { ascending: false });
@@ -96,27 +100,30 @@ export async function getUserWishlist(userId: string) {
     return { error: error.message };
   }
 
-  // If viewing own wishlist through this route, strip purchase/stock data.
-  // No claimed_by/claimed_at left to strip -- see getMyWishlist's comment.
-  const isOwnWishlist = currentUserId === userId;
-  const sanitizedItems = isOwnWishlist
-    ? items?.map((item) => ({
-        ...item,
-        purchased: false,
-        purchased_at: null,
-        out_of_stock_marked_by: null,
-        out_of_stock_marked_at: null,
-      }))
-    : items;
+  const rows = items ?? [];
+  let marked;
+  if (currentUserId === userId) {
+    marked = rows.map(unmarked);
+  } else {
+    const read = await readVisibleMarks(
+      supabase,
+      rows.map((row) => row.id),
+    );
+    if ("error" in read) {
+      return { error: read.error.message };
+    }
+    marked = rows.map((row) => withMarks(row, read.marks));
+  }
 
   return {
-    data: await withSignedWishlistImages(sanitizedItems || [], currentUserId),
+    data: await withSignedWishlistImages(marked, currentUserId),
     currentUserId,
   };
 }
 
 /**
- * Create a new wishlist item
+ * Create a new wishlist item. The new row is asked back by its named columns
+ * and answered unmarked.
  */
 export async function createWishlistItem(formData: WishlistItemFormData) {
   const supabase = await createClient();
@@ -150,7 +157,7 @@ export async function createWishlistItem(formData: WishlistItemFormData) {
         restrictToGroup: formData.restrict_to_group || null,
       },
     })
-    .select()
+    .select(WISHLIST_ITEM_COLUMNS)
     .single();
 
   if (error) {
@@ -158,11 +165,12 @@ export async function createWishlistItem(formData: WishlistItemFormData) {
   }
 
   revalidatePath("/wishlist");
-  return { data: await withSignedWishlistImage(item, userId) };
+  return { data: await withSignedWishlistImage(unmarked(item), userId) };
 }
 
 /**
- * Update a wishlist item
+ * Update a wishlist item. The written row is asked back by its named columns
+ * and answered unmarked.
  */
 export async function updateWishlistItem(itemId: string, formData: WishlistItemFormData) {
   const supabase = await createClient();
@@ -196,7 +204,7 @@ export async function updateWishlistItem(itemId: string, formData: WishlistItemF
     })
     .eq("id", itemId)
     .eq("user_id", userId) // Extra security check
-    .select()
+    .select(WISHLIST_ITEM_COLUMNS)
     .single();
 
   if (error) {
@@ -205,7 +213,7 @@ export async function updateWishlistItem(itemId: string, formData: WishlistItemF
 
   revalidatePath("/wishlist");
   revalidatePath(`/wishlist/${itemId}`);
-  return { data: await withSignedWishlistImage(item, userId) };
+  return { data: await withSignedWishlistImage(unmarked(item), userId) };
 }
 
 /**
@@ -237,6 +245,9 @@ export async function deleteWishlistItem(itemId: string) {
 /**
  * Get a single wishlist item
  * Returns currentUserId for UI to determine claim permissions
+ *
+ * Another person's item carries its marks from visible_item_marks(); the
+ * caller's own item is answered unmarked, and nothing is asked about its marks.
  */
 export async function getWishlistItem(itemId: string) {
   const supabase = await createClient();
@@ -250,7 +261,7 @@ export async function getWishlistItem(itemId: string) {
   // RLS handles privacy filtering
   const { data: item, error } = await supabase
     .from("wishlist_items")
-    .select("*")
+    .select(WISHLIST_ITEM_COLUMNS)
     .eq("id", itemId)
     .single();
 
@@ -267,21 +278,21 @@ export async function getWishlistItem(itemId: string) {
     return { error: error.message, notFound: error.code === "PGRST116" };
   }
 
-  // If viewing own item, strip purchase/stock data. No claimed_by/claimed_at
-  // left to strip -- see getMyWishlist's comment.
-  const isOwnItem = item.user_id === userId;
-  const sanitizedItem = isOwnItem
-    ? {
-        ...item,
-        purchased: false,
-        purchased_at: null,
-        out_of_stock_marked_by: null,
-        out_of_stock_marked_at: null,
-      }
-    : item;
+  let marked;
+  if (item.user_id === userId) {
+    marked = unmarked(item);
+  } else {
+    const read = await readVisibleMarks(supabase, [itemId]);
+    if ("error" in read) {
+      // The item is there; its marks could not be read. Infrastructure, as
+      // above, not a missing item.
+      return { error: read.error.message, notFound: false };
+    }
+    marked = withMarks(item, read.marks);
+  }
 
   return {
-    data: await withSignedWishlistImage(sanitizedItem, userId),
+    data: await withSignedWishlistImage(marked, userId),
     currentUserId: userId,
   };
 }
@@ -297,34 +308,19 @@ export async function getWishlistItem(itemId: string) {
  * "Purchase is terminal... stays on wishlist_items").
  *
  * AUTHORIZATION: only the person holding an ACTIVE claim on this item may
- * record its purchase state. This used to be `.eq("claimed_by", userId)`
- * against wishlist_items -- that column is gone, so the same rule is now
- * checked against where the fact actually lives: a wishlist_claims row for
- * this item, this caller, with released_at is null. It is the same
- * authorization, re-pointed at the new source of truth, not a weaker one --
- * the RLS layer alone would not stop this: "Users can claim visible
- * wishlist items" (the policy still governing this UPDATE, per that
- * migration's own comment) admits any non-owner who can see the item, and
- * the pin_wishlist_item_owner_fields trigger only restricts WHICH columns a
- * non-owner may touch, not WHICH non-owner. Skipping this check would let
- * any co-member who can see the item mark somebody else's claim purchased.
+ * record its purchase state. The check reads the caller's own wishlist_claims
+ * row for this item (released_at is null) and decides activity with
+ * lib/claims/active.ts, as getActiveClaims() does. Whether the item is
+ * bought, which that decision needs, is read through visible_item_marks(),
+ * once there is a claim row to decide about.
  *
- * One caveat, stated because the obvious reading is wrong: the claimer can
- * NOT always read their own claim row here. wishlist_claims' SELECT policy
- * admits a row only on an item the caller can still see, and item visibility
- * is revocable AFTER the claim -- the claimer leaves the shared group, or the
- * owner narrows privacy_settings. The claim survives; the claimer's ability to
- * see it does not. Such a caller is refused here even though they do hold the
- * claim. That is the safe direction to fail, and release_wishlist_claim() is
- * SECURITY DEFINER and performs no visibility check, so the claim can still be
- * released -- but do not build on "they can see it by construction", because
- * they cannot.
+ * A claimer who can no longer see the item (they left the group they shared
+ * with its owner, or the owner changed who may see it) still has their claim
+ * row read here, and the action writes nothing for them: a lapsed claim is
+ * refused, and the update of an active one finds no row to change and answers
+ * its error. release_wishlist_claim() still releases such a claim.
  *
- * Activity is decided by lib/claims/active.ts, the same predicate
- * getActiveClaims() uses. Before that module existed this function checked
- * only `released_at is null`, so a claim the read path had already told every
- * viewer did not exist could still authorize a purchase -- permanently marking
- * an item purchased that the UI was showing as available.
+ * The update asks back the item's id alone, and that id is the answer.
  */
 export async function markAsPurchased(itemId: string, purchased: boolean) {
   const supabase = await createClient();
@@ -337,9 +333,7 @@ export async function markAsPurchased(itemId: string, purchased: boolean) {
 
   const { data: claim, error: claimError } = await supabase
     .from("wishlist_claims")
-    .select(
-      "id, occasion_id, occasions ( occasion_date ), wishlist_items ( purchased )",
-    )
+    .select("id, occasion_id, occasions ( occasion_date )")
     .eq("item_id", itemId)
     .eq("claimed_by", userId)
     .is("released_at", null)
@@ -349,34 +343,42 @@ export async function markAsPurchased(itemId: string, purchased: boolean) {
     return { error: claimError.message };
   }
 
-  // Same message for "no claim row" and "claim exists but has lapsed". The
-  // caller is not entitled to learn which, and one message keeps this from
-  // becoming an oracle about other people's claims -- the same reason
-  // claim_wishlist_item() collapses its own two refusal paths into one raise.
+  // Same message for no claim row and a claim that has lapsed, as
+  // claim_wishlist_item() answers its own two refusals with one.
+  const refusal = {
+    error: "Only the person who claimed this item can mark it purchased",
+  };
+
   const claimRow = claim as
     | {
         id: string;
         occasion_id: string | null;
         occasions: { occasion_date: string } | null;
-        wishlist_items: { purchased: boolean } | null;
       }
     | null;
 
-  const holdsActiveClaim =
-    claimRow !== null &&
-    isClaimActive(
-      {
-        occasionId: claimRow.occasion_id,
-        occasionDate: claimRow.occasions?.occasion_date ?? null,
-        itemPurchased: claimRow.wishlist_items?.purchased ?? false,
-      },
-      todayISO(),
-    );
+  if (claimRow === null) {
+    return refusal;
+  }
+
+  const read = await readVisibleMarks(supabase, [itemId]);
+  if ("error" in read) {
+    return { error: read.error.message };
+  }
+
+  const holdsActiveClaim = isClaimActive(
+    {
+      occasionId: claimRow.occasion_id,
+      occasionDate: claimRow.occasions?.occasion_date ?? null,
+      // The database answers an item's id in lower case, whatever the case of
+      // the id it was asked about.
+      itemPurchased: read.marks.get(itemId.toLowerCase())?.purchased ?? false,
+    },
+    todayISO(),
+  );
 
   if (!holdsActiveClaim) {
-    return {
-      error: "Only the person who claimed this item can mark it purchased",
-    };
+    return refusal;
   }
 
   const { data: item, error } = await supabase
@@ -386,7 +388,7 @@ export async function markAsPurchased(itemId: string, purchased: boolean) {
       purchased_at: purchased ? new Date().toISOString() : null,
     })
     .eq("id", itemId)
-    .select()
+    .select("id")
     .single();
 
   if (error) {
@@ -394,12 +396,13 @@ export async function markAsPurchased(itemId: string, purchased: boolean) {
   }
 
   revalidatePath("/wishlist");
-  return { data: await withSignedWishlistImage(item, userId) };
+  return { data: { id: item.id } };
 }
 
 /**
  * Mark a wishlist item as out of stock
  * Only visible to other viewers, not the item owner
+ * The update asks back the item's id alone, and that id is the answer.
  */
 export async function markOutOfStock(itemId: string) {
   const supabase = await createClient();
@@ -418,7 +421,7 @@ export async function markOutOfStock(itemId: string) {
     })
     .eq("id", itemId)
     .neq("user_id", userId) // Can't mark your own items
-    .select()
+    .select("id")
     .single();
 
   if (error) {
@@ -430,11 +433,12 @@ export async function markOutOfStock(itemId: string) {
   }
 
   revalidatePath("/wishlist");
-  return { data: await withSignedWishlistImage(item, userId) };
+  return { data: { id: item.id } };
 }
 
 /**
  * Unmark a wishlist item as out of stock
+ * The update asks back the item's id alone, and that id is the answer.
  */
 export async function unmarkOutOfStock(itemId: string) {
   const supabase = await createClient();
@@ -454,7 +458,7 @@ export async function unmarkOutOfStock(itemId: string) {
     })
     .eq("id", itemId)
     .neq("user_id", userId) // Can't modify your own items this way
-    .select()
+    .select("id")
     .single();
 
   if (error) {
@@ -463,5 +467,5 @@ export async function unmarkOutOfStock(itemId: string) {
   }
 
   revalidatePath("/wishlist");
-  return { data: await withSignedWishlistImage(item, userId) };
+  return { data: { id: item.id } };
 }

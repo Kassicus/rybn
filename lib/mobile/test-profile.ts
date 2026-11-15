@@ -74,7 +74,8 @@ const STAMP = "2026-11-12T10:00:00.000000+00:00";
 /**
  * The profile and settings actions and personProfileRows, each answering as the website's does for Sam: his saved
  * profile, which updateProfile and updatePrivacySettings change and getMyProfile and getMySettings read back. The
- * actions answer whole rows (his email included), as the website's do.
+ * actions answer the row's named columns (OWN_PROFILE_COLUMNS), and getMyProfile his email with them, as the
+ * website's do.
  */
 export function profileMocks(): ProfileMocks {
   const w = world();
@@ -83,11 +84,9 @@ export function profileMocks(): ProfileMocks {
     info: InfoRow[];
     choice: GroupType[];
   } = { row: { ...SAM_ROW }, info: samInfo(), choice: [...SAM_CHOICE] };
-  const wholeRow = () => ({
+  const ownRow = () => ({
     id: SAM,
     ...saved.row,
-    email: "sam@example.com",
-    email_preferences: { email_group_invites: true, email_marketing: false },
     created_at: STAMP,
     updated_at: STAMP,
   });
@@ -98,7 +97,8 @@ export function profileMocks(): ProfileMocks {
   return {
     getMyProfile: vi.fn(async () => ({
       data: {
-        ...wholeRow(),
+        ...ownRow(),
+        email: "sam@example.com",
         profile_info: saved.info.map((r, i) => ({
           id: `0a0b0c0d-0000-4000-8000-00000000000${i}`,
           user_id: SAM,
@@ -137,7 +137,7 @@ export function profileMocks(): ProfileMocks {
         else saved.info.push({ ...field, privacy_settings: newFieldPrivacy(saved.choice) });
       }
       saved.info = saved.info.filter((r) => !clear.some((c) => c.field_name === r.field_name));
-      return { data: wholeRow() };
+      return { data: ownRow() };
     }),
     updatePrivacySettings: vi.fn(async (settings: { visible_to_group_types: GroupType[] }) => {
       saved.choice = [...settings.visible_to_group_types];

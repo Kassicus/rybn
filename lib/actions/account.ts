@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserId } from "@/lib/auth/require-auth";
 import { deleteSignInAccount } from "@/lib/auth/clerk-users";
 import { ACCOUNT_SENTENCES } from "@/lib/account/sentences";
+import { readOwnContact } from "@/lib/profile/own-contact";
+import { emailErrorKind } from "@/lib/resend/error-kind";
 import type { ImageBucket } from "@/lib/supabase/signed-image";
 
 /**
@@ -59,19 +61,6 @@ async function removePictures(
 }
 
 /**
- * What is logged of the email service's error: its name, and its status or
- * code. Never its message, which can quote the address.
- */
-function emailErrorKind(error: unknown): string {
-  if (typeof error !== "object" || error === null) return typeof error;
-  const { name, statusCode, code } = error as { name?: unknown; statusCode?: unknown; code?: unknown };
-  const parts = [name, statusCode ?? code].filter(
-    (part) => typeof part === "string" || typeof part === "number"
-  );
-  return parts.length > 0 ? parts.join(", ") : "no name";
-}
-
-/**
  * Deletes the caller's account, in steps that can be run again: their
  * pictures in both buckets, then their account in the database
  * (delete_account(), which hands each group they own to another owner, else
@@ -86,9 +75,10 @@ function emailErrorKind(error: unknown): string {
  * It knows the caller from getUserId alone and never makes a profile: a try
  * after one that stopped half way finds no profile, and must not make one.
  *
- * The address is read before the database deletes the profile it is in. The
- * email is sent only when there is one, and a refused or failed email is
- * logged by its name and status or code alone while the deletion goes on.
+ * The address is read through own_contact() before the database deletes the
+ * profile it is in. The email is sent only when there is one, and a refused
+ * or failed email is logged by its name and status or code alone while the
+ * deletion goes on.
  */
 export async function deleteAccount(): Promise<{ success: true } | { error: string }> {
   const userId = await getUserId();
@@ -104,16 +94,12 @@ export async function deleteAccount(): Promise<{ success: true } | { error: stri
     }
   }
 
-  const { data: profile, error: readError } = await supabase
-    .from("user_profiles")
-    .select("email")
-    .eq("id", userId)
-    .maybeSingle();
-  if (readError) {
-    console.error("deleteAccount: could not read the profile", readError);
+  const own = await readOwnContact(supabase);
+  if ("error" in own) {
+    console.error("deleteAccount: could not read the profile", own.error);
     return { error: ACCOUNT_SENTENCES.deleteFailed };
   }
-  const email = profile?.email ?? null;
+  const email = own.contact?.email ?? null;
 
   const { error: deleteError } = await supabase.rpc("delete_account");
   if (deleteError) {

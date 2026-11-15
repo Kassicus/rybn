@@ -1469,6 +1469,38 @@ export type Database = {
         Args: never
         Returns: undefined
       }
+      // The CALLER's own email and email_preferences from user_profiles
+      // (20261115000000_own_contact_and_item_marks.sql): one row, or none
+      // when the caller has no profile. SECURITY DEFINER; takes no argument,
+      // so it answers only about the caller. Executable by authenticated
+      // alone. Raises no error of its own.
+      own_contact: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          email: string | null
+          email_preferences: Json | null
+        }[]
+      }
+      // For each of p_item_ids the CALLER can see and does not own, whether
+      // it is bought and who marked it out of stock
+      // (20261115000000_own_contact_and_item_marks.sql). The caller sees an
+      // item on the terms of the wishlist_items policy "Users can view
+      // wishlist items based on privacy", with the caller as the viewer.
+      // Only items that are bought or marked out of stock get a row;
+      // purchased is false when unset, never null. An item's owner gets no
+      // row about it, and an empty or null list gets none. SECURITY
+      // DEFINER, pinned to requesting_user_id(). Executable by authenticated
+      // alone. Raises no error of its own.
+      visible_item_marks: {
+        Args: {
+          p_item_ids: string[]
+        }
+        Returns: {
+          item_id: string
+          purchased: boolean
+          out_of_stock_marked_by: string | null
+        }[]
+      }
       // Requests sharing one anniversary with p_partner_id, at p_date
       // (Task 3, 20260912000003_anniversary_link_rpcs.sql). SECURITY
       // DEFINER, pinned to requesting_user_id() as the caller. Requires a

@@ -9,6 +9,7 @@ import { revalidatePath } from "next/cache";
 import type { ProfileEditFormData } from "@/lib/schemas/profile";
 import { planProfileFields, profileEditSchema } from "@/lib/schemas/profile";
 import { newFieldPrivacy, readStoredChoice } from "@/lib/profile/visibility";
+import { OWN_PROFILE_COLUMNS, readOwnContact } from "@/lib/profile/own-contact";
 import { PROFILE_SENTENCES } from "@/lib/profile/sentences";
 import type { Database } from "@/types/database";
 import type { ViewerContext, GroupType } from "@/types/privacy";
@@ -16,7 +17,10 @@ import type { ViewerContext, GroupType } from "@/types/privacy";
 import { getUserId } from "@/lib/auth/require-auth";
 import { ensureProfile } from "@/lib/auth/ensure-profile";
 /**
- * Get the current user's full profile (all fields visible)
+ * Get the current user's full profile (all fields visible): their row's named
+ * columns, their email from own_contact(), and every field of theirs. When
+ * own_contact() fails or answers no row, the profile is answered with no
+ * email, and a failure is logged by its code alone.
  */
 export async function getMyProfile() {
   const supabase = await createClient();
@@ -39,13 +43,19 @@ export async function getMyProfile() {
   // Get basic profile
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
-    .select("*")
+    .select(OWN_PROFILE_COLUMNS)
     .eq("id", userId)
     .single();
 
   if (profileError) {
     return { error: profileError.message };
   }
+
+  const own = await readOwnContact(supabase);
+  if ("error" in own) {
+    console.error(`getMyProfile: could not read the contact details (${own.error.code || "no code"})`);
+  }
+  const email = "contact" in own ? (own.contact?.email ?? null) : null;
 
   // Get all profile info fields
   const { data: profileInfo, error: profileInfoError } = await supabase
@@ -60,6 +70,7 @@ export async function getMyProfile() {
   return {
     data: {
       ...profile,
+      email,
       profile_info: profileInfo || [],
     },
   };
@@ -187,7 +198,7 @@ export async function updateProfile(formData: ProfileEditFormData) {
     .from("user_profiles")
     .update(basics)
     .eq("id", userId)
-    .select()
+    .select(OWN_PROFILE_COLUMNS)
     .single();
 
   if (profileError) {

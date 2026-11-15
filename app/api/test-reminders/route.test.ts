@@ -21,23 +21,41 @@ const { GET } = await import("./route");
 const DEVELOPER = "user_2abcDEF";
 const SOMEONE_ELSE = "user_2zzzZZZ";
 
-/** Just enough of the query builder for the three calls the route makes. */
-function supabaseStub() {
-  const query = {
-    select: () => query,
-    eq: () => query,
-    limit: async () => ({ data: [], error: null }),
-    maybeSingle: async () => ({ data: { email: "dev@example.test" }, error: null }),
+/** What own_contact() answers for the developer: their one row. */
+const CONTACT = { data: [{ email: "dev@example.test", email_preferences: null }], error: null };
+
+/**
+ * Just enough of the query builder for the calls the route makes. Every
+ * select() is recorded with its table; own_contact() answers `contact`, and
+ * any other database function an empty list. A row read with maybeSingle()
+ * answers none.
+ */
+function supabaseStub(contact: { data: unknown; error: unknown } = CONTACT) {
+  const selects: { table: string; args: unknown[] }[] = [];
+  const rpc = vi.fn(async (name: string, ..._args: unknown[]) =>
+    name === "own_contact" ? contact : { data: [], error: null }
+  );
+  const from = (table: string) => {
+    const query = {
+      select: (...args: unknown[]) => {
+        selects.push({ table, args });
+        return query;
+      },
+      eq: () => query,
+      limit: async () => ({ data: [], error: null }),
+      maybeSingle: async () => ({ data: null, error: null }),
+    };
+    return query;
   };
-  return {
-    from: () => query,
-    rpc: async () => ({ data: [], error: null }),
-  };
+  return { selects, rpc, client: { from, rpc } };
 }
+
+let stub: ReturnType<typeof supabaseStub>;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  createClient.mockResolvedValue(supabaseStub());
+  stub = supabaseStub();
+  createClient.mockResolvedValue(stub.client);
 });
 
 afterEach(() => {
@@ -88,5 +106,39 @@ describe("GET /api/test-reminders", () => {
       user: { id: DEVELOPER, email: "dev@example.test" },
       tests: { tableExists: true, functionWorks: true },
     });
+  });
+
+  it("answers the developer's own email from own_contact()", async () => {
+    vi.stubEnv("DEVELOPER_USER_IDS", DEVELOPER);
+    getUserId.mockResolvedValue(DEVELOPER);
+
+    const res = await GET();
+
+    expect((await res.json()).user).toEqual({ id: DEVELOPER, email: "dev@example.test" });
+    expect(stub.rpc.mock.calls.filter(([name]) => name === "own_contact")).toEqual([["own_contact"]]);
+  });
+
+  it.each([
+    ["fails", { data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } }],
+    ["answers no row", { data: [], error: null }],
+  ])("answers a null email when own_contact() %s", async (_case, contact) => {
+    vi.stubEnv("DEVELOPER_USER_IDS", DEVELOPER);
+    getUserId.mockResolvedValue(DEVELOPER);
+    stub = supabaseStub(contact);
+    createClient.mockResolvedValue(stub.client);
+
+    const res = await GET();
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).user).toEqual({ id: DEVELOPER, email: null });
+  });
+
+  it("never asks user_profiles for the email, the email preferences or every column", async () => {
+    vi.stubEnv("DEVELOPER_USER_IDS", DEVELOPER);
+    getUserId.mockResolvedValue(DEVELOPER);
+
+    await GET();
+
+    expect(stub.selects.filter((s) => s.table === "user_profiles")).toEqual([]);
   });
 });

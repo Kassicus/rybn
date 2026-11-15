@@ -4,7 +4,8 @@ import { inspect } from "node:util";
 /**
  * deleteAccount deletes the caller's account in steps that can be run again:
  * their pictures in both buckets, then delete_account() in the database, then
- * the email to the address read before it, then the sign-in account, then
+ * the email to the address read before it through own_contact(), then the
+ * sign-in account, then
  * delete_account() once more, so that nothing made for the person while the
  * deletion ran stays. A step that fails stops the ones after it, and the next
  * try finishes what is left without making a profile on the way; the last
@@ -24,7 +25,10 @@ const DELETE_FAILED = "Couldn't delete your account. Please try again.";
 const CALLER = "user_2abcDEF";
 const ADDRESS = "sam@example.com";
 
-/** What each fake records, in call order: remove:<bucket>, rpc:<name>, email:<to>, signIn:<id>. */
+/**
+ * What each fake records, in call order: remove:<bucket>, rpc:own_contact,
+ * rpc:<name>, email:<to>, signIn:<id>.
+ */
 let steps: string[] = [];
 
 const getUserId = vi.fn();
@@ -59,8 +63,10 @@ type StorageError = { message: string };
  * `buckets` holds each bucket's paths. `list(prefix, { limit, offset })`
  * answers the names directly under `prefix`, by name, as Supabase does, and
  * never more than `pageCap` of them however many are asked for;
- * `remove(paths)` deletes them. `profile` is the caller's user_profiles row,
- * and `rpc` empties it. Every method called on user_profiles is recorded.
+ * `remove(paths)` deletes them. `profile` is the caller's user_profiles row:
+ * own_contact() answers its address (`readError` instead, when set), and
+ * every other database function, `rpc`, empties it. Every method called on
+ * user_profiles is recorded.
  * `rpcErrors` is what each call of `rpc` answers in turn (null for no error);
  * once they are used up, every call answers `rpcError`. An error's `status`
  * is the answer's HTTP status (400 when it gives none), not part of the error.
@@ -98,6 +104,7 @@ let lists: { bucket: string; prefix: string; options: { limit: number; offset: n
 /** Every method called on from("user_profiles"), across every query. */
 let profileCalls: Call[] = [];
 
+/** Every database function call but own_contact(): delete_account() empties the profile. */
 const rpc = vi.fn(async (name: string) => {
   steps.push(`rpc:${name}`);
   const failure = world.rpcErrors.length > 0 ? (world.rpcErrors.shift() ?? null) : world.rpcError;
@@ -109,9 +116,18 @@ const rpc = vi.fn(async (name: string) => {
   return { data: null, error: null, status: 204 };
 });
 
+/** own_contact(): the caller's row as one row of their address, or no row. */
+const ownContact = vi.fn(async (..._args: unknown[]) => {
+  steps.push("rpc:own_contact");
+  if (world.readError) return { data: null, error: world.readError, status: 400 };
+  const rows = world.profile ? [{ email: world.profile.email, email_preferences: null }] : [];
+  return { data: rows, error: null, status: 200 };
+});
+
 function fakeClient() {
   return {
-    rpc,
+    rpc: (name: string, ...args: unknown[]) =>
+      name === "own_contact" ? ownContact(...args) : rpc(name),
     storage: {
       from(bucket: string) {
         return {
@@ -221,6 +237,7 @@ describe("deleteAccount", () => {
     expect(steps).toEqual([
       "remove:wishlist-images",
       "remove:gift-photos",
+      "rpc:own_contact",
       "rpc:delete_account",
       "email:sam@example.com",
       "signIn:user_2abcDEF",
@@ -256,7 +273,7 @@ describe("deleteAccount", () => {
     expect(steps.slice(-2)).toEqual(["signIn:user_2abcDEF", "rpc:delete_account"]);
     // The last step reads no address and sends no second email.
     expect(sendAccountDeletedEmail).toHaveBeenCalledTimes(1);
-    expect(profileCalls.filter((c) => c.method === "maybeSingle")).toHaveLength(1);
+    expect(ownContact).toHaveBeenCalledTimes(1);
   });
 
   it("answers success when the last database step fails, logging its code alone", async () => {
@@ -316,7 +333,12 @@ describe("deleteAccount", () => {
     expect(await deleteAccount()).toEqual({ error: DELETE_FAILED });
 
     expect(rpc).toHaveBeenCalledTimes(1);
-    expect(steps).toEqual(["rpc:delete_account", "email:sam@example.com", "signIn:user_2abcDEF"]);
+    expect(steps).toEqual([
+      "rpc:own_contact",
+      "rpc:delete_account",
+      "email:sam@example.com",
+      "signIn:user_2abcDEF",
+    ]);
   });
 
   it("removes more than one page of pictures", async () => {
@@ -365,7 +387,7 @@ describe("deleteAccount", () => {
     expect(steps.filter((s) => s === "remove:wishlist-images")).toHaveLength(1);
   });
 
-  it("emails the address read before the database deleted the account", async () => {
+  it("emails the address read through own_contact() before the database deleted the account", async () => {
     const result = await deleteAccount();
 
     expect(result).toEqual({ success: true });
@@ -373,12 +395,34 @@ describe("deleteAccount", () => {
     expect(world.profile).toBeNull();
     expect(sendAccountDeletedEmail).toHaveBeenCalledTimes(1);
     expect(sendAccountDeletedEmail).toHaveBeenCalledWith(ADDRESS);
-    expect(profileCalls).toEqual([
-      { method: "select", args: ["email"] },
-      { method: "eq", args: ["id", CALLER] },
-      { method: "maybeSingle", args: [] },
-    ]);
+    // One call, with no argument.
+    expect(ownContact.mock.calls).toEqual([[]]);
+    expect(steps.indexOf("rpc:own_contact")).toBeLessThan(steps.indexOf("rpc:delete_account"));
     expect(steps.indexOf("rpc:delete_account")).toBeLessThan(steps.indexOf(`email:${ADDRESS}`));
+  });
+
+  it("never asks user_profiles for anything, the email, the email preferences or every column included", async () => {
+    expect(await deleteAccount()).toEqual({ success: true });
+
+    expect(profileCalls.filter((c) => c.method === "select")).toEqual([]);
+    expect(profileCalls).toEqual([]);
+  });
+
+  it.each([
+    ["has no profile", null],
+    ["has no address", { email: null }],
+  ])("sends no email and goes on when the person %s", async (_case, profile) => {
+    world = createWorld({ profile });
+
+    expect(await deleteAccount()).toEqual({ success: true });
+
+    expect(sendAccountDeletedEmail).not.toHaveBeenCalled();
+    expect(steps).toEqual([
+      "rpc:own_contact",
+      "rpc:delete_account",
+      "signIn:user_2abcDEF",
+      "rpc:delete_account",
+    ]);
   });
 
   it("still succeeds when the email is refused or throws, and logs each by its name and status or code alone", async () => {
@@ -431,7 +475,12 @@ describe("deleteAccount", () => {
     steps = [];
     expect(await deleteAccount()).toEqual({ success: true });
 
-    expect(steps).toEqual(["rpc:delete_account", "signIn:user_2abcDEF", "rpc:delete_account"]);
+    expect(steps).toEqual([
+      "rpc:own_contact",
+      "rpc:delete_account",
+      "signIn:user_2abcDEF",
+      "rpc:delete_account",
+    ]);
     expect(sendAccountDeletedEmail).toHaveBeenCalledTimes(1);
     expect(deleteSignInAccount).toHaveBeenCalledTimes(2);
     expect(profileCalls.some((c) => c.method === "insert" || c.method === "upsert")).toBe(false);
@@ -471,14 +520,18 @@ describe("deleteAccount", () => {
     expect(inspect(vi.mocked(console.error).mock.calls)).toContain("gift-photos");
   });
 
-  it("stops when the address cannot be read", async () => {
+  it("stops when the address cannot be read, before delete_account", async () => {
     world = createWorld({ readError: { code: "57014", message: "statement timeout" } });
 
     expect(await deleteAccount()).toEqual({ error: DELETE_FAILED });
 
+    expect(ownContact).toHaveBeenCalledTimes(1);
     expect(rpc).not.toHaveBeenCalled();
     expect(sendAccountDeletedEmail).not.toHaveBeenCalled();
     expect(deleteSignInAccount).not.toHaveBeenCalled();
+    expect(vi.mocked(console.error).mock.calls).toEqual([
+      ["deleteAccount: could not read the profile", { code: "57014", message: "statement timeout" }],
+    ]);
   });
 
   it("stops when the database refuses, keeping the sign-in account", async () => {

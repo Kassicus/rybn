@@ -5,8 +5,13 @@ const calls: [string, ...unknown[]][] = [];
 let scripted: Result[] = [];
 const next = (): Promise<Result> => Promise.resolve(scripted.shift() ?? { data: null, error: null });
 
+// A database function call takes the next scripted answer too, in the order the calls are made.
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
+    rpc: (...a: unknown[]) => {
+      calls.push(["rpc", ...a]);
+      return next();
+    },
     from: (...a: unknown[]) => {
       calls.push(["from", ...a]);
       const chain: Record<string, unknown> = {};
@@ -40,6 +45,15 @@ const NEW_GIFT = {
   wishlist_item_id: "i1", from_list: true, occasion_id: null, season_year: 2026, notes: null,
 };
 const callsOf = (name: string) => calls.filter((c) => c[0] === name).map((c) => c.slice(1));
+const CLAIM_COLUMNS =
+  "item_id, occasion_id, claimed_at, occasions ( occasion_date ), wishlist_items ( id, user_id, title, description, url, price, image_url )";
+const MARK_COLUMNS = ["purchased", "purchased_at", "out_of_stock_marked_by", "out_of_stock_marked_at"];
+/** An item embedded in a claim, as CLAIM_COLUMNS read it. */
+const embedded = (id: string, title: string) =>
+  ({ id, user_id: "user_2momABC", title, description: null, url: null, price: 89, image_url: null });
+const claimOn = (item: ReturnType<typeof embedded> | null, itemId = item?.id ?? "gone") =>
+  ({ item_id: itemId, occasion_id: null, claimed_at: "2026-11-08T19:21:40+00:00", occasions: null, wishlist_items: item });
+const MOM = { id: "user_2momABC", username: "maria", display_name: "Mom", avatar_url: null };
 
 beforeEach(() => {
   calls.length = 0;
@@ -47,27 +61,29 @@ beforeEach(() => {
 });
 
 describe("createGiftStore", () => {
-  it("reads the caller's own claims with the columns it needs, and the owners' named columns", async () => {
+  it("reads the caller's own claims with the columns it needs, their items' marks, and the owners' named columns", async () => {
     scripted = [
       {
         data: [{
           item_id: "i1", occasion_id: "o1", claimed_at: "2026-11-08T19:21:40.123456+00:00", occasions: { occasion_date: "2026-12-25" },
-          wishlist_items: { id: "i1", user_id: "user_2momABC", title: "Scarf", description: null, url: null, price: 89, image_url: null, purchased: false },
+          wishlist_items: { id: "i1", user_id: "user_2momABC", title: "Scarf", description: null, url: null, price: 89, image_url: null },
         }],
         error: null,
       },
-      { data: [{ id: "user_2momABC", username: "maria", display_name: "Mom", avatar_url: null }], error: null },
+      { data: [], error: null },
+      { data: [MOM], error: null },
     ];
     const claims = await (await createGiftStore(ME)).activeClaims();
     expect(calls.slice(0, 4)).toEqual([
       ["from", "wishlist_claims"],
-      ["select", "item_id, occasion_id, claimed_at, occasions ( occasion_date ), wishlist_items ( id, user_id, title, description, url, price, image_url, purchased )"],
+      ["select", CLAIM_COLUMNS],
       ["eq", "claimed_by", ME],
       ["is", "released_at", null],
     ]);
     expect(calls.slice(4)).toEqual([
       ["order", "item_id", { ascending: true }],
       ["range", 0, 999],
+      ["rpc", "visible_item_marks", { p_item_ids: ["i1"] }],
       ["from", "user_profiles"],
       ["select", "id, username, display_name, avatar_url"],
       ["in", "id", ["user_2momABC"]],
@@ -75,14 +91,66 @@ describe("createGiftStore", () => {
     expect(claims).toEqual([{
       itemId: "i1", occasionId: "o1", occasionDate: "2026-12-25", claimedAt: "2026-11-08T19:21:40.123456+00:00",
       item: { id: "i1", ownerId: "user_2momABC", title: "Scarf", description: null, url: null, price: 89, imageValue: null, purchased: false },
-      owner: { id: "user_2momABC", username: "maria", display_name: "Mom", avatar_url: null },
+      owner: MOM,
     }]);
   });
 
-  it("makes no owner query when there are no claims", async () => {
+  it("reads whether each claimed item is bought with one visible_item_marks() call for the items that came back", async () => {
+    scripted = [
+      {
+        data: [
+          claimOn(embedded("i1", "Scarf")),
+          // More than was asked for: whether it is bought still comes from visible_item_marks() alone.
+          claimOn({ ...embedded("i2", "Oven"), purchased: true } as ReturnType<typeof embedded>),
+          claimOn(null, "i3"),
+        ],
+        error: null,
+      },
+      { data: [{ item_id: "i1", purchased: true, out_of_stock_marked_by: null }], error: null },
+      { data: [MOM], error: null },
+    ];
+    const claims = await (await createGiftStore(ME)).activeClaims();
+    expect(callsOf("rpc")).toEqual([["visible_item_marks", { p_item_ids: ["i1", "i2"] }]]);
+    expect(claims.map((c) => [c.itemId, c.item?.purchased ?? null])).toEqual([["i1", true], ["i2", false], ["i3", null]]);
+  });
+
+  it("throws, naming the method, when the claimed items' marks cannot be read", async () => {
+    scripted = [
+      { data: [claimOn(embedded("i1", "Scarf"))], error: null },
+      { data: null, error: { code: "57014", message: "marks broke" } },
+    ];
+    await expect((await createGiftStore(ME)).activeClaims()).rejects.toMatchObject({
+      message: "activeClaims failed: marks broke",
+      code: "57014",
+    });
+    // The marks read is what failed, and nothing is asked after it.
+    expect(callsOf("rpc")).toEqual([["visible_item_marks", { p_item_ids: ["i1"] }]]);
+    expect(callsOf("from")).toEqual([["wishlist_claims"]]);
+  });
+
+  it("never asks for a mark column, every column or a bare select, on the claims or their embedded items", async () => {
+    scripted = [
+      { data: [claimOn(embedded("i1", "Scarf"))], error: null },
+      { data: [], error: null },
+      { data: [MOM], error: null },
+    ];
+    await (await createGiftStore(ME)).activeClaims();
+    const selects = callsOf("select");
+    expect(selects.length).toBeGreaterThan(0);
+    for (const [columns] of selects) {
+      expect(typeof columns).toBe("string");
+      // Split on ":" too, so a column under an alias (p:purchased) or with a cast (purchased::text) is seen by its name.
+      const named = String(columns).split(/[\s,():]+/).filter(Boolean);
+      expect(named.length).toBeGreaterThan(0);
+      expect(named.filter((column) => column === "*" || MARK_COLUMNS.includes(column))).toEqual([]);
+    }
+  });
+
+  it("makes no owner query and asks nothing about marks when there are no claims", async () => {
     scripted = [{ data: [], error: null }];
     expect(await (await createGiftStore(ME)).activeClaims()).toEqual([]);
     expect(callsOf("from")).toEqual([["wishlist_claims"]]);
+    expect(callsOf("rpc")).toEqual([]);
   });
 
   it("maps a claim whose item cannot be seen to item null", async () => {
@@ -93,6 +161,7 @@ describe("createGiftStore", () => {
       { itemId: "i1", occasionId: null, occasionDate: null, claimedAt: "2026-11-08T19:21:40+00:00", item: null, owner: null },
     ]);
     expect(callsOf("from")).toEqual([["wishlist_claims"]]);
+    expect(callsOf("rpc")).toEqual([]);
   });
 
   it("filters every gift read and write to the caller", async () => {

@@ -3,8 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 /**
  * The Settings page's "Who can see your profile fields?" is one choice per
  * person, kept in profile_visibility. getMySettings answers that row (all four
- * kinds when there is none) and whether some field of the person's has another
- * setting (`mixed`); updatePrivacySettings makes one database call,
+ * kinds when there is none), whether some field of the person's has another
+ * setting (`mixed`), and the person's email preferences, read through
+ * own_contact() and laid over the defaults; updatePrivacySettings makes one database call,
  * set_profile_visibility, which stores the choice and writes it onto every
  * profile_info field the person has, both or neither.
  */
@@ -126,6 +127,11 @@ function wroteAnything(): boolean {
 const saveCall = (kinds: string[]) => ({ name: "set_profile_visibility", args: { p_kinds: kinds } });
 
 const OK = { data: null, error: null };
+/** What own_contact() answers for the caller: their one row. */
+const contact = (preferences: unknown) => ({
+  data: [{ email: "sam@example.com", email_preferences: preferences }],
+  error: null,
+});
 const ALL_FOUR = ["family", "friends", "work", "custom"];
 const DEFAULT_EMAILS = {
   email_group_invites: true,
@@ -177,7 +183,7 @@ afterEach(() => {
 describe("getMySettings", () => {
   it("reads the stored choice, not the first field's", async () => {
     supabase = createSupabaseMock({
-      user_profiles: [{ data: { email_preferences: null }, error: null }],
+      "rpc:own_contact": [contact(null)],
       profile_visibility: [{ data: { visible_to_group_types: ["friends"] }, error: null }],
       // A field whose own setting differs from the stored choice.
       profile_info: [{ data: FIELDS, error: null }],
@@ -193,7 +199,7 @@ describe("getMySettings", () => {
 
   it("reads the caller's own fields' settings, by that one named column", async () => {
     supabase = createSupabaseMock({
-      user_profiles: [{ data: { email_preferences: null }, error: null }],
+      "rpc:own_contact": [contact(null)],
       profile_visibility: [{ data: { visible_to_group_types: ["friends"] }, error: null }],
       profile_info: [{ data: FIELDS, error: null }],
     });
@@ -209,7 +215,7 @@ describe("getMySettings", () => {
 
   it("says mixed when a field has a setting other than the stored choice", async () => {
     supabase = createSupabaseMock({
-      user_profiles: [{ data: { email_preferences: null }, error: null }],
+      "rpc:own_contact": [contact(null)],
       profile_visibility: [{ data: { visible_to_group_types: ["family"] }, error: null }],
       // The shoe size is Family's, as stored; the birthday is tied to one group.
       profile_info: [{ data: FIELDS, error: null }],
@@ -222,7 +228,7 @@ describe("getMySettings", () => {
 
   it("says mixed when a field lets a different set of kinds see it", async () => {
     supabase = createSupabaseMock({
-      user_profiles: [{ data: { email_preferences: null }, error: null }],
+      "rpc:own_contact": [contact(null)],
       profile_visibility: [{ data: { visible_to_group_types: ["family"] }, error: null }],
       profile_info: [{ data: [{ privacy_settings: { visibleToGroupTypes: ALL_FOUR, restrictToGroup: null } }], error: null }],
     });
@@ -234,7 +240,7 @@ describe("getMySettings", () => {
     const familyOnly = { privacy_settings: { visibleToGroupTypes: ["family"], restrictToGroup: null } };
     for (const fields of [[familyOnly, familyOnly], []]) {
       supabase = createSupabaseMock({
-        user_profiles: [{ data: { email_preferences: null }, error: null }],
+        "rpc:own_contact": [contact(null)],
         profile_visibility: [{ data: { visible_to_group_types: ["family"] }, error: null }],
         profile_info: [{ data: fields, error: null }],
       });
@@ -246,7 +252,7 @@ describe("getMySettings", () => {
   it("answers Failed to load settings when the fields' settings cannot be read", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     supabase = createSupabaseMock({
-      user_profiles: [{ data: { email_preferences: null }, error: null }],
+      "rpc:own_contact": [contact(null)],
       profile_visibility: [{ data: { visible_to_group_types: ["family"] }, error: null }],
       profile_info: [{ data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } }],
     });
@@ -258,7 +264,7 @@ describe("getMySettings", () => {
 
   it("answers all four kinds for a person who has never chosen", async () => {
     supabase = createSupabaseMock({
-      user_profiles: [{ data: { email_preferences: null }, error: null }],
+      "rpc:own_contact": [contact(null)],
       profile_visibility: [{ data: null, error: null }],
       profile_info: [{ data: [], error: null }],
     });
@@ -270,7 +276,7 @@ describe("getMySettings", () => {
 
   it("answers no kinds for a person who chose only themselves", async () => {
     supabase = createSupabaseMock({
-      user_profiles: [{ data: { email_preferences: null }, error: null }],
+      "rpc:own_contact": [contact(null)],
       profile_visibility: [{ data: { visible_to_group_types: [] }, error: null }],
       profile_info: [{ data: [], error: null }],
     });
@@ -282,7 +288,7 @@ describe("getMySettings", () => {
 
   it("answers Failed to load settings when the choice cannot be read", async () => {
     supabase = createSupabaseMock({
-      user_profiles: [{ data: { email_preferences: null }, error: null }],
+      "rpc:own_contact": [contact(null)],
       profile_visibility: [{ data: null, error: { code: "42501", message: "permission denied" } }],
       profile_info: [{ data: [], error: null }],
     });
@@ -292,9 +298,9 @@ describe("getMySettings", () => {
     expect(result).toEqual({ data: null, error: "Failed to load settings" });
   });
 
-  it("keeps the email preferences as they were", async () => {
+  it("answers the stored email preferences from own_contact(), over the defaults", async () => {
     supabase = createSupabaseMock({
-      user_profiles: [{ data: { email_preferences: { email_marketing: true } }, error: null }],
+      "rpc:own_contact": [contact({ email_marketing: true })],
       profile_visibility: [{ data: { visible_to_group_types: ["family"] }, error: null }],
       profile_info: [{ data: [], error: null }],
     });
@@ -302,6 +308,66 @@ describe("getMySettings", () => {
     const result = await getMySettings();
 
     expect(result.data?.email_preferences).toEqual({ ...DEFAULT_EMAILS, email_marketing: true });
+    expect(supabase.rpcs.map((call) => call.name)).toEqual(["own_contact"]);
+  });
+
+  it("answers the defaults when no email preferences are stored", async () => {
+    supabase = createSupabaseMock({
+      "rpc:own_contact": [contact(null)],
+      profile_visibility: [{ data: { visible_to_group_types: ["family"] }, error: null }],
+      profile_info: [{ data: [], error: null }],
+    });
+
+    expect((await getMySettings()).data?.email_preferences).toEqual(DEFAULT_EMAILS);
+  });
+
+  it("answers Failed to load settings, logging the error's code alone, when own_contact() fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    supabase = createSupabaseMock({
+      "rpc:own_contact": [
+        { data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } },
+      ],
+      profile_visibility: [{ data: { visible_to_group_types: ["family"] }, error: null }],
+      profile_info: [{ data: [], error: null }],
+    });
+
+    const result = await getMySettings();
+
+    expect(result).toEqual({ data: null, error: "Failed to load settings" });
+    expect(error.mock.calls).toEqual([["getMySettings: could not read the contact details (57014)"]]);
+  });
+
+  it("answers Failed to load settings when own_contact() answers no row", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    supabase = createSupabaseMock({
+      "rpc:own_contact": [{ data: [], error: null }],
+      profile_visibility: [{ data: { visible_to_group_types: ["family"] }, error: null }],
+      profile_info: [{ data: [], error: null }],
+    });
+
+    const result = await getMySettings();
+
+    expect(result).toEqual({ data: null, error: "Failed to load settings" });
+    expect(error.mock.calls).toEqual([["getMySettings: own_contact() answered no row"]]);
+  });
+
+  it("never asks user_profiles for anything, the email, the email preferences or every column included", async () => {
+    // Scripted so that code which does read the row runs to the end and fails
+    // on the assertion below, not on a missing script.
+    supabase = createSupabaseMock({
+      "rpc:own_contact": [contact(null)],
+      user_profiles: [{ data: { email_preferences: null }, error: null }],
+      profile_visibility: [{ data: { visible_to_group_types: ["family"] }, error: null }],
+      profile_info: [{ data: [], error: null }],
+    });
+
+    await getMySettings();
+
+    const selects = supabase.queries
+      .filter((q) => q.table === "user_profiles")
+      .flatMap((q) => q.calls.filter((c) => c.method === "select").map((c) => c.args));
+    expect(selects).toEqual([]);
+    expect(supabase.queries.map((q) => q.table)).not.toContain("user_profiles");
   });
 });
 

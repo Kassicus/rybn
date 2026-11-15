@@ -43,12 +43,16 @@ vi.mock("@/lib/auth/require-auth", () => ({
 }));
 
 /**
- * Every query the action builds, as `(table, "from")` and then
- * `(table, method, ...args)` for each chain call, so a test can read what was
- * asked for and with which values -- or that nothing was asked at all.
+ * Every query the action builds with the caller's own client, as
+ * `(table, "from")` and then `(table, method, ...args)` for each chain call,
+ * so a test can read what was asked for and with which values -- or that
+ * nothing was asked at all. `adminQuery` records the admin client's queries
+ * the same way.
  */
 const query = vi.fn();
+const adminQuery = vi.fn();
 const rpc = vi.fn();
+const createAdminClient = vi.fn();
 
 /**
  * Supabase's query builder is thenable, so `await from().select().eq()`
@@ -58,56 +62,69 @@ const rpc = vi.fn();
  * scripted response.
  *
  * Responses are queued PER TABLE and consumed in call order, which keeps each
- * test's script readable next to the sequence of queries in the action.
+ * test's script readable next to the sequence of queries in the action. The
+ * admin client's are queued under "admin:<table>". `order` holds every table
+ * asked, the admin client's as "admin:<table>", in the order they were asked.
  */
 function createSupabaseMock(script: Record<string, unknown[]>) {
   const queues: Record<string, unknown[]> = {};
   for (const [table, responses] of Object.entries(script)) {
     queues[table] = [...responses];
   }
+  const order: string[] = [];
 
-  return {
-    from(table: string) {
-      query(table, "from");
-      const next = () => {
-        const queue = queues[table];
-        if (!queue || queue.length === 0) {
-          throw new Error(`No scripted Supabase response left for "${table}"`);
-        }
-        return queue.shift();
-      };
-
-      const chain: Record<string, unknown> = {};
-      for (const method of [
-        "select",
-        "insert",
-        "update",
-        "eq",
-        "gte",
-        "order",
-        "limit",
-      ]) {
-        chain[method] = (...args: unknown[]) => {
-          query(table, method, ...args);
-          return chain;
-        };
+  const client = (prefix: string, record: typeof query) => (table: string) => {
+    const queued = `${prefix}${table}`;
+    order.push(queued);
+    record(table, "from");
+    const next = () => {
+      const queue = queues[queued];
+      if (!queue || queue.length === 0) {
+        throw new Error(`No scripted Supabase response left for "${queued}"`);
       }
-      chain.maybeSingle = async () => next();
-      chain.single = async () => next();
-      chain.then = (resolve: (value: unknown) => unknown) =>
-        Promise.resolve(next()).then(resolve);
-      return chain;
-    },
+      return queue.shift();
+    };
+
+    const chain: Record<string, unknown> = {};
+    for (const method of [
+      "select",
+      "insert",
+      "update",
+      "eq",
+      "in",
+      "gte",
+      "order",
+      "limit",
+    ]) {
+      chain[method] = (...args: unknown[]) => {
+        record(table, method, ...args);
+        return chain;
+      };
+    }
+    chain.maybeSingle = async () => next();
+    chain.single = async () => next();
+    chain.then = (resolve: (value: unknown) => unknown) =>
+      Promise.resolve(next()).then(resolve);
+    return chain;
   };
+
+  return { order, from: client("", query), adminFrom: client("admin:", adminQuery) };
 }
 
 let supabase: ReturnType<typeof createSupabaseMock>;
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
-    ...supabase,
+    from: (table: string) => supabase.from(table),
     rpc: (...args: unknown[]) => rpc(...args),
   }),
+}));
+
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => {
+    createAdminClient();
+    return { from: (table: string) => supabase.adminFrom(table) };
+  },
 }));
 
 const { sendGroupInvitation, joinGroupByCode } = await import("./invitations");
@@ -127,16 +144,16 @@ const GROUP_ID = "4f1c2b3a-5d6e-4f70-8a9b-0c1d2e3f4a5b";
 /**
  * The happy-path query sequence sendGroupInvitation walks, per table, each in
  * order: group_members -> the caller's membership (the first read of all);
- * user_profiles -> inviter, then the invitee lookup; invitations -> rate
- * limit, then existing-invite lookup, then the insert. Individual tests
- * override only what they care about.
+ * user_profiles -> the inviter's username; invitations -> rate limit, then
+ * existing-invite lookup, then the insert. On the admin client,
+ * user_profiles -> the ids of the accounts holding the address, between the
+ * rate limit and the existing-invite lookup. Individual tests override only
+ * what they care about.
  */
 function happyPathScript() {
   return {
-    user_profiles: [
-      { data: { username: "kason", email: "kason@example.com" }, error: null },
-      { data: null, error: null }, // invitee has no account yet
-    ],
+    user_profiles: [{ data: { username: "kason" }, error: null }],
+    "admin:user_profiles": [{ data: [], error: null }], // no account holds the address yet
     invitations: [
       { data: [], error: null }, // under the rate limit
       { data: [], error: null }, // no existing invitation
@@ -148,6 +165,9 @@ function happyPathScript() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // An answer one test queued for the database function and never used is
+  // not left for the next test.
+  rpc.mockReset();
   getUserId.mockResolvedValue("user_123");
   requireAuthWithProfile.mockResolvedValue("user_123");
   supabase = createSupabaseMock(happyPathScript());
@@ -159,14 +179,14 @@ beforeEach(() => {
  * to be hardcoded true in lib/resend/send.tsx, so somebody who already had an
  * account was told to create one.
  *
- * The answer was already sitting in this action: it looks up the invitee in
- * user_profiles by email a few lines earlier, to check whether they are
+ * The answer is in this action: it looks up, with the admin client, the ids
+ * of the accounts holding the address, to check whether one of them is
  * already in the group. These pin that the lookup's result is what reaches
  * the template -- and, by passing it as an argument, that the email module
  * never needs a database of its own.
  */
 describe("sendGroupInvitation invitee copy", () => {
-  it("marks the invitee as new when no account exists", async () => {
+  it("marks the invitee as new when no account holds the address, asking nothing about the group", async () => {
     sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
 
     await sendGroupInvitation({
@@ -177,22 +197,16 @@ describe("sendGroupInvitation invitee copy", () => {
     expect(sendGroupInviteEmail).toHaveBeenCalledWith(
       expect.objectContaining({ isNewUser: true })
     );
+    expect(query).not.toHaveBeenCalledWith("group_members", "in", "user_id", expect.anything());
   });
 
-  it("marks the invitee as existing when they already have an account", async () => {
+  it("marks the invitee as existing when an account holds the address and none is in the group", async () => {
     supabase = createSupabaseMock({
-      user_profiles: [
-        { data: { username: "kason", email: "kason@example.com" }, error: null },
-        { data: { id: "user-existing" }, error: null }, // invitee HAS an account
-      ],
+      ...happyPathScript(),
+      "admin:user_profiles": [{ data: [{ id: "user-existing" }], error: null }],
       group_members: [
         MEMBERSHIP, // inviter's membership
-        { data: null, error: null }, // invitee is not in this group yet
-      ],
-      invitations: [
-        { data: [], error: null },
-        { data: [], error: null },
-        { data: { id: "invitation-1" }, error: null },
+        { data: [], error: null }, // no account holding the address is in this group yet
       ],
     });
     sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
@@ -205,6 +219,248 @@ describe("sendGroupInvitation invitee copy", () => {
     expect(sendGroupInviteEmail).toHaveBeenCalledWith(
       expect.objectContaining({ isNewUser: false })
     );
+  });
+});
+
+/**
+ * Which accounts hold the typed address is read with the admin client, ids
+ * alone, after the membership check and the hourly limit; whether one of them
+ * is in the group is asked of the caller's own client. The address is never
+ * logged, and the ids never leave the action.
+ */
+describe("sendGroupInvitation invitee check", () => {
+  /** Two accounts hold the address. */
+  const HOLDERS = { data: [{ id: "user_2holderA" }, { id: "user_2holderB" }], error: null };
+
+  it("reads the ids of the accounts holding the address with the admin client", async () => {
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
+
+    expect(createAdminClient).toHaveBeenCalledTimes(1);
+    expect(adminQuery.mock.calls).toEqual([
+      ["user_profiles", "from"],
+      ["user_profiles", "select", "id"],
+      ["user_profiles", "eq", "email", "invitee@example.com"],
+    ]);
+  });
+
+  it("answers already in the group when the caller's client finds one of those accounts in it", async () => {
+    supabase = createSupabaseMock({
+      ...happyPathScript(),
+      "admin:user_profiles": [HOLDERS],
+      group_members: [MEMBERSHIP, { data: [{ id: "membership-9" }], error: null }],
+    });
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    const result = await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
+
+    expect(result).toEqual({ error: "This user is already a member of the group" });
+    // One question of the caller's own client: is any of the ids in this group.
+    const check = query.mock.calls.filter(([table]) => table === "group_members").slice(4);
+    expect(check).toEqual([
+      ["group_members", "from"],
+      ["group_members", "select", "id"],
+      ["group_members", "eq", "group_id", GROUP_ID],
+      ["group_members", "in", "user_id", ["user_2holderA", "user_2holderB"]],
+      ["group_members", "limit", 1],
+    ]);
+    expect(query).not.toHaveBeenCalledWith("invitations", "insert", expect.anything());
+    expect(sendGroupInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it("invites when none of those accounts is in the group, passing on no id", async () => {
+    const logs = (["log", "info", "warn", "error", "debug"] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => {})
+    );
+    supabase = createSupabaseMock({
+      ...happyPathScript(),
+      "admin:user_profiles": [HOLDERS],
+      group_members: [MEMBERSHIP, { data: [], error: null }],
+    });
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    const result = await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
+
+    expect(result).toStrictEqual({ emailSent: true, isResend: false });
+    expect(sendGroupInviteEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ isNewUser: false })
+    );
+    const handedOn = [
+      ...sendGroupInviteEmail.mock.calls,
+      ...query.mock.calls.filter(([table]) => table === "invitations"),
+      ...logs.flatMap((spy) => spy.mock.calls),
+    ];
+    expect(JSON.stringify(handedOn)).not.toMatch(/user_2holder/);
+    for (const spy of logs) spy.mockRestore();
+  });
+
+  it("treats a failed lookup as no account, logging its code alone and never the address", async () => {
+    const logs = (["log", "info", "warn", "error", "debug"] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => {})
+    );
+    supabase = createSupabaseMock({
+      ...happyPathScript(),
+      "admin:user_profiles": [
+        {
+          data: null,
+          error: { code: "57014", message: "canceling statement for invitee@example.com" },
+        },
+      ],
+    });
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    const result = await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
+
+    expect(result).toStrictEqual({ emailSent: true, isResend: false });
+    expect(sendGroupInviteEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ isNewUser: true })
+    );
+    expect(query).not.toHaveBeenCalledWith("group_members", "in", "user_id", expect.anything());
+    expect(vi.mocked(console.error).mock.calls).toEqual([
+      ["sendGroupInvitation: could not look up the address (57014)"],
+    ]);
+    expect(JSON.stringify(logs.flatMap((spy) => spy.mock.calls))).not.toContain("invitee@example.com");
+    for (const spy of logs) spy.mockRestore();
+  });
+
+  it("looks the address up after the hourly count and before the waiting-invitation lookup", async () => {
+    supabase = createSupabaseMock({
+      ...happyPathScript(),
+      "admin:user_profiles": [HOLDERS],
+      group_members: [MEMBERSHIP, { data: [], error: null }],
+    });
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
+
+    expect(supabase.order).toEqual([
+      "group_members", // the caller's membership
+      "user_profiles", // the inviter's username
+      "invitations", // the hourly count
+      "admin:user_profiles", // the accounts holding the address
+      "group_members", // whether one of them is in the group
+      "invitations", // a waiting invitation
+      "invitations", // the insert
+    ]);
+  });
+
+  it.each([
+    ["someone not in the group", { group_members: [{ data: null, error: null }] }],
+    [
+      "a member who has sent ten this hour",
+      {
+        invitations: [
+          { data: Array.from({ length: 10 }, (_, i) => ({ id: `invitation-${i}` })), error: null },
+        ],
+      },
+    ],
+  ])("looks up nothing about the address for %s", async (_case, over) => {
+    supabase = createSupabaseMock({ ...happyPathScript(), ...over });
+
+    const result = await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
+
+    expect(result).toHaveProperty("error");
+    expect(createAdminClient).not.toHaveBeenCalled();
+    expect(adminQuery).not.toHaveBeenCalled();
+  });
+
+  it("never asks user_profiles anything about the email through the caller's client", async () => {
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
+
+    const profileCalls = query.mock.calls.filter(([table]) => table === "user_profiles");
+    expect(profileCalls).toEqual([
+      ["user_profiles", "from"],
+      ["user_profiles", "select", "username"],
+      ["user_profiles", "eq", "id", "user_123"],
+    ]);
+    expect(JSON.stringify(profileCalls)).not.toMatch(/email|invitee@example\.com/);
+  });
+});
+
+/**
+ * The invitation names the inviter by their username, else their own email,
+ * read through own_contact() only when there is no username, else "A friend".
+ */
+describe("sendGroupInvitation inviter's name", () => {
+  /** Every select() asked of user_profiles through the caller's client. */
+  const profileSelects = () =>
+    query.mock.calls
+      .filter(([table, method]) => table === "user_profiles" && method === "select")
+      .map(([, , ...args]) => args);
+
+  it("names the inviter by their username, reading that column alone, without own_contact()", async () => {
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
+
+    expect(query).toHaveBeenCalledWith("user_profiles", "select", "username");
+    expect(query).toHaveBeenCalledWith("user_profiles", "eq", "id", "user_123");
+    expect(rpc).not.toHaveBeenCalled();
+    expect(sendGroupInviteEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ inviterName: "kason" })
+    );
+  });
+
+  it.each([
+    ["has no profile row", { data: null, error: null }],
+    ["has an empty username", { data: { username: "" }, error: null }],
+  ])("names the inviter by their own email from own_contact() when the inviter %s", async (_case, inviter) => {
+    supabase = createSupabaseMock({
+      ...happyPathScript(),
+      user_profiles: [inviter],
+    });
+    rpc.mockResolvedValueOnce({
+      data: [{ email: "kason@example.com", email_preferences: null }],
+      error: null,
+    });
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
+
+    expect(rpc.mock.calls).toEqual([["own_contact"]]);
+    expect(sendGroupInviteEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ inviterName: "kason@example.com" })
+    );
+  });
+
+  it.each([
+    ["fails", { data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } }],
+    ["answers no row", { data: [], error: null }],
+    ["answers no email", { data: [{ email: null, email_preferences: null }], error: null }],
+  ])("names the inviter A friend when they have no username and own_contact() %s", async (_case, contact) => {
+    supabase = createSupabaseMock({
+      ...happyPathScript(),
+      user_profiles: [{ data: null, error: null }],
+    });
+    rpc.mockResolvedValueOnce(contact);
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    const result = await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
+
+    expect(result).toEqual({ emailSent: true, isResend: false });
+    expect(rpc.mock.calls).toEqual([["own_contact"]]);
+    expect(sendGroupInviteEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ inviterName: "A friend" })
+    );
+  });
+
+  it("never asks user_profiles for the email, the email preferences or every column through the caller's client", async () => {
+    sendGroupInviteEmail.mockResolvedValue({ data: { id: "e1" }, error: null });
+
+    await sendGroupInvitation({ groupId: GROUP_ID, email: "invitee@example.com" });
+
+    const selects = profileSelects();
+    expect(selects.length).toBeGreaterThan(0);
+    for (const args of selects) {
+      expect(args).toHaveLength(1);
+      const named = String(args[0])
+        .split(",")
+        .map((column) => column.trim());
+      expect(named.filter((column) => ["*", "email", "email_preferences", ""].includes(column))).toEqual([]);
+    }
   });
 });
 
@@ -228,9 +484,9 @@ describe("sendGroupInvitation", () => {
 
     expect(result.emailSent).toBe(false);
     expect(result.warning).toBe(EMAIL_SEND_FAILED_MESSAGE);
-    // The provider's message named the app's own sending domain and linked
-    // the Resend dashboard. A group member inviting a friend must never be
-    // handed either; both stay in the server log.
+    // The email service's message names the app's own sending domain. A
+    // group member inviting a friend is handed the generic warning instead,
+    // and the log carries the failure's kind alone.
     expect(result.warning).not.toContain("rybn.app");
     expect(result.warning).not.toContain("resend.com");
     // The invitation row itself is still created: a mail failure must not
@@ -270,6 +526,134 @@ describe("sendGroupInvitation", () => {
 
     expect(result.emailSent).toBe(true);
     expect(result.warning).toBeUndefined();
+  });
+});
+
+/**
+ * What the action logs when an invitation write or the email fails: the
+ * failure's code or kind alone. No log holds the typed address, the inviter's
+ * own email, the group's name or the email service's message.
+ */
+describe("sendGroupInvitation logs", () => {
+  const ADDRESS = "invitee@example.com";
+  const OWN_EMAIL = "kason@example.com";
+
+  /** Every console method, silenced and recorded for one test. */
+  const spyOnLogs = () =>
+    (["log", "info", "warn", "error", "debug"] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => {})
+    );
+
+  /** The inviter has no username, so the invitation names them by their own email. */
+  const inviterByOwnEmail = () => {
+    rpc.mockResolvedValueOnce({ data: [{ email: OWN_EMAIL, email_preferences: null }], error: null });
+    return { user_profiles: [{ data: null, error: null }] };
+  };
+
+  /** Fails when anything logged holds the address, the inviter's email or the group's name. */
+  const expectNothingPersonalLogged = (logs: ReturnType<typeof spyOnLogs>) => {
+    const logged = JSON.stringify(logs.flatMap((spy) => spy.mock.calls));
+    expect(logged).not.toContain(ADDRESS);
+    expect(logged).not.toContain(OWN_EMAIL);
+    expect(logged).not.toContain("The Suchows");
+  };
+
+  it("logs a refused send by its kind alone", async () => {
+    const logs = spyOnLogs();
+    try {
+      supabase = createSupabaseMock({ ...happyPathScript(), ...inviterByOwnEmail() });
+      sendGroupInviteEmail.mockResolvedValue({
+        data: null,
+        error: { name: "validation_error", statusCode: 403, message: `Cannot send to ${ADDRESS}` },
+      });
+
+      const result = await sendGroupInvitation({ groupId: GROUP_ID, email: ADDRESS });
+
+      expect(result).toStrictEqual({ emailSent: false, isResend: false, warning: EMAIL_SEND_FAILED_MESSAGE });
+      expect(vi.mocked(console.error).mock.calls).toEqual([
+        ["sendGroupInvitation: the email was refused (validation_error, 403)"],
+      ]);
+      expectNothingPersonalLogged(logs);
+    } finally {
+      for (const spy of logs) spy.mockRestore();
+    }
+  });
+
+  it("logs a send that throws by its kind alone", async () => {
+    const logs = spyOnLogs();
+    try {
+      supabase = createSupabaseMock({ ...happyPathScript(), ...inviterByOwnEmail() });
+      sendGroupInviteEmail.mockRejectedValue(
+        Object.assign(new Error(`connect ECONNRESET while sending to ${ADDRESS}`), { code: "ECONNRESET" })
+      );
+
+      const result = await sendGroupInvitation({ groupId: GROUP_ID, email: ADDRESS });
+
+      expect(result).toStrictEqual({ emailSent: false, isResend: false, warning: EMAIL_SEND_FAILED_MESSAGE });
+      expect(vi.mocked(console.error).mock.calls).toEqual([
+        ["sendGroupInvitation: the email failed (Error, ECONNRESET)"],
+      ]);
+      expectNothingPersonalLogged(logs);
+    } finally {
+      for (const spy of logs) spy.mockRestore();
+    }
+  });
+
+  /** A refused write whose details hold the address, as a unique index's do. */
+  const DUPLICATE = {
+    data: null,
+    error: {
+      code: "23505",
+      message: 'duplicate key value violates unique constraint "invitations_group_email_unique_pending"',
+      details: `Key (group_id, email)=(${GROUP_ID}, ${ADDRESS}) already exists.`,
+      hint: null,
+    },
+  };
+
+  it("logs a failed insert by its code alone", async () => {
+    const logs = spyOnLogs();
+    try {
+      supabase = createSupabaseMock({
+        ...happyPathScript(),
+        ...inviterByOwnEmail(),
+        invitations: [{ data: [], error: null }, { data: [], error: null }, DUPLICATE],
+      });
+
+      const result = await sendGroupInvitation({ groupId: GROUP_ID, email: ADDRESS });
+
+      expect(result).toEqual({ error: "Failed to create invitation. Please try again." });
+      expect(vi.mocked(console.error).mock.calls).toEqual([
+        ["sendGroupInvitation: could not create the invitation (23505)"],
+      ]);
+      expectNothingPersonalLogged(logs);
+    } finally {
+      for (const spy of logs) spy.mockRestore();
+    }
+  });
+
+  it("logs a failed update by its code alone", async () => {
+    const logs = spyOnLogs();
+    try {
+      supabase = createSupabaseMock({
+        ...happyPathScript(),
+        ...inviterByOwnEmail(),
+        invitations: [
+          { data: [], error: null },
+          { data: [{ id: "invitation-1", accepted: false, invited_by: "user_123" }], error: null },
+          DUPLICATE,
+        ],
+      });
+
+      const result = await sendGroupInvitation({ groupId: GROUP_ID, email: ADDRESS });
+
+      expect(result).toEqual({ error: "Failed to update invitation. Please try again." });
+      expect(vi.mocked(console.error).mock.calls).toEqual([
+        ["sendGroupInvitation: could not update the invitation (23505)"],
+      ]);
+      expectNothingPersonalLogged(logs);
+    } finally {
+      for (const spy of logs) spy.mockRestore();
+    }
   });
 });
 
@@ -481,11 +865,12 @@ describe("sendGroupInvitation checks what it is given", () => {
     expect(sendGroupInviteEmail).toHaveBeenCalledWith(
       expect.objectContaining({ toEmail: "gran@example.com" })
     );
-    // The account lookup and the waiting-invitation lookup use it too.
-    const emailFilters = query.mock.calls.filter(
+    // The account lookup (on the admin client) and the waiting-invitation
+    // lookup (on the caller's) use it too.
+    const emailFilters = [...adminQuery.mock.calls, ...query.mock.calls].filter(
       ([, method, column]) => method === "eq" && column === "email"
     );
-    expect(emailFilters).toHaveLength(2);
+    expect(emailFilters.map(([table]) => table)).toEqual(["user_profiles", "invitations"]);
     for (const [, , , value] of emailFilters) {
       expect(value).toBe("gran@example.com");
     }

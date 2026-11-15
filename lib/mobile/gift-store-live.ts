@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import type { GiftStatus } from "@/lib/schemas/gift-tracking";
 import { resolveStoredImageValue } from "@/lib/storage/image-value";
+import { readVisibleMarks } from "@/lib/wishlist/marks";
 import { failure, type DbError } from "./database";
 import type { GiftPatch, GiftStore, NewGift } from "./gift-store";
 import type { ClaimRow, RecipientNotes, RecipientRow, StoredGift } from "./gifts";
@@ -11,7 +12,7 @@ const GIFT_COLUMNS =
 const RECIPIENT_COLUMNS = "id, name, person_id";
 const RECIPIENT_NOTES_COLUMNS = "id, person_id, notes";
 const CLAIM_COLUMNS =
-  "item_id, occasion_id, claimed_at, occasions ( occasion_date ), wishlist_items ( id, user_id, title, description, url, price, image_url, purchased )";
+  "item_id, occasion_id, claimed_at, occasions ( occasion_date ), wishlist_items ( id, user_id, title, description, url, price, image_url )";
 const OWNER_COLUMNS = "id, username, display_name, avatar_url";
 
 /** The clash an insert or update reported, by the index it names; null for anything else. */
@@ -75,7 +76,6 @@ interface ClaimDbRow {
     url: string | null;
     price: number | null;
     image_url: string | null;
-    purchased: boolean;
   } | null;
 }
 
@@ -91,6 +91,10 @@ export async function createGiftStore(userId: string): Promise<GiftStore> {
   }
 
   return {
+    /**
+     * The caller's active claims, each with its item as the caller may still see it (null when they cannot) and
+     * whether that item is bought, from one visible_item_marks() call for the items that came back.
+     */
     async activeClaims() {
       const rows = await readAll<ClaimDbRow>(
         "activeClaims",
@@ -103,6 +107,13 @@ export async function createGiftStore(userId: string): Promise<GiftStore> {
             .order("item_id", { ascending: true })
             .range(a, b) as unknown as Page<ClaimDbRow>,
       );
+
+      const read = await readVisibleMarks(
+        supabase,
+        rows.flatMap((r) => (r.wishlist_items ? [r.wishlist_items.id] : [])),
+      );
+      if ("error" in read) throw failure("activeClaims", read.error);
+      const { marks } = read;
 
       const ownerIds = [...new Set(rows.flatMap((r) => (r.wishlist_items ? [r.wishlist_items.user_id] : [])))];
       const owners = new Map<string, PersonRow>();
@@ -133,7 +144,7 @@ export async function createGiftStore(userId: string): Promise<GiftStore> {
                 url: item.url,
                 price: item.price,
                 imageValue: item.image_url,
-                purchased: item.purchased,
+                purchased: marks.get(item.id)?.purchased ?? false,
               }
             : null,
           owner: item ? (owners.get(item.user_id) ?? null) : null,

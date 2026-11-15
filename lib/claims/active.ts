@@ -2,16 +2,12 @@
  * The single definition of an ACTIVE claim.
  *
  * The rule is stated in _planning/2026-09-10-gift-giving-occasions-design.md:260-267
- * and again in 20260911100002_claim_rpcs.sql's header, and before this module
- * existed it was written out FOUR separate times -- in claim_wishlist_item()'s
- * lapsed-release, in getActiveClaims(), in markAsPurchased()'s authorization
- * lookup, and implicitly in the wishlist_claims_one_active index. Two of those
- * four disagreed with each other about purchased items, which is the ordinary
- * end state of every fulfilled gift, so the disagreement was not an edge case.
- *
- * The SQL copy has to stay where it is -- it runs inside the RPC. This module
- * is the one copy every TypeScript caller shares, so a future change is made
- * once rather than found in three places.
+ * and in 20260911100002_claim_rpcs.sql's header. This module is the one
+ * definition every TypeScript caller shares -- getActiveClaims(),
+ * markAsPurchased()'s check and the mobile gift tracker (lib/mobile/gifts.ts)
+ * -- so a change to the rule is made here once. claim_wishlist_item() (its
+ * lapsed-release) and set_claim_occasion() (its lookup) keep their own copies
+ * of the rule, because they run inside the database.
  */
 
 /** Exactly what deciding activity needs -- nothing about who claimed it. */

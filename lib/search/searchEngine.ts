@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { calculateRelevance, sortAndLimitResults, groupResultsByType } from "./searchUtils";
+import { calculateRelevance, eitherContains, sortAndLimitResults, groupResultsByType } from "./searchUtils";
 
 import { getUserId } from "@/lib/auth/require-auth";
 export type SearchResultType = "group" | "wishlist" | "gift" | "exchange" | "person" | "tracked_gift" | "recipient";
@@ -11,6 +11,9 @@ export interface SearchResult {
   type: SearchResultType;
   title: string;
   description?: string | null;
+  // Each kind of result carries its own fields here, and the search results'
+  // components read them by kind.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   metadata?: Record<string, any>;
   url: string;
   relevanceScore?: number;
@@ -46,7 +49,7 @@ export async function searchSite(query: string): Promise<SearchResult[]> {
         avatar_url
       `)
       .neq("id", userId)
-      .or(`username.ilike.${searchTerm},display_name.ilike.${searchTerm}`);
+      .or(eitherContains("username", "display_name", query));
 
     if (people) {
       // Filter to only people in shared groups
@@ -93,7 +96,7 @@ export async function searchSite(query: string): Promise<SearchResult[]> {
       .ilike("groups.name", searchTerm);
 
     if (groups) {
-      groups.forEach((membership: any) => {
+      groups.forEach((membership) => {
         if (membership.groups) {
           const relevanceScore = calculateRelevance(membership.groups.name, query);
           results.push({
@@ -114,7 +117,7 @@ export async function searchSite(query: string): Promise<SearchResult[]> {
       .from("wishlist_items")
       .select("id, title, description, price, url")
       .eq("user_id", userId)
-      .or(`title.ilike.${searchTerm},description.ilike.${searchTerm}`);
+      .or(eitherContains("title", "description", query));
 
     if (wishlistItems) {
       wishlistItems.forEach((item) => {
@@ -147,10 +150,10 @@ export async function searchSite(query: string): Promise<SearchResult[]> {
           name
         )
       `)
-      .or(`name.ilike.${searchTerm},description.ilike.${searchTerm}`);
+      .or(eitherContains("name", "description", query));
 
     if (groupGifts) {
-      groupGifts.forEach((gift: any) => {
+      groupGifts.forEach((gift) => {
         const relevanceScore = Math.max(
           calculateRelevance(gift.name, query),
           calculateRelevance(gift.description || "", query)
@@ -185,19 +188,21 @@ export async function searchSite(query: string): Promise<SearchResult[]> {
           name
         )
       `)
-      .or(`name.ilike.${searchTerm},description.ilike.${searchTerm}`)
+      .or(eitherContains("name", "description", query))
       .gte("exchange_date", new Date().toISOString())
       .lte("exchange_date", thirtyDaysFromNow.toISOString())
       .eq("is_active", true);
 
     if (exchanges) {
-      exchanges.forEach((exchange: any) => {
+      exchanges.forEach((exchange) => {
         const relevanceScore = Math.max(
           calculateRelevance(exchange.name, query),
           calculateRelevance(exchange.description || "", query)
         );
 
-        const exchangeDate = new Date(exchange.exchange_date);
+        // The query keeps only exchanges dated within the next 30 days, so
+        // each has a date.
+        const exchangeDate = new Date(exchange.exchange_date as string);
         const daysUntil = Math.ceil(
           (exchangeDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
         );
@@ -237,10 +242,10 @@ export async function searchSite(query: string): Promise<SearchResult[]> {
       `)
       .eq("user_id", userId)
       .eq("is_archived", false)
-      .or(`name.ilike.${searchTerm},description.ilike.${searchTerm}`);
+      .or(eitherContains("name", "description", query));
 
     if (trackedGifts) {
-      trackedGifts.forEach((gift: any) => {
+      trackedGifts.forEach((gift) => {
         const relevanceScore = Math.max(
           calculateRelevance(gift.name, query),
           calculateRelevance(gift.description || "", query)
@@ -279,7 +284,7 @@ export async function searchSite(query: string): Promise<SearchResult[]> {
       .ilike("name", searchTerm);
 
     if (recipients) {
-      recipients.forEach((recipient: any) => {
+      recipients.forEach((recipient) => {
         const relevanceScore = calculateRelevance(recipient.name, query);
         const giftCount = recipient.tracked_gifts?.length || 0;
         results.push({

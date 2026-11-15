@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getDeveloperId } from '@/lib/auth/developer';
+import { readOwnContact } from '@/lib/profile/own-contact';
 
 /**
  * Test endpoint to verify date reminders database setup
@@ -20,12 +21,10 @@ export async function GET() {
   try {
     const supabase = await createClient();
 
-    // Email lives on the profile row now; Clerk's auth() only returns ids.
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('email')
-      .eq('id', userId)
-      .maybeSingle();
+    // The developer's own email, from own_contact(); Clerk's auth() only
+    // returns ids. None when the read fails or finds no row.
+    const own = await readOwnContact(supabase);
+    const email = 'contact' in own ? (own.contact?.email ?? null) : null;
 
     // Test 1: Check if date_notifications table exists
     const { error: tableError } = await supabase
@@ -41,22 +40,22 @@ export async function GET() {
       success: true,
       user: {
         id: userId,
-        email: profile?.email ?? null
+        email
       },
       tests: {
         tableExists: !tableError,
         tableError: tableError ? {
           message: tableError.message,
-          code: (tableError as any).code,
-          details: (tableError as any).details,
-          hint: (tableError as any).hint
+          code: tableError.code,
+          details: tableError.details,
+          hint: tableError.hint
         } : null,
         functionWorks: !functionError,
         functionError: functionError ? {
           message: functionError.message,
-          code: (functionError as any).code,
-          details: (functionError as any).details,
-          hint: (functionError as any).hint
+          code: functionError.code,
+          details: functionError.details,
+          hint: functionError.hint
         } : null,
         functionResult: functionResult
       }

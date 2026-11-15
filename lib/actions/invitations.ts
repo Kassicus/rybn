@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getUserId, requireAuthWithProfile } from "@/lib/auth/require-auth";
 import {
   generateInviteToken,
@@ -11,18 +12,16 @@ import {
 import { GROUP_RULES, invitationEmailSchema } from "@/lib/schemas/groups";
 import { GROUP_SENTENCES } from "@/lib/groups/sentences";
 import { sendGroupInviteEmail } from "@/lib/resend/send";
+import { emailErrorKind } from "@/lib/resend/error-kind";
+import { readOwnContact } from "@/lib/profile/own-contact";
 import { revalidatePath } from "next/cache";
 
 /**
  * What an inviter sees when the send fails (GROUP_SENTENCES.emailNotSent).
  *
- * Deliberately generic, and the genericness is the point. `emailError` holds
- * the provider's own words, which for the failure that prompted this read
- * "The rybn.app domain is not verified. Please, add and verify your domain on
- * https://resend.com/domains" -- a sentence addressed to whoever operates this
- * app, that was being shown verbatim to a group member trying to invite a
- * friend. The detail belongs in the server log, and that is now the only place
- * it goes.
+ * Deliberately generic: the email service's own words are addressed to
+ * whoever operates this app, and they reach neither the inviter nor the log.
+ * The log carries the failure's kind alone (emailErrorKind).
  *
  * "Try resending" is honest advice for every failure shape reaching here: the
  * invitation row is committed before the send is attempted, so a failed email
@@ -51,13 +50,20 @@ const INVITE_CODE_SHAPE = /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/;
  * group the invitation is for.
  *
  * The membership is read first: someone not in the group is answered "You are
- * not a member of this group" before any other read. An address with an
- * invitation another member sent that has not been accepted answers
- * GROUP_SENTENCES.alreadyInvited, before anything is written.
+ * not a member of this group" before any other read. After the hourly limit,
+ * the ids of the accounts holding the address are read with the admin client;
+ * one of them in the group answers GROUP_SENTENCES.alreadyInGroup, and the
+ * email tells the invitee to create an account only when none holds it. An
+ * address with an invitation another member sent that has not been accepted
+ * answers GROUP_SENTENCES.alreadyInvited, before anything is written.
  *
  * Once the invitation is made it answers `emailSent`, `isResend` (an
  * invitation of the caller's already waiting was sent again) and, when the
  * email did not go, `warning`.
+ *
+ * Nothing it logs holds the address or the inviter's own email. A failed
+ * invitation write is logged by its code alone, and a failed email by its
+ * kind alone.
  */
 export async function sendGroupInvitation(data: {
   groupId: string;
@@ -108,16 +114,20 @@ export async function sendGroupInvitation(data: {
   }
   const groupName = membership.groups.name;
 
-  // Clerk's auth() only returns ids, so the inviter's display details come
-  // from their profile row.
+  // Clerk's auth() only returns ids, so the inviter is named by the username
+  // on their profile row, else by their own email from own_contact(), read
+  // only when there is no username, else "A friend".
   const { data: inviterProfile } = await supabase
     .from("user_profiles")
-    .select("username, email")
+    .select("username")
     .eq("id", userId)
     .maybeSingle();
 
-  const inviterName =
-    inviterProfile?.username || inviterProfile?.email || "A friend";
+  let inviterName = inviterProfile?.username || "";
+  if (!inviterName) {
+    const own = await readOwnContact(supabase);
+    inviterName = ("contact" in own && own.contact?.email) || "A friend";
+  }
 
   // Security: Rate limiting - check how many invitations this user has sent in the last hour
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -133,22 +143,33 @@ export async function sendGroupInvitation(data: {
     return { error: GROUP_SENTENCES.hourlyLimit };
   }
 
-  // Check if email is already a member
-  const { data: existingUser } = await supabase
+  // The accounts holding the address (more than one can), read on the
+  // server with the admin client, ids alone. Read only after the membership
+  // check and the hourly limit; the address is never logged, and the ids
+  // never leave this function. A failed read counts as no account.
+  const { data: holders, error: holdersError } = await createAdminClient()
     .from("user_profiles")
     .select("id")
-    .eq("email", email)
-    .maybeSingle();
+    .eq("email", email);
 
-  if (existingUser) {
+  if (holdersError) {
+    console.error(
+      `sendGroupInvitation: could not look up the address (${holdersError.code || "no code"})`
+    );
+  }
+  const holderIds = holdersError ? [] : (holders ?? []).map((holder) => holder.id);
+
+  // Whether one of those accounts is already in the group, asked of the
+  // caller's own client.
+  if (holderIds.length > 0) {
     const { data: alreadyMember } = await supabase
       .from("group_members")
       .select("id")
       .eq("group_id", data.groupId)
-      .eq("user_id", existingUser.id)
-      .maybeSingle();
+      .in("user_id", holderIds)
+      .limit(1);
 
-    if (alreadyMember) {
+    if (alreadyMember && alreadyMember.length > 0) {
       return { error: GROUP_SENTENCES.alreadyInGroup };
     }
   }
@@ -194,9 +215,9 @@ export async function sendGroupInvitation(data: {
       .maybeSingle();
 
     if (updateError) {
-      console.error("Error updating invitation:", updateError);
-      console.error("Update error details:", JSON.stringify(updateError, null, 2));
-      console.error("Attempted to update invitation ID:", existingInvite.id);
+      console.error(
+        `sendGroupInvitation: could not update the invitation (${updateError.code || "no code"})`
+      );
       return { error: GROUP_SENTENCES.updateInvitationFailed };
     }
 
@@ -221,7 +242,9 @@ export async function sendGroupInvitation(data: {
       .maybeSingle();
 
     if (inviteError) {
-      console.error("Error creating invitation:", inviteError);
+      console.error(
+        `sendGroupInvitation: could not create the invitation (${inviteError.code || "no code"})`
+      );
       return { error: GROUP_SENTENCES.createInvitationFailed };
     }
 
@@ -243,7 +266,6 @@ export async function sendGroupInvitation(data: {
   // the 403 body underneath. Check the resolved value FIRST, then keep the
   // catch for the network.
   let emailSent = false;
-  let emailError = null;
 
   try {
     const { error: sendError } = await sendGroupInviteEmail({
@@ -253,28 +275,20 @@ export async function sendGroupInvitation(data: {
       inviteToken: token,
       // Looked up above, to check whether this person is already in the
       // group. Reused rather than re-queried -- and it is the reason the
-      // template can stop telling account holders to create an account.
-      isNewUser: !existingUser,
+      // template can stop telling account holders to create an account. New
+      // only when no account holds the address.
+      isNewUser: holderIds.length === 0,
     });
 
     if (sendError) {
-      emailError = sendError.message || "Unknown error";
+      // Logged by its kind alone. See EMAIL_SEND_FAILED_MESSAGE.
+      console.error(`sendGroupInvitation: the email was refused (${emailErrorKind(sendError)})`);
     } else {
       emailSent = true;
     }
   } catch (error) {
-    emailError = error instanceof Error ? error.message : "Unknown error";
+    console.error(`sendGroupInvitation: the email failed (${emailErrorKind(error)})`);
     // Don't fail the invitation creation if email fails
-  }
-
-  if (!emailSent) {
-    // The provider's own words stop here. See EMAIL_SEND_FAILED_MESSAGE.
-    console.error("Invite email failed to send:", {
-      reason: emailError,
-      toEmail: email,
-      groupName,
-      inviterName,
-    });
   }
 
   const isResend = existingInvite && !existingInvite.accepted ? true : false;
@@ -289,21 +303,24 @@ export async function sendGroupInvitation(data: {
 }
 
 /**
- * Consumes an invitation token for the signed-in user.
+ * Accepts an invitation for the signed-in user, by its token.
  *
- * This does NOT read the invitations table and does NOT insert into
- * group_members. It cannot: group_members has no INSERT policy at all (a
- * self-grantable membership was a self-grantable key to nearly everything the
- * schema protects -- roster, invite code, private wishlist items, profile
- * fields, Secret Santa assignments -- to anyone holding the group UUID, which
- * is in the URL), and the email-based SELECT policy that once let an invitee
- * read their own invitation row is gone too. The invitee presents the token to
- * accept_group_invitation(); they never see the row behind it.
+ * The token goes to accept_group_invitation(), a SECURITY DEFINER function
+ * that takes the caller from requesting_user_id() and no user argument. It
+ * finds the invitation the token belongs to, which must not be accepted yet
+ * and must not have expired; adds the caller to its group as a member (a
+ * caller already in the group stays as they are); marks the invitation
+ * accepted; and answers the group's id. An unknown, accepted or expired token
+ * raises 22023, one error for all three, and a call with no signed-in caller
+ * raises 28000. The action itself reads no invitation row and writes no
+ * membership, and it calls the function with the signed-in person's own
+ * client.
  *
- * The function is SECURITY DEFINER, pins the new member to
- * requesting_user_id(), and takes no user parameter -- so it must be called on
- * the USER-SCOPED client. The admin client would carry no Clerk subject and
- * the call would raise 28000.
+ * It answers `{ data: { id } }` with the group's id;
+ * GROUP_SENTENCES.invitationInvalid for a token that opens nothing; "Not
+ * authenticated" when nobody is signed in; GROUP_SENTENCES.stillSettingUp
+ * when the caller's profile is not there yet (23503); and
+ * GROUP_SENTENCES.acceptFailed for any other failure, or no group id.
  */
 export async function acceptInvitation(token: string): Promise<
   | { error: string; data?: never }
