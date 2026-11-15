@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUserId } from "@/lib/auth/require-auth";
 import { isClaimActive, todayISO } from "@/lib/claims/active";
+import { readVisibleMarks } from "@/lib/wishlist/marks";
 
 /**
  * Claim / release / read layer for public.wishlist_claims
@@ -141,10 +142,6 @@ type ActiveClaimRow = {
   claimed_by: string;
   occasion_id: string | null;
   occasions: { occasion_date: string } | null;
-  // Same to-one embed shape as `occasions`: the FK (item_id) lives on
-  // wishlist_claims, and it is the only FK from this table to wishlist_items,
-  // so the embed is unambiguous and resolves to one object or null.
-  wishlist_items: { purchased: boolean } | null;
 };
 
 /**
@@ -170,6 +167,11 @@ type ActiveClaimRow = {
  * an OR across a claim's own null occasion_id and a joined table's column in
  * one query without a raw filter string. The `released_at is null` half
  * stays a real query filter, same as before.
+ *
+ * Whether each claimed item is bought, which the predicate also needs, is read
+ * with one visible_item_marks() call for the items whose claims came back; no
+ * call is made when none did. A failure there is logged and answered as a
+ * failed select is.
  *
  * The empty-list short circuit runs BEFORE getUserId() or createClient() are
  * even called, matching getTagsForItems() (lib/actions/item-occasions.ts):
@@ -200,14 +202,26 @@ export async function getActiveClaims(
 
   const { data, error } = await supabase
     .from("wishlist_claims")
-    .select(
-      "item_id, claimed_by, occasion_id, occasions ( occasion_date ), wishlist_items ( purchased )",
-    )
+    .select("item_id, claimed_by, occasion_id, occasions ( occasion_date )")
     .in("item_id", itemIds)
     .is("released_at", null);
 
   if (error) {
     console.error("getActiveClaims: select failed", error);
+    return { error: "Failed to load claims. Please try again." };
+  }
+
+  const rows = (data ?? []) as unknown as ActiveClaimRow[];
+  if (rows.length === 0) {
+    return { data: {} };
+  }
+
+  const read = await readVisibleMarks(
+    supabase,
+    rows.map((row) => row.item_id),
+  );
+  if ("error" in read) {
+    console.error("getActiveClaims: visible_item_marks failed", read.error);
     return { error: "Failed to load claims. Please try again." };
   }
 
@@ -217,7 +231,7 @@ export async function getActiveClaims(
 
   const result: Record<string, { claimedBy: string; occasionId: string | null }> =
     {};
-  for (const row of (data ?? []) as unknown as ActiveClaimRow[]) {
+  for (const row of rows) {
     // Optional chaining, not `row.occasions !== null`: a real PostgREST
     // response with no matching occasion embeds `occasions` as `null`, but a
     // hand-built test fixture that simply omits the key would leave it
@@ -233,7 +247,7 @@ export async function getActiveClaims(
       {
         occasionId: row.occasion_id,
         occasionDate,
-        itemPurchased: row.wishlist_items?.purchased ?? false,
+        itemPurchased: read.marks.get(row.item_id)?.purchased ?? false,
       },
       today,
     );
