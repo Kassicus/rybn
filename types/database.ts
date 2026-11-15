@@ -1440,6 +1440,23 @@ export type Database = {
         }
         Returns: undefined
       }
+      // Deletes the CALLER's account (20261114000000_delete_account.sql).
+      // Each group they are in, made, or made a group gift or exchange in
+      // passes to its heir: the first other member by role (owner, admin,
+      // member), then the longest-standing. A group with nobody else in it is
+      // deleted; otherwise the heir becomes owner where the caller was, and
+      // is recorded as the maker of what the caller made there. An exchange
+      // not yet held has its matches cleared, to be drawn again. Then the
+      // caller's profile is deleted, and the rest of theirs goes by cascade.
+      // A second call changes nothing. SECURITY DEFINER; takes no argument,
+      // so nobody can name someone else.
+      //
+      // Error codes, verified against the migration:
+      //   28000 not authenticated -- no Clerk JWT
+      delete_account: {
+        Args: never
+        Returns: undefined
+      }
       // Requests sharing one anniversary with p_partner_id, at p_date
       // (Task 3, 20260912000003_anniversary_link_rpcs.sql). SECURITY
       // DEFINER, pinned to requesting_user_id() as the caller. Requires a
