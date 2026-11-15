@@ -10,7 +10,10 @@ Gift giving, beautifully wrapped. A full-stack gift coordination app built with 
 - Clerk authentication (email/password and Google), with route protection in
   `proxy.ts` and lazy profile provisioning on first authenticated request
 - Supabase for data and private image storage, with row-level security doing
-  the real access control (see `supabase/tests/rls/`)
+  the real access control (see `supabase/tests/rls/`). A person's own email
+  and email preferences are read through `own_contact()`. The marks on an item
+  are read through `visible_item_marks()`, which answers only for items the
+  caller can see and does not own.
 - Groups and invitations, with family/friends/work/custom types
 - Profiles with per-field visibility -- sizes, preferences, vehicles, personal
   details and important dates, each restrictable by group or group type
@@ -150,7 +153,7 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 | `POST /invitations/accept` | 200 `{ group }`, as `POST /groups/join`; body `{ token }`, 64 characters of `0-9a-f`, or 422 `This invitation is invalid or has expired` before the website's action is called. The action's two sentences answer 422: `This invitation is invalid or has expired` and `Your account is still being set up. Please try again.` |
 
 - Requests are checked at the door (`lib/mobile/wishlist.ts`). A rule the person broke answers 422 with a sentence for them. An action's database error is logged and answered with the standard 500, never passed on.
-- Items are built field by field (`mobileItem`). Never send a row: rows carry `purchased`, stock marks and the owner's id, and the owner must never learn an item was bought.
+- Items are built field by field (`mobileItem`). Never send a row: a row carries the owner's id and the website's four mark fields (`purchased` and the stock marks, unmarked on the caller's own items and read through `visible_item_marks()` on anyone else's), and the owner must never learn an item was bought.
 - Pictures are JPEG or PNG, at most 4 MB. They are stored in the caller's own folder with the caller's own client. An upload route's path must not end in an image extension, because `proxy.ts` skips those paths and `auth()` would then fail.
 
 - A request whose path ends in an image extension (for example `/api/mobile/v1/wishlist/x.png`) is skipped by `proxy.ts`, so it answers 500 instead of 401. It exposes nothing, but it writes an error to the log. The fix belongs in the proxy's matcher.
@@ -166,7 +169,7 @@ The native iPhone app talks to the site only through `app/api/mobile/v1/`. Every
 - Claims are made with the database's own `claim_wishlist_item`, never `claimItem`, so a claim can be for a group date and its occasion comes from the item's owner. A gift's status is sent as `claimed` for `planned` on a gift from a list.
 - A gift from a list whose item the caller can no longer see (the owner hid it from them, or they left the group, but did not delete it) is never stepped between Claimed and Ordered, because the item cannot be marked; past Claimed it can be deleted while its claim is held, and the claim stays as the record that the item was bought.
 - A gift's `seasonYear` is the year of its occasion, else its stored season, which for a gift from a list whose claim has no occasion is the year the claim was made (when it is filed, claimed again or moved to No occasion), and for a hand-added gift with no occasion, the year it was added.
-- Owner-blindness: Home, groups and a person's list never read claims on the caller's own items; the caller's own list answers with no claim state. Never send `claimedBy`, `out_of_stock_marked_by` or an email.
+- Owner-blindness: Home, groups and a person's list never read claims on the caller's own items; the caller's own list answers with no claim state. Marks are read only through `visible_item_marks()`, which answers nothing about an item the caller owns, and the caller's own list asks nothing about its marks. Never send `claimedBy`, `out_of_stock_marked_by` or an email.
 - A group's invite code lets anyone holding it join. It is answered by `GET /groups/{id}/invite` to the group's members, and is never part of a list or a page.
 - An invitation's group name is read on the server, never taken from the request; the answer never holds the invitation's token.
 - A group date: name tidied as a group's name is (made one line, characters that cannot be seen made spaces, then trimmed), then 1 to 200 UTF-16 code units of the tidied text, as JavaScript counts a string's length; date `YYYY-MM-DD` and a real day. A date that is not there, or not the caller's to change, answers 404. Who may change or delete one is the database's rule (its maker, or an owner or admin of the group, while still in it); the routes ask the website's actions and never rely on the page's `change`, which follows the same rule.
