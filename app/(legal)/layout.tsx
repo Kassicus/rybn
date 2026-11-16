@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Logo } from "@/components/vibe/Logo";
+import { SiteFooter } from "@/components/layout/SiteFooter";
 
 export default function LegalLayout({
   children,
@@ -16,6 +17,7 @@ export default function LegalLayout({
       <main className="flex-1 px-4 pb-20">
         <div className="mx-auto w-full max-w-3xl space-y-8">{children}</div>
       </main>
+      <SiteFooter />
     </div>
   );
 }
