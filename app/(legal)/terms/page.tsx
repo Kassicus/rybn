@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Heading, Text } from "@/components/ui/text";
 
 export const metadata: Metadata = {
@@ -14,13 +15,14 @@ export default function TermsOfService() {
       <div className="space-y-2">
         <Heading level="h1">Terms of Service</Heading>
         <Text variant="secondary" size="sm">
-          Last updated 10 September 2026
+          Last updated 16 November 2026
         </Text>
       </div>
 
       <Text variant="secondary">
-        These terms govern your use of Rybn. By creating an account or using the
-        app, you agree to them. If you do not agree, please do not use Rybn.
+        These terms govern your use of Rybn, on the web at rybn.app and in the
+        Rybn app for iPhone. By creating an account or using Rybn, you agree to
+        them. If you do not agree, please do not use Rybn.
       </Text>
 
       <section className="space-y-3">
@@ -58,6 +60,24 @@ export default function TermsOfService() {
           <li>Probe, scan, or disrupt the service, or use automated means to scrape it.</li>
           <li>Impersonate another person, or misrepresent your affiliation with anyone.</li>
         </ul>
+        <Text variant="secondary">
+          We do not tolerate objectionable content or abusive behaviour. We may
+          remove content, and suspend or close accounts, that break these rules.
+        </Text>
+      </section>
+
+      <section className="space-y-3">
+        <Heading as="h2" level="h3">
+          Reporting a problem
+        </Heading>
+        <Text variant="secondary">
+          If you see something on Rybn that breaks these terms, or someone is
+          misusing it, tell us. The{" "}
+          <Link href="/support#report" className="underline">
+            Support page
+          </Link>{" "}
+          says how. We read every report and act on it.
+        </Text>
       </section>
 
       <section className="space-y-3">
@@ -120,10 +140,24 @@ export default function TermsOfService() {
           Ending your use
         </Heading>
         <Text variant="secondary">
-          You may delete your account at any time. We may suspend or terminate an
+          You may delete your account at any time, from Settings on the website
+          or from Account in the iPhone app. We may suspend or terminate an
           account that breaches these terms or that puts other users at risk.
           Some content you contributed to shared group conversations may remain
           visible to those groups, as described in our Privacy Policy.
+        </Text>
+      </section>
+
+      <section className="space-y-3">
+        <Heading as="h2" level="h3">
+          The iPhone app
+        </Heading>
+        <Text variant="secondary">
+          If you got the Rybn app from Apple&apos;s App Store, Apple&apos;s
+          standard licence for apps (its Licensed Application End User License
+          Agreement) also applies to your use of the app. These terms are
+          between you and us, not Apple, and Apple is not responsible for the
+          app or for what is in it.
         </Text>
       </section>
 

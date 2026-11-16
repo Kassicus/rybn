@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { Logo } from "@/components/vibe/Logo";
 import { Button } from "@/components/ui/button";
+import { SiteFooter } from "@/components/layout/SiteFooter";
 import { getUserId } from "@/lib/auth/require-auth";
 
 export const metadata: Metadata = {
@@ -113,36 +114,7 @@ export default async function Home() {
         </section>
       </main>
 
-      <footer className="border-t border-light-border">
-        <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-4 px-6 py-8">
-          <div className="grid gap-1 text-sm text-light-text-tertiary">
-            <p>Rybn - gift giving, beautifully wrapped</p>
-            <p>
-              &copy; {new Date().getFullYear()} Karnyx Labs LLC · Developed by{" "}
-              <a
-                href="https://karnyxlabs.com"
-                className="whitespace-nowrap text-light-text-secondary hover:text-primary"
-              >
-                Karnyx Labs
-              </a>
-            </p>
-          </div>
-          <nav className="flex gap-6 text-sm">
-            <Link href="/privacy" className="text-light-text-secondary hover:text-primary">
-              Privacy
-            </Link>
-            <Link href="/terms" className="text-light-text-secondary hover:text-primary">
-              Terms
-            </Link>
-            <a
-              href="mailto:support@rybn.app"
-              className="text-light-text-secondary hover:text-primary"
-            >
-              Contact
-            </a>
-          </nav>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

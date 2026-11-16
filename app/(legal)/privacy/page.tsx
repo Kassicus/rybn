@@ -14,7 +14,7 @@ export default function PrivacyPolicy() {
       <div className="space-y-2">
         <Heading level="h1">Privacy Policy</Heading>
         <Text variant="secondary" size="sm">
-          Last updated 10 September 2026
+          Last updated 16 November 2026
         </Text>
       </div>
 
@@ -34,7 +34,10 @@ export default function PrivacyPolicy() {
           Clerk. When you register we receive your email address, the username
           you choose, and a display name. If you sign in with Google, we receive
           the basic profile information Google returns — your name, email
-          address, and profile picture. We never see your Google password.
+          address, and profile picture. We never see your Google password. If
+          you sign in with Apple, we receive your name and the email address you
+          choose to share, which may be a private address Apple makes for you.
+          We never see your Apple password.
         </Text>
         <Text variant="secondary">
           <strong>Profile details you choose to add.</strong> Rybn lets you
@@ -59,12 +62,29 @@ export default function PrivacyPolicy() {
           wishlist item, our server fetches that page to read its title, price,
           description, and image so it can fill the form in for you. The request
           comes from our server, not your browser, and we store only the details
-          that end up on the item.
+          that end up on the item. In the iPhone app, the app itself reads that
+          page, from your phone, when you paste or share a link.
         </Text>
         <Text variant="secondary">
           <strong>Usage data.</strong> We use Vercel Analytics, which collects
           aggregate page-view data. It does not use cookies and does not build a
           profile of individual visitors.
+        </Text>
+      </section>
+
+      <section className="space-y-3">
+        <Heading as="h2" level="h3">
+          The iPhone app
+        </Heading>
+        <Text variant="secondary">
+          The Rybn app for iPhone uses the same account and the same information
+          as the website. On the phone itself it keeps your sign-in, in the
+          phone&apos;s keychain, and a few settings, such as whether you chose a
+          light or a dark appearance. It asks for the camera or your photo
+          library only when you choose to add a picture, reads what you have
+          copied only when you tap Paste, and receives from other apps only what
+          you share to it. The app has no advertising and no tracking, and it
+          does not use Vercel Analytics or any other analytics.
         </Text>
       </section>
 
@@ -118,6 +138,7 @@ export default function PrivacyPolicy() {
           <li><strong>Resend</strong> — delivery of transactional email.</li>
           <li><strong>Vercel</strong> — hosting and aggregate analytics.</li>
           <li><strong>Google</strong> — only if you choose to sign in with Google.</li>
+          <li><strong>Apple</strong> — only if you choose to sign in with Apple.</li>
         </ul>
         <Text variant="secondary">
           We may also disclose information if the law requires it, or where it is
@@ -147,8 +168,10 @@ export default function PrivacyPolicy() {
           delete your account, the data that belongs to you — profile, wishlists,
           gift records, and uploaded images — is deleted along with it. Messages
           you posted in a shared group chat may remain visible to that group, as
-          removing them would tear holes in other people&apos;s conversations. To
-          request deletion, contact us at the address below.
+          removing them would tear holes in other people&apos;s conversations. You can
+          delete your account yourself: on the website under Settings, or in the
+          iPhone app under Account. Or write to us at the address below and we
+          will do it.
         </Text>
       </section>
 
