@@ -9,6 +9,7 @@ import { MemberManager } from "@/components/gifts/MemberManager";
 import { GroupGiftSettings } from "@/components/gifts/GroupGiftSettings";
 import { getGroupGiftById } from "@/lib/actions/gifts";
 import { getMessages } from "@/lib/actions/messages";
+import { forLine, giftPersonName, hiddenLine } from "@/lib/gifts/names";
 
 import { getUserId } from "@/lib/auth/require-auth";
 export default async function GroupGiftDetailPage({
@@ -19,7 +20,7 @@ export default async function GroupGiftDetailPage({
   const { groupGiftId } = await params;
 
   const { data: groupGift, error } = await getGroupGiftById(groupGiftId);
-  const { data: messages = [] } = await getMessages(groupGiftId);
+  const { data: messages = [], hasEarlier = false } = await getMessages(groupGiftId);
 
   if (error || !groupGift) {
     notFound();
@@ -32,6 +33,9 @@ export default async function GroupGiftDetailPage({
   }
 
   const isCreator = groupGift.created_by === userId;
+  const recipientNames = groupGift.recipients.map(giftPersonName);
+  const recipientsLine = forLine(recipientNames);
+  const hiddenFromThem = hiddenLine(recipientNames);
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
@@ -58,6 +62,14 @@ export default async function GroupGiftDetailPage({
                   </span>
                 )}
               </div>
+              {recipientsLine && (
+                <>
+                  <Text className="mt-1 font-medium">{recipientsLine}</Text>
+                  <Text size="sm" variant="secondary">
+                    {hiddenFromThem}
+                  </Text>
+                </>
+              )}
               {groupGift.description && (
                 <Text variant="secondary" className="mt-1">
                   {groupGift.description}
@@ -122,6 +134,7 @@ export default async function GroupGiftDetailPage({
           <ChatWindow
             groupGiftId={groupGift.id}
             initialMessages={messages}
+            initialHasEarlier={hasEarlier}
             currentUserId={userId}
           />
         </div>
