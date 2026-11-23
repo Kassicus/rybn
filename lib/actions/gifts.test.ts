@@ -5,8 +5,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
  * client; who is in which group is read with the caller's own client. Every test here is about one rule: a gift
  * says who it is for, those people are never told of it, and every read of a gift goes through one check.
  *
- * The sentences are written out rather than imported from lib/gifts/sentences.ts: if the wording there changes,
- * these assertions fail -- which is the intent.
+ * The sentences, and the columns each read names, are written out rather than imported: if the wording or the
+ * columns change, these assertions fail -- which is the intent.
  */
 const NOT_THERE = "Group gift not found";
 const CHOOSE_WHO = "Choose who this gift is for.";
@@ -20,6 +20,10 @@ const AMOUNT = "Enter an amount from 0 to 1,000,000.";
 const CHARACTERS = "That has characters Rybn can't save. Try typing it again.";
 const CREATE_FAILED = "Failed to create group gift. Please try again.";
 
+const GIFT_COLUMNS = "id, group_id, name, description, target_amount, current_amount, is_active, created_by, created_at";
+const MEMBER_COLUMNS = "id, group_gift_id, user_id, contribution_amount, has_paid, joined_at";
+const PERSON_COLUMNS = "id, username, display_name, avatar_url";
+
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 const getUserId = vi.fn();
@@ -29,44 +33,66 @@ vi.mock("@/lib/auth/require-auth", () => ({
 }));
 
 /**
- * Every query, as `(table, "from")` and then `(table, method, ...args)` for each chain call: `query` for the
- * caller's own client, `adminQuery` for the service-role client.
+ * One query, recorded as a unit: which client made it ("user" is the caller's own, "admin" the service-role one),
+ * of which table, and every call on its chain in order, the terminal `maybeSingle` or `single` included. A test
+ * asserts the whole chain of one read: its columns, each filter, its order and its limit.
  */
-const query = vi.fn();
-const adminQuery = vi.fn();
+interface Query {
+  client: "user" | "admin";
+  table: string;
+  calls: unknown[][];
+}
+
+/**
+ * A scripted answer: the value a query resolves to, or a function of the query that makes it (see rowsIn), for an
+ * answer that should depend on what the code asked for.
+ */
+type Answer = unknown | ((query: Query) => unknown);
 
 /**
  * Supabase's query builder is thenable, so `await from().select().eq()` resolves without a terminal call while
- * `.maybeSingle()` and `.single()` are their own promises. Every chain method returns the chain, and the chain
- * resolves the next scripted answer for its table.
+ * `.maybeSingle()` and `.single()` are their own promises. Every chain method returns the chain and is recorded on
+ * the query; the chain resolves the next scripted answer for its table once the chain is complete.
  *
- * Answers are queued PER TABLE and taken in the order the queries are made; the service-role client's under
- * "admin:<table>". `order` holds every table asked, in the order asked.
+ * Answers are queued PER TABLE and taken in the order the queries resolve; the service-role client's are queued
+ * under "admin:<table>". `queries` holds every query, in the order made. Tests added to this file later use the
+ * same fake: script the answers, call the action, then read `asked()`, `tablesAsked()` or `adminInserts()`.
  */
-function createSupabaseMock(script: Record<string, unknown[]>) {
-  const queues: Record<string, unknown[]> = {};
+function createSupabaseMock(script: Record<string, Answer[]>) {
+  const queues: Record<string, Answer[]> = {};
   for (const [table, answers] of Object.entries(script)) queues[table] = [...answers];
-  const order: string[] = [];
+  const queries: Query[] = [];
 
-  const client = (prefix: string, record: typeof query) => (table: string) => {
-    const queued = `${prefix}${table}`;
-    order.push(queued);
-    record(table, "from");
+  const client = (who: Query["client"]) => (table: string) => {
+    const query: Query = { client: who, table, calls: [] };
+    queries.push(query);
+    const queued = keyOf(query);
     const next = () => {
       const queue = queues[queued];
       if (!queue || queue.length === 0) throw new Error(`No scripted Supabase answer left for "${queued}"`);
-      return queue.shift();
+      const answer = queue.shift();
+      return typeof answer === "function" ? answer(query) : answer;
     };
 
     const chain: Record<string, unknown> = {};
-    for (const method of ["select", "insert", "update", "delete", "eq", "in", "order", "limit"]) {
+    for (const method of [
+      "select", "insert", "update", "delete",
+      "eq", "neq", "in", "gt", "gte", "lt", "lte", "or", "not",
+      "order", "limit", "range",
+    ]) {
       chain[method] = (...args: unknown[]) => {
-        record(table, method, ...args);
+        query.calls.push([method, ...args]);
         return chain;
       };
     }
-    chain.maybeSingle = async () => next();
-    chain.single = async () => next();
+    chain.maybeSingle = async () => {
+      query.calls.push(["maybeSingle"]);
+      return next();
+    };
+    chain.single = async () => {
+      query.calls.push(["single"]);
+      return next();
+    };
     chain.then = (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
       Promise.resolve()
         .then(next)
@@ -74,7 +100,12 @@ function createSupabaseMock(script: Record<string, unknown[]>) {
     return chain;
   };
 
-  return { order, from: client("", query), adminFrom: client("admin:", adminQuery) };
+  return { queries, from: client("user"), adminFrom: client("admin") };
+}
+
+/** A query's table as the script names it: "admin:<table>" for the service-role client. */
+function keyOf(query: Query): string {
+  return query.client === "admin" ? `admin:${query.table}` : query.table;
 }
 
 let supabase: ReturnType<typeof createSupabaseMock>;
@@ -86,6 +117,42 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({ from: (table: string) => supabase.adminFrom(table) }),
 }));
+
+/** Every query made, by table as the script names it, each as its chain of calls, in the order made. */
+function asked(): Record<string, unknown[][][]> {
+  const byTable: Record<string, unknown[][][]> = {};
+  for (const query of supabase.queries) (byTable[keyOf(query)] ??= []).push(query.calls);
+  return byTable;
+}
+
+/** The tables asked, as the script names them, in the order asked. */
+const tablesAsked = () => supabase.queries.map(keyOf);
+
+/** Every insert the service-role client made, as [table, payload], in the order made. */
+const adminInserts = () =>
+  supabase.queries
+    .filter((query) => query.client === "admin")
+    .flatMap((query) => query.calls.filter(([method]) => method === "insert").map((call) => [query.table, call[1]]));
+
+/** The row the latest gift insert wrote. */
+const storedGift = () => {
+  const gifts = adminInserts().filter(([table]) => table === "group_gifts");
+  return gifts[gifts.length - 1]?.[1] as Record<string, unknown>;
+};
+
+const ok = (data: unknown) => ({ data, error: null });
+const failed = (message: string, code = "XX000") => ({ data: null, error: { message, code } });
+
+/**
+ * An answer holding only those of `rows` whose `column` is among the values the query asked for with
+ * `.in(column, values)`, as the database would answer it: nobody the code did not ask for comes back.
+ */
+const rowsIn =
+  (column: string, rows: Record<string, unknown>[]) =>
+  (query: Query) => {
+    const wanted = query.calls.find(([method, on]) => method === "in" && on === column)?.[2];
+    return ok(rows.filter((row) => Array.isArray(wanted) && wanted.includes(row[column])));
+  };
 
 const { createGroupGift, getMyGroupGifts, getGroupGiftById, getGroupGiftChoices } = await import("./gifts");
 
@@ -107,6 +174,9 @@ const PEOPLE = {
   gran: { id: GRAN, username: "gran", display_name: "Gran", avatar_url: null },
   priya: { id: PRIYA, username: "priya", display_name: "Priya Shah", avatar_url: null },
 };
+
+/** Every profile, Sam's own among them: rowsIn answers only those the code asks for. */
+const EVERYONE = Object.values(PEOPLE);
 
 const RIVERA = "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e";
 const BOOK_CLUB = "2b8f6c4a-1e3d-4f5a-9b7c-0d1e2f3a4b5c";
@@ -178,9 +248,6 @@ const JORDAN_IN_WEEKEND = {
   joined_at: "2026-11-16T18:20:00+00:00",
 };
 
-const ok = (data: unknown) => ({ data, error: null });
-const failed = (message: string, code = "XX000") => ({ data: null, error: { message, code } });
-
 /** The caller's groups as groupMates reads them: Rivera and the Book Club. */
 const MY_GROUPS = ok([
   { group_id: RIVERA, groups: { id: RIVERA, name: "Rivera Family" } },
@@ -193,17 +260,22 @@ const THEIR_MEMBERS = ok([
   ...[SAM, PRIYA, ALEX].map((user_id) => ({ group_id: BOOK_CLUB, user_id })),
 ]);
 
-const MATES_PROFILES = ok([PEOPLE.mom, PEOPLE.dad, PEOPLE.alex, PEOPLE.jordan, PEOPLE.gran, PEOPLE.priya]);
+/** groupMates' three reads, as the caller: their groups, those groups' members, then everyone but the caller. */
+const MATES_READS = [
+  [["select", "group_id, groups ( id, name )"], ["eq", "user_id", SAM]],
+  [["select", "group_id, user_id"], ["in", "group_id", [BOOK_CLUB, RIVERA]]],
+];
+const MATES_PROFILES_READ = [["select", PERSON_COLUMNS], ["in", "id", [MOM, DAD, ALEX, JORDAN, GRAN, PRIYA]]];
 
 /**
  * createGroupGift's reads and writes when everything goes: the caller's own membership of the group, then
  * groupMates (their groups, those groups' members, the members' profiles), then the gift, its names and its
  * maker's member row.
  */
-function createScript(): Record<string, unknown[]> {
+function createScript(): Record<string, Answer[]> {
   return {
     group_members: [ok({ id: "b0000000-0000-4000-8000-000000000001" }), MY_GROUPS, THEIR_MEMBERS],
-    user_profiles: [MATES_PROFILES],
+    user_profiles: [rowsIn("id", EVERYONE)],
     "admin:group_gifts": [ok(WEEKEND_ROW), ok(null)],
     "admin:group_gift_recipients": [ok(null)],
     "admin:group_gift_members": [ok(null)],
@@ -220,16 +292,6 @@ const NEW_WEEKEND = {
 };
 
 type NewGift = Parameters<typeof createGroupGift>[0];
-
-/** Every insert the service-role client made, as [table, payload], in the order made. */
-const adminInserts = () =>
-  adminQuery.mock.calls.filter((call) => call[1] === "insert").map((call) => [call[0], call[2]]);
-
-/** The row the latest gift insert wrote. */
-const storedGift = () => {
-  const gifts = adminInserts().filter(([table]) => table === "group_gifts");
-  return gifts[gifts.length - 1]?.[1] as Record<string, unknown>;
-};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -248,31 +310,36 @@ describe("createGroupGift", () => {
     const result = await createGroupGift(NEW_WEEKEND);
 
     expect(result).toEqual({ data: WEEKEND_ROW });
+    const storedRow = {
+      name: "Anniversary weekend away",
+      description: "Two nights at the coast.",
+      group_id: RIVERA,
+      target_amount: 600,
+      is_active: true,
+      created_by: SAM,
+    };
+    const names = [
+      { group_gift_id: WEEKEND, user_id: DAD },
+      { group_gift_id: WEEKEND, user_id: MOM },
+    ];
+    const makerRow = { group_gift_id: WEEKEND, user_id: SAM, contribution_amount: 0, has_paid: false };
     expect(adminInserts()).toEqual([
-      [
-        "group_gifts",
-        {
-          name: "Anniversary weekend away",
-          description: "Two nights at the coast.",
-          group_id: RIVERA,
-          target_amount: 600,
-          is_active: true,
-          created_by: SAM,
-        },
-      ],
-      [
-        "group_gift_recipients",
-        [
-          { group_gift_id: WEEKEND, user_id: DAD },
-          { group_gift_id: WEEKEND, user_id: MOM },
-        ],
-      ],
-      ["group_gift_members", { group_gift_id: WEEKEND, user_id: SAM, contribution_amount: 0, has_paid: false }],
+      ["group_gifts", storedRow],
+      ["group_gift_recipients", names],
+      ["group_gift_members", makerRow],
     ]);
     expect(storedGift()).not.toHaveProperty("target_user_id");
     // Who is in which group is read as the caller, never with the service-role client.
-    expect(adminQuery).not.toHaveBeenCalledWith("group_members", "from");
-    expect(adminQuery).not.toHaveBeenCalledWith("user_profiles", "from");
+    expect(asked()).toEqual({
+      group_members: [
+        [["select", "id"], ["eq", "group_id", RIVERA], ["eq", "user_id", SAM], ["maybeSingle"]],
+        ...MATES_READS,
+      ],
+      user_profiles: [MATES_PROFILES_READ],
+      "admin:group_gifts": [[["insert", storedRow], ["select", GIFT_COLUMNS], ["single"]]],
+      "admin:group_gift_recipients": [[["insert", names]]],
+      "admin:group_gift_members": [[["insert", makerRow]]],
+    });
   });
 
   it("writes no names for someone not on Rybn", async () => {
@@ -282,7 +349,7 @@ describe("createGroupGift", () => {
 
     expect(result).toEqual({ data: WEEKEND_ROW });
     expect(adminInserts().map(([table]) => table)).toEqual(["group_gifts", "group_gift_members"]);
-    expect(supabase.order).not.toContain("admin:group_gift_recipients");
+    expect(tablesAsked()).not.toContain("admin:group_gift_recipients");
   });
 
   it("answers Choose who this gift is for. when the list is missing", async () => {
@@ -290,7 +357,7 @@ describe("createGroupGift", () => {
       supabase = createSupabaseMock(createScript());
       const result = await createGroupGift({ ...NEW_WEEKEND, recipient_ids } as unknown as NewGift);
       expect(result).toEqual({ error: CHOOSE_WHO });
-      expect(supabase.order).toEqual([]);
+      expect(supabase.queries).toEqual([]);
     }
   });
 
@@ -299,15 +366,18 @@ describe("createGroupGift", () => {
     supabase = createSupabaseMock(createScript());
 
     expect(await createGroupGift(NEW_WEEKEND)).toEqual({ error: "Not authenticated" });
-    expect(supabase.order).toEqual([]);
+    expect(supabase.queries).toEqual([]);
   });
 
   it("refuses someone the caller shares no group with, and the caller", async () => {
-    for (const recipient_ids of [["user_stranger"], [SAM], [DAD, "user_stranger"], [DAD, 7]]) {
+    // Sam is in both groups' members, and his profile would come back if asked for: only leaving him out of his
+    // own group-mates refuses him.
+    for (const recipient_ids of [[SAM], ["user_stranger"], [DAD, "user_stranger"], [DAD, 7]]) {
       supabase = createSupabaseMock(createScript());
       const result = await createGroupGift({ ...NEW_WEEKEND, recipient_ids } as unknown as NewGift);
       expect(result, JSON.stringify(recipient_ids)).toEqual({ error: NOT_ALLOWED });
       expect(adminInserts()).toEqual([]);
+      expect(asked().user_profiles, JSON.stringify(recipient_ids)).toEqual([MATES_PROFILES_READ]);
     }
   });
 
@@ -325,7 +395,7 @@ describe("createGroupGift", () => {
     const twentyOne = Array.from({ length: 21 }, (_, i) => `user_${i}`);
     supabase = createSupabaseMock(createScript());
     expect(await createGroupGift({ ...NEW_WEEKEND, recipient_ids: twentyOne })).toEqual({ error: TOO_MANY });
-    expect(supabase.order).toEqual([]);
+    expect(supabase.queries).toEqual([]);
 
     // Twenty names, each given twice, are twenty: past the count, and refused only as strangers.
     const twenty = twentyOne.slice(0, 20);
@@ -360,7 +430,7 @@ describe("createGroupGift", () => {
       supabase = createSupabaseMock(createScript());
       const result = await createGroupGift({ ...NEW_WEEKEND, name } as unknown as NewGift);
       expect(result, JSON.stringify(name)).toEqual({ error: sentence });
-      expect(supabase.order).toEqual([]);
+      expect(supabase.queries).toEqual([]);
     }
   });
 
@@ -382,7 +452,7 @@ describe("createGroupGift", () => {
       supabase = createSupabaseMock(createScript());
       const result = await createGroupGift({ ...NEW_WEEKEND, description });
       expect(result, JSON.stringify(description)).toEqual({ error: sentence });
-      expect(supabase.order).toEqual([]);
+      expect(supabase.queries).toEqual([]);
     }
   });
 
@@ -409,7 +479,7 @@ describe("createGroupGift", () => {
       supabase = createSupabaseMock(createScript());
       const result = await createGroupGift({ ...NEW_WEEKEND, target_amount } as unknown as NewGift);
       expect(result, String(target_amount)).toEqual({ error: AMOUNT });
-      expect(supabase.order).toEqual([]);
+      expect(supabase.queries).toEqual([]);
     }
   });
 
@@ -419,9 +489,9 @@ describe("createGroupGift", () => {
     const result = await createGroupGift({ ...NEW_WEEKEND, group_id: COACHES });
 
     expect(result).toEqual({ error: NOT_IN_GROUP });
-    expect(query).toHaveBeenCalledWith("group_members", "eq", "group_id", COACHES);
-    expect(query).toHaveBeenCalledWith("group_members", "eq", "user_id", SAM);
-    expect(adminQuery).not.toHaveBeenCalled();
+    expect(asked()).toEqual({
+      group_members: [[["select", "id"], ["eq", "group_id", COACHES], ["eq", "user_id", SAM], ["maybeSingle"]]],
+    });
   });
 
   it("deletes the gift and answers Failed to create group gift. Please try again. when a later insert fails", async () => {
@@ -429,17 +499,15 @@ describe("createGroupGift", () => {
 
     for (const table of ["admin:group_gift_recipients", "admin:group_gift_members"]) {
       consoleError.mockClear();
-      adminQuery.mockClear();
       supabase = createSupabaseMock({ ...createScript(), [table]: [failed("insert refused", "23514")] });
 
       const result = await createGroupGift(NEW_WEEKEND);
 
       expect(result, table).toEqual({ error: CREATE_FAILED });
-      expect(adminQuery).toHaveBeenCalledWith("group_gifts", "delete");
-      expect(adminQuery).toHaveBeenCalledWith("group_gifts", "eq", "id", WEEKEND);
+      expect(asked()["admin:group_gifts"]?.[1], table).toEqual([["delete"], ["eq", "id", WEEKEND]]);
       expect(consoleError).toHaveBeenCalledWith(expect.any(String), "insert refused");
       // When the names fail, the maker's member row is never written.
-      if (table === "admin:group_gift_recipients") expect(supabase.order).not.toContain("admin:group_gift_members");
+      if (table === "admin:group_gift_recipients") expect(tablesAsked()).not.toContain("admin:group_gift_members");
     }
   });
 });
@@ -450,6 +518,16 @@ const myRow = (gift: typeof WEEKEND_ROW | typeof TEACHER_ROW | typeof COACH_ROW,
   ...mine,
   group_gifts: gift,
 });
+
+/** getMyGroupGifts' first read: the caller's member rows, with each row's gift, newest first. */
+const MY_MEMBER_ROWS_READ = [
+  [
+    "select",
+    "group_gift_id, contribution_amount, has_paid, joined_at, group_gifts ( id, group_id, name, description, target_amount, current_amount, is_active, created_by, created_at )",
+  ],
+  ["eq", "user_id", SAM],
+  ["order", "joined_at", { ascending: false }],
+];
 
 describe("getMyGroupGifts", () => {
   it("leaves out a gift the caller is named on", async () => {
@@ -468,7 +546,7 @@ describe("getMyGroupGifts", () => {
           { group_gift_id: TEACHER, user_id: SAM },
         ]),
       ],
-      "admin:user_profiles": [ok([PEOPLE.dad, PEOPLE.mom])],
+      "admin:user_profiles": [rowsIn("id", EVERYONE)],
       group_members: [ok([{ group_id: RIVERA, groups: { name: "Rivera Family" } }])],
     });
 
@@ -476,9 +554,12 @@ describe("getMyGroupGifts", () => {
 
     expect(data.map((g) => g.id)).toEqual([WEEKEND]);
     // Everything read after the names asks about the kept gift alone.
-    expect(adminQuery).toHaveBeenCalledWith("group_gift_members", "in", "group_gift_id", [WEEKEND]);
-    expect(adminQuery).toHaveBeenCalledWith("user_profiles", "in", "id", [DAD, MOM]);
-    expect(query).toHaveBeenCalledWith("group_members", "in", "group_id", [RIVERA]);
+    expect(asked()).toEqual({
+      "admin:group_gift_members": [MY_MEMBER_ROWS_READ, [["select", "group_gift_id"], ["in", "group_gift_id", [WEEKEND]]]],
+      "admin:group_gift_recipients": [[["select", "group_gift_id, user_id"], ["in", "group_gift_id", [WEEKEND, TEACHER]]]],
+      "admin:user_profiles": [[["select", PERSON_COLUMNS], ["in", "id", [DAD, MOM]]]],
+      group_members: [[["select", "group_id, groups ( name )"], ["eq", "user_id", SAM], ["in", "group_id", [RIVERA]]]],
+    });
     expect(JSON.stringify(data)).not.toContain(TEACHER);
     expect(JSON.stringify(data)).not.toContain("Teacher");
   });
@@ -496,7 +577,7 @@ describe("getMyGroupGifts", () => {
           { group_gift_id: WEEKEND, user_id: DAD },
         ]),
       ],
-      "admin:user_profiles": [ok([PEOPLE.mom, PEOPLE.dad])],
+      "admin:user_profiles": [rowsIn("id", EVERYONE)],
       group_members: [ok([{ group_id: RIVERA, groups: { name: "Rivera Family" } }])],
     });
 
@@ -515,8 +596,12 @@ describe("getMyGroupGifts", () => {
         },
       ],
     });
-    expect(adminQuery).toHaveBeenCalledWith("group_gift_members", "eq", "user_id", SAM);
-    expect(adminQuery).toHaveBeenCalledWith("group_gift_members", "order", "joined_at", { ascending: false });
+    expect(asked()).toEqual({
+      "admin:group_gift_members": [MY_MEMBER_ROWS_READ, [["select", "group_gift_id"], ["in", "group_gift_id", [WEEKEND]]]],
+      "admin:group_gift_recipients": [[["select", "group_gift_id, user_id"], ["in", "group_gift_id", [WEEKEND]]]],
+      "admin:user_profiles": [[["select", PERSON_COLUMNS], ["in", "id", [MOM, DAD]]]],
+      group_members: [[["select", "group_id, groups ( name )"], ["eq", "user_id", SAM], ["in", "group_id", [RIVERA]]]],
+    });
   });
 
   it("names the group only to someone in it", async () => {
@@ -546,18 +631,24 @@ describe("getMyGroupGifts", () => {
       [WEEKEND, "Rivera Family", 3, []],
       [COACH, null, 3, []],
     ]);
-    // The group's name is read with the caller's own client, which shows only groups they are in.
-    expect(adminQuery).not.toHaveBeenCalledWith("group_members", "from");
-    expect(adminQuery).not.toHaveBeenCalledWith("groups", "from");
-    expect(query).toHaveBeenCalledWith("group_members", "eq", "user_id", SAM);
-    // A gift that names nobody asks for no profiles.
-    expect(supabase.order).not.toContain("admin:user_profiles");
+    // The group's name is read with the caller's own client, about the caller's own rows, which row-level
+    // security shows only for groups they are in. A gift that names nobody asks for no profiles.
+    expect(asked()).toEqual({
+      "admin:group_gift_members": [
+        MY_MEMBER_ROWS_READ,
+        [["select", "group_gift_id"], ["in", "group_gift_id", [WEEKEND, COACH]]],
+      ],
+      "admin:group_gift_recipients": [[["select", "group_gift_id, user_id"], ["in", "group_gift_id", [WEEKEND, COACH]]]],
+      group_members: [
+        [["select", "group_id, groups ( name )"], ["eq", "user_id", SAM], ["in", "group_id", [RIVERA, COACHES]]],
+      ],
+    });
   });
 
   it("answers nothing to nobody signed in, and the database's words when a read fails", async () => {
     getUserId.mockResolvedValue(null);
     expect(await getMyGroupGifts()).toEqual({ data: [] });
-    expect(supabase.order).toEqual([]);
+    expect(supabase.queries).toEqual([]);
 
     getUserId.mockResolvedValue(SAM);
     supabase = createSupabaseMock({
@@ -570,8 +661,18 @@ describe("getMyGroupGifts", () => {
   });
 });
 
-/** The three reads seeGift makes: the gift, the caller's member row in it, and whether it names the caller. */
-function seenScript(gift: unknown, membership: unknown, named: unknown): Record<string, unknown[]> {
+/** The one check's three reads for Sam and a gift: the gift, Sam's member row in it, and whether it names Sam. */
+const checkGift = (id: string) => [["select", GIFT_COLUMNS], ["eq", "id", id], ["maybeSingle"]];
+const checkMember = (id: string) => [
+  ["select", MEMBER_COLUMNS],
+  ["eq", "group_gift_id", id],
+  ["eq", "user_id", SAM],
+  ["maybeSingle"],
+];
+const checkNamed = (id: string) => [["select", "user_id"], ["eq", "group_gift_id", id], ["eq", "user_id", SAM], ["maybeSingle"]];
+
+/** The answers to the check's three reads: the gift, the caller's member row in it, and whether it names the caller. */
+function seenScript(gift: unknown, membership: unknown, named: unknown): Record<string, Answer[]> {
   return {
     "admin:group_gifts": [ok(gift)],
     "admin:group_gift_members": [ok(membership)],
@@ -580,7 +681,7 @@ function seenScript(gift: unknown, membership: unknown, named: unknown): Record<
 }
 
 /** Everything getGroupGiftById reads for Sam's weekend away, after seeGift. */
-function weekendScript(chat: { count: number; latest: unknown[] }): Record<string, unknown[]> {
+function weekendScript(chat: { count: number; latest: unknown[] }): Record<string, Answer[]> {
   return {
     "admin:group_gifts": [ok(WEEKEND_ROW)],
     "admin:group_gift_members": [ok(SAM_IN_WEEKEND), ok([JORDAN_IN_WEEKEND, ALEX_IN_WEEKEND, SAM_IN_WEEKEND])],
@@ -592,32 +693,35 @@ function weekendScript(chat: { count: number; latest: unknown[] }): Record<strin
       ]),
     ],
     "admin:messages": [{ data: null, count: chat.count, error: null }, ok(chat.latest)],
-    "admin:user_profiles": [ok([PEOPLE.sam, PEOPLE.alex, PEOPLE.jordan, PEOPLE.mom, PEOPLE.dad])],
+    "admin:user_profiles": [rowsIn("id", EVERYONE)],
     group_members: [ok([{ group_id: RIVERA, groups: { name: "Rivera Family" } }])],
   };
 }
 
 describe("getGroupGiftById", () => {
   it("answers Group gift not found to someone not in it, to someone it is for, and for no such gift", async () => {
-    supabase = createSupabaseMock(seenScript(WEEKEND_ROW, null, null));
-    const notIn = await getGroupGiftById(WEEKEND);
+    const gone = "9f9f9f9f-0000-4000-8000-000000000000";
+    const answers = [];
 
-    // The database never lets a person a gift names hold a member row in it; the check refuses them even so.
-    supabase = createSupabaseMock(seenScript(WEEKEND_ROW, { ...SAM_IN_WEEKEND }, { user_id: SAM }));
-    const named = await getGroupGiftById(WEEKEND);
-    expect([...supabase.order].sort()).toEqual([
-      "admin:group_gift_members",
-      "admin:group_gift_recipients",
-      "admin:group_gifts",
-    ]);
-    expect(adminQuery).toHaveBeenCalledWith("group_gift_recipients", "eq", "user_id", SAM);
+    for (const [label, id, script] of [
+      ["not in it", WEEKEND, seenScript(WEEKEND_ROW, null, null)],
+      // The database never lets a person a gift names hold a member row in it; the check refuses them even so.
+      ["named on it", WEEKEND, seenScript(WEEKEND_ROW, { ...SAM_IN_WEEKEND }, { user_id: SAM })],
+      ["no such gift", gone, seenScript(null, null, null)],
+    ] as const) {
+      supabase = createSupabaseMock(script);
+      answers.push(await getGroupGiftById(id));
+      // Each read of the check asks about this gift and this caller, and nothing more is read.
+      expect(asked(), label).toEqual({
+        "admin:group_gifts": [checkGift(id)],
+        "admin:group_gift_members": [checkMember(id)],
+        "admin:group_gift_recipients": [checkNamed(id)],
+      });
+    }
 
-    supabase = createSupabaseMock(seenScript(null, null, null));
-    const gone = await getGroupGiftById("9f9f9f9f-0000-4000-8000-000000000000");
-
-    expect(notIn).toStrictEqual({ error: NOT_THERE });
-    expect(named).toStrictEqual(notIn);
-    expect(gone).toStrictEqual(notIn);
+    expect(answers[0]).toStrictEqual({ error: NOT_THERE });
+    expect(answers[1]).toStrictEqual(answers[0]);
+    expect(answers[2]).toStrictEqual(answers[0]);
   });
 
   it("puts the maker first and answers the chat's count and newest message", async () => {
@@ -641,12 +745,28 @@ describe("getGroupGiftById", () => {
         chat: { count: 3, latest: { name: "Alex Rivera", text: "I can book it on Friday" } },
       },
     });
-    // The count is the database's own, and the newest message is the last by time, then by id.
-    expect(adminQuery).toHaveBeenCalledWith("messages", "select", "id", { count: "exact", head: true });
-    expect(adminQuery).toHaveBeenCalledWith("messages", "eq", "group_gift_id", WEEKEND);
-    expect(adminQuery).toHaveBeenCalledWith("messages", "order", "created_at", { ascending: false });
-    expect(adminQuery).toHaveBeenCalledWith("messages", "order", "id", { ascending: false });
-    expect(adminQuery).toHaveBeenCalledWith("messages", "limit", 1);
+    // After the check, every read is about this gift alone: its members, its names, its chat. The count is the
+    // database's own, and the newest message is the last by time, then by id.
+    expect(asked()).toEqual({
+      "admin:group_gifts": [checkGift(WEEKEND)],
+      "admin:group_gift_members": [checkMember(WEEKEND), [["select", MEMBER_COLUMNS], ["eq", "group_gift_id", WEEKEND]]],
+      "admin:group_gift_recipients": [
+        checkNamed(WEEKEND),
+        [["select", "group_gift_id, user_id"], ["in", "group_gift_id", [WEEKEND]]],
+      ],
+      "admin:messages": [
+        [["select", "id", { count: "exact", head: true }], ["eq", "group_gift_id", WEEKEND]],
+        [
+          ["select", "user_id, content"],
+          ["eq", "group_gift_id", WEEKEND],
+          ["order", "created_at", { ascending: false }],
+          ["order", "id", { ascending: false }],
+          ["limit", 1],
+        ],
+      ],
+      "admin:user_profiles": [[["select", PERSON_COLUMNS], ["in", "id", [SAM, ALEX, JORDAN, MOM, DAD]]]],
+      group_members: [[["select", "group_id, groups ( name )"], ["eq", "user_id", SAM], ["in", "group_id", [RIVERA]]]],
+    });
   });
 
   it("orders members who joined at the same moment by their row's id", async () => {
@@ -677,14 +797,14 @@ describe("getGroupGiftById", () => {
   });
 
   it("names the sender of the newest message even when they have left, and Someone when their profile is gone", async () => {
-    supabase = createSupabaseMock({
-      ...weekendScript({ count: 1, latest: [{ user_id: GRAN, content: "Count me out" }] }),
-      "admin:user_profiles": [ok([PEOPLE.sam, PEOPLE.alex, PEOPLE.jordan, PEOPLE.mom, PEOPLE.dad, PEOPLE.gran])],
-    });
+    supabase = createSupabaseMock(weekendScript({ count: 1, latest: [{ user_id: GRAN, content: "Count me out" }] }));
     const left = await getGroupGiftById(WEEKEND);
     expect("data" in left && left.data?.chat.latest).toEqual({ name: "Gran", text: "Count me out" });
 
-    supabase = createSupabaseMock(weekendScript({ count: 1, latest: [{ user_id: GRAN, content: "Count me out" }] }));
+    supabase = createSupabaseMock({
+      ...weekendScript({ count: 1, latest: [{ user_id: GRAN, content: "Count me out" }] }),
+      "admin:user_profiles": [rowsIn("id", EVERYONE.filter((p) => p.id !== GRAN))],
+    });
     const gone = await getGroupGiftById(WEEKEND);
     expect("data" in gone && gone.data?.chat.latest).toEqual({ name: "Someone", text: "Count me out" });
   });
@@ -692,7 +812,7 @@ describe("getGroupGiftById", () => {
   it("answers Not authenticated to nobody signed in, and the database's words when the check cannot read", async () => {
     getUserId.mockResolvedValue(null);
     expect(await getGroupGiftById(WEEKEND)).toEqual({ error: "Not authenticated" });
-    expect(supabase.order).toEqual([]);
+    expect(supabase.queries).toEqual([]);
 
     getUserId.mockResolvedValue(SAM);
     supabase = createSupabaseMock({
@@ -705,7 +825,7 @@ describe("getGroupGiftById", () => {
 
 describe("getGroupGiftChoices", () => {
   it("answers the caller's groups and everyone in them but the caller, each with the groups they share", async () => {
-    supabase = createSupabaseMock({ group_members: [MY_GROUPS, THEIR_MEMBERS], user_profiles: [MATES_PROFILES] });
+    supabase = createSupabaseMock({ group_members: [MY_GROUPS, THEIR_MEMBERS], user_profiles: [rowsIn("id", EVERYONE)] });
 
     const result = await getGroupGiftChoices();
 
@@ -725,17 +845,15 @@ describe("getGroupGiftChoices", () => {
         ],
       },
     });
-    // The caller is never offered, so their own profile is not asked for.
-    expect(query).toHaveBeenCalledWith("user_profiles", "in", "id", [MOM, DAD, ALEX, JORDAN, GRAN, PRIYA]);
-    expect(query).toHaveBeenCalledWith("user_profiles", "select", "id, username, display_name, avatar_url");
-    // Read as the caller, so row-level security decides what comes back.
-    expect(adminQuery).not.toHaveBeenCalled();
+    // Read as the caller, so row-level security decides what comes back: the caller's own memberships, the members
+    // of those groups alone, and everyone's profile but the caller's.
+    expect(asked()).toEqual({ group_members: MATES_READS, user_profiles: [MATES_PROFILES_READ] });
   });
 
   it("answers no groups and nobody to someone in no group, and Not authenticated to nobody signed in", async () => {
     supabase = createSupabaseMock({ group_members: [ok([])] });
     expect(await getGroupGiftChoices()).toEqual({ data: { groups: [], people: [] } });
-    expect(supabase.order).toEqual(["group_members"]);
+    expect(asked()).toEqual({ group_members: [MATES_READS[0]] });
 
     getUserId.mockResolvedValue(null);
     supabase = createSupabaseMock({});
