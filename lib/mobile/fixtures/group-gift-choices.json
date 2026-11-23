@@ -1,0 +1,80 @@
+{
+  "groups": [
+    {
+      "id": "2b8f6c4a-1e3d-4f5a-9b7c-0d1e2f3a4b5c",
+      "name": "Book Club"
+    },
+    {
+      "id": "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e",
+      "name": "Rivera Family"
+    }
+  ],
+  "people": [
+    {
+      "person": {
+        "id": "user_2alxABC",
+        "name": "Alex Rivera",
+        "username": "alex",
+        "avatarUrl": "https://img.clerk.com/alex"
+      },
+      "groupIds": [
+        "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e"
+      ]
+    },
+    {
+      "person": {
+        "id": "user_2dadABC",
+        "name": "Dad",
+        "username": "luis",
+        "avatarUrl": null
+      },
+      "groupIds": [
+        "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e"
+      ]
+    },
+    {
+      "person": {
+        "id": "user_2grnABC",
+        "name": "Gran",
+        "username": "gran",
+        "avatarUrl": null
+      },
+      "groupIds": [
+        "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e"
+      ]
+    },
+    {
+      "person": {
+        "id": "user_2jrdABC",
+        "name": "jordan",
+        "username": "jordan",
+        "avatarUrl": null
+      },
+      "groupIds": [
+        "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e"
+      ]
+    },
+    {
+      "person": {
+        "id": "user_2momABC",
+        "name": "Mom",
+        "username": "maria",
+        "avatarUrl": "https://img.clerk.com/mom"
+      },
+      "groupIds": [
+        "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e"
+      ]
+    },
+    {
+      "person": {
+        "id": "user_2prySHA",
+        "name": "Priya Shah",
+        "username": "priya",
+        "avatarUrl": null
+      },
+      "groupIds": [
+        "2b8f6c4a-1e3d-4f5a-9b7c-0d1e2f3a4b5c"
+      ]
+    }
+  ]
+}

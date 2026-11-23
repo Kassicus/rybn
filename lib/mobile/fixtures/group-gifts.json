@@ -1,0 +1,59 @@
+{
+  "groupGifts": [
+    {
+      "id": "5a1c9e2b-3d4f-4a6b-8c7d-9e0f1a2b3c4d",
+      "name": "Anniversary weekend away",
+      "description": "Two nights at the coast.",
+      "groupName": "Rivera Family",
+      "recipients": [
+        {
+          "id": "user_2dadABC",
+          "name": "Dad",
+          "username": "luis",
+          "avatarUrl": null
+        },
+        {
+          "id": "user_2momABC",
+          "name": "Mom",
+          "username": "maria",
+          "avatarUrl": "https://img.clerk.com/mom"
+        }
+      ],
+      "targetAmount": 600,
+      "pledged": 340,
+      "memberCount": 3,
+      "myPledge": 120,
+      "myPaid": false,
+      "isMaker": true,
+      "active": true
+    },
+    {
+      "id": "6b2d0f3c-4e5a-4b7c-9d8e-0f1a2b3c4d5e",
+      "name": "Teacher thank-you",
+      "description": null,
+      "groupName": "Book Club",
+      "recipients": [],
+      "targetAmount": null,
+      "pledged": 45,
+      "memberCount": 4,
+      "myPledge": 15,
+      "myPaid": true,
+      "isMaker": false,
+      "active": true
+    },
+    {
+      "id": "7c3e1a4d-5f6b-4c8d-8e9f-1a2b3c4d5e6f",
+      "name": "Coach's send-off",
+      "description": "A card and a voucher.",
+      "groupName": null,
+      "recipients": [],
+      "targetAmount": 200,
+      "pledged": 60,
+      "memberCount": 3,
+      "myPledge": 0,
+      "myPaid": false,
+      "isMaker": false,
+      "active": false
+    }
+  ]
+}
