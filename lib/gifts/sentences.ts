@@ -51,7 +51,7 @@ export const GIFT_SENTENCES = {
   messageMissing: "Write a message first.",
   messageTooLong: "Keep the message to 5000 characters or fewer.",
 
-  /** A control character in a name, or one other than tab, line feed and carriage return in longer text. */
+  /** A control character other than tab, line feed and carriage return in the description or a message. */
   characters: CHARACTERS_REFUSED,
 
   /**

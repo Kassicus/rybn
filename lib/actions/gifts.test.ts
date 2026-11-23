@@ -335,7 +335,7 @@ describe("createGroupGift", () => {
     });
   });
 
-  it("tidies the name and refuses an empty, a long or an unsavable one", async () => {
+  it("tidies the name and refuses an empty or a long one", async () => {
     supabase = createSupabaseMock(createScript());
     await createGroupGift({ ...NEW_WEEKEND, name: "  Dad's\n60th " });
     expect(storedGift().name).toBe("Dad's 60th");

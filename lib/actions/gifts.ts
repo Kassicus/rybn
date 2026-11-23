@@ -19,7 +19,7 @@ import {
 } from "@/lib/gifts/access";
 import { byGiftPersonName, giftPersonName } from "@/lib/gifts/names";
 import { GIFT_LIMITS, GIFT_SENTENCES } from "@/lib/gifts/sentences";
-import { CONTROL, CONTROL_EXCEPT_NOTES_WHITESPACE } from "@/lib/utils/characters";
+import { CONTROL_EXCEPT_NOTES_WHITESPACE } from "@/lib/utils/characters";
 import { tidyGroupText } from "@/lib/utils/groups";
 
 import { getUserId } from "@/lib/auth/require-auth";
@@ -69,10 +69,10 @@ export async function createGroupGift(
     return { error: GIFT_SENTENCES.chooseWho };
   }
 
+  // Tidying turns every control character into a space, so no unsavable character can remain in a name.
   const name = typeof formData.name === "string" ? tidyGroupText(formData.name) : "";
   if (name === "") return { error: GIFT_SENTENCES.nameMissing };
   if (name.length > GIFT_LIMITS.name) return { error: GIFT_SENTENCES.nameTooLong };
-  if (CONTROL.test(name)) return { error: GIFT_SENTENCES.characters };
 
   const description = typeof formData.description === "string" ? formData.description.trim() : "";
   if (description.length > GIFT_LIMITS.description) return { error: GIFT_SENTENCES.descriptionTooLong };
