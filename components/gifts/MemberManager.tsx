@@ -11,11 +11,11 @@ import { getAvailableGroupMembers, addMembersToGroupGift } from "@/lib/actions/g
 interface Member {
   id: string;
   user_id: string;
-  contribution_amount: number;
-  has_paid: boolean;
+  contribution_amount: number | null;
+  has_paid: boolean | null;
   user_profiles: {
     id: string;
-    username: string;
+    username: string | null;
     display_name?: string | null;
     avatar_url?: string | null;
   } | null;
@@ -131,7 +131,7 @@ export function MemberManager({
                 )}
               </div>
               <div className="text-right">
-                {member.contribution_amount > 0 && (
+                {member.contribution_amount !== null && member.contribution_amount > 0 && (
                   <Text size="sm" className="font-semibold text-primary">
                     ${member.contribution_amount.toFixed(2)}
                   </Text>

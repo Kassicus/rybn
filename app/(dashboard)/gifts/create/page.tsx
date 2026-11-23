@@ -12,7 +12,7 @@ import { getMyGroups } from "@/lib/actions/groups";
 import { useEffect } from "react";
 
 export default function CreateGiftGroupPage() {
-  const [groups, setGroups] = useState<any[]>([]);
+  const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -59,7 +59,7 @@ export default function CreateGiftGroupPage() {
       name: name.trim(),
       description: description.trim() || null,
       group_id: selectedGroupId,
-      target_user_id: null,
+      recipient_ids: [],
       target_amount: parsedAmount,
       is_active: true,
     });
