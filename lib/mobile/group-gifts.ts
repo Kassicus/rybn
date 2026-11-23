@@ -157,6 +157,41 @@ const isRecord = (raw: unknown): raw is Record<string, unknown> =>
   typeof raw === "object" && raw !== null && !Array.isArray(raw);
 
 /**
+ * A pledge's body: `amount` a finite number from 0 to 1,000,000, else the amount sentence; `paid` a boolean, else
+ * `That request wasn't valid.`, which is also the answer for a body that is not an object. The amount is read first,
+ * as the action does. Nothing else in the body is read.
+ */
+export function parsePledgeBody(
+  raw: unknown,
+): { ok: true; amount: number; paid: boolean } | { ok: false; message: string } {
+  if (!isRecord(raw)) return { ok: false, message: RULES.request };
+  const { amount, paid } = raw;
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0 || amount > GIFT_LIMITS.amount) {
+    return { ok: false, message: GIFT_SENTENCES.amount };
+  }
+  if (typeof paid !== "boolean") return { ok: false, message: RULES.request };
+  return { ok: true, amount, paid };
+}
+
+/** The most people one request can add. */
+const MOST_ADDED = 50;
+
+/**
+ * The body that adds people to a gift: `ids` is a list of 1 to 50 person ids, a repeated id counting once. A list
+ * that is empty, too long, or holds anything that is not a person's id answers the one cannot-add sentence, the same
+ * whichever way it fails. A body of any other shape answers `That request wasn't valid.`.
+ */
+export function parseAddPeopleBody(raw: unknown): { ok: true; ids: string[] } | { ok: false; message: string } {
+  if (!isRecord(raw) || !Array.isArray(raw.ids)) return { ok: false, message: RULES.request };
+  const asked = [...new Set<unknown>(raw.ids)];
+  const ids = asked.filter((id): id is string => typeof id === "string" && PERSON_ID.test(id));
+  if (ids.length === 0 || ids.length !== asked.length || ids.length > MOST_ADDED) {
+    return { ok: false, message: GIFT_SENTENCES.cannotAdd };
+  }
+  return { ok: true, ids };
+}
+
+/**
  * A new group gift's body, checked with the rules the action checks again, in the action's order, so one body gets one
  * sentence at the door and in the action. A body that is not an object, and a description that is neither text nor
  * null, answer `That request wasn't valid.`. The name is tidied (tidyGroupText) and the description trimmed; a blank

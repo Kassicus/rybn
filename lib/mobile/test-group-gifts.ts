@@ -73,6 +73,21 @@ export function seenWeekend(): SeenGroupGift {
   };
 }
 
+/** What getGroupGiftById answers once Gran has been added to Anniversary weekend away: a fourth member, pledging nothing. */
+export function seenWeekendWithGran(): SeenGroupGift {
+  const seen = seenWeekend();
+  return {
+    ...seen,
+    group_gift_members: [
+      ...seen.group_gift_members,
+      {
+        id: "c0000000-0000-4000-8000-000000000004", group_gift_id: GIFT_IDS.weekend, user_id: gran.id,
+        contribution_amount: 0, has_paid: false, joined_at: "2026-11-15T09:00:00+00:00", user_profiles: gran,
+      },
+    ],
+  };
+}
+
 /** What getGroupGiftChoices answers to Sam: his groups and everyone he shares one with, each by name. */
 export function groupMateRows(): { groups: { id: string; name: string }[]; people: (GiftPerson & { group_ids: string[] })[] } {
   const inRivera = [alex, dad, gran, jordan, mom].map((p) => ({ ...p, group_ids: [IDS.rivera] }));

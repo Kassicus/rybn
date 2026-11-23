@@ -7,7 +7,9 @@ import {
   groupGiftPage,
   groupGiftSummary,
   money,
+  parseAddPeopleBody,
   parseNewGroupGiftBody,
+  parsePledgeBody,
 } from "./group-gifts";
 import { fixture } from "./test-fixtures";
 import { groupMateRows, myGroupGifts, seenWeekend } from "./test-group-gifts";
@@ -247,6 +249,66 @@ describe("the request fixture", () => {
   it.each([[[]], ["x"], [null], [undefined], [4]])("answers %j with the plain sentence", (body) => {
     expect(parseNewGroupGiftBody(body)).toEqual({ ok: false, message: RULES.request });
   });
+});
+
+describe("parsePledgeBody", () => {
+  it("reads the request fixture", () => {
+    expect(parsePledgeBody(fixture("pledge-request"))).toEqual({ ok: true, amount: 120, paid: false });
+  });
+
+  it("takes 0, the largest amount and a fraction, and reads only amount and paid", () => {
+    expect(parsePledgeBody({ amount: 0, paid: true })).toEqual({ ok: true, amount: 0, paid: true });
+    expect(parsePledgeBody({ amount: 1000000, paid: true, user_id: "x" })).toEqual({ ok: true, amount: 1000000, paid: true });
+    expect(parsePledgeBody({ amount: 80.5, paid: false })).toEqual({ ok: true, amount: 80.5, paid: false });
+  });
+
+  it.each([
+    ["negative", { amount: -5, paid: false }],
+    ["above the largest", { amount: 1000000.01, paid: false }],
+    ["text", { amount: "80", paid: false }],
+    ["null", { amount: null, paid: false }],
+    ["missing", { paid: false }],
+    ["not finite", { amount: Number.POSITIVE_INFINITY, paid: false }],
+    ["not a number", { amount: Number.NaN, paid: false }],
+  ])("answers the amount sentence for an amount that is %s", (_what, body) => {
+    expect(parsePledgeBody(body)).toEqual({ ok: false, message: GIFT_SENTENCES.amount });
+  });
+
+  it.each([[{ amount: 1, paid: "yes" }], [{ amount: 1, paid: null }], [{ amount: 1 }], [[]], ["x"], [null], [undefined]])(
+    "answers the plain sentence for %j",
+    (body) => {
+      expect(parsePledgeBody(body)).toEqual({ ok: false, message: RULES.request });
+    },
+  );
+});
+
+describe("parseAddPeopleBody", () => {
+  it("reads the request fixture", () => {
+    expect(parseAddPeopleBody(fixture("add-people-request"))).toEqual({ ok: true, ids: ["user_2grnABC"] });
+  });
+
+  it("takes fifty ids, a repeated id once, and reads only ids", () => {
+    const fifty = Array.from({ length: 50 }, (_, i) => `user_${i}`);
+    expect(parseAddPeopleBody({ ids: fifty, user_id: "x" })).toEqual({ ok: true, ids: fifty });
+    expect(parseAddPeopleBody({ ids: ["user_1", "user_1", "user_2"] })).toEqual({ ok: true, ids: ["user_1", "user_2"] });
+  });
+
+  it.each([
+    ["an empty list", { ids: [] }],
+    ["fifty-one ids", { ids: Array.from({ length: 51 }, (_, i) => `user_${i}`) }],
+    ["an id that is not a person's", { ids: ["not an id"] }],
+    ["an empty id", { ids: [""] }],
+    ["an id that is not text", { ids: [7] }],
+  ])("answers the cannot-add sentence for %s", (_what, body) => {
+    expect(parseAddPeopleBody(body)).toEqual({ ok: false, message: GIFT_SENTENCES.cannotAdd });
+  });
+
+  it.each([[{}], [{ ids: "user_1" }], [{ ids: null }], [[]], ["x"], [null], [undefined]])(
+    "answers the plain sentence for %j",
+    (body) => {
+      expect(parseAddPeopleBody(body)).toEqual({ ok: false, message: RULES.request });
+    },
+  );
 });
 
 describe("GROUP_GIFT_ROUTE_ANSWERS", () => {
