@@ -20,7 +20,7 @@ interface Message {
   created_at: string | null;
   user_profiles: {
     id: string;
-    username: string;
+    username: string | null;
     display_name: string | null;
     avatar_url: string | null;
   } | null;
@@ -140,7 +140,6 @@ export function ChatWindow({
     const result = await sendMessage({
       group_gift_id: groupGiftId,
       content: messageContent,
-      attachment_url: null,
     });
 
     if (result.error) {

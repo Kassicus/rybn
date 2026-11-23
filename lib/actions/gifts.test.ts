@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createSupabaseMock, failed, ok, rowsIn, type Answer } from "@/lib/gifts/test-supabase";
 
 /**
  * The group gift actions, with Supabase faked. A group gift's rows are read and written with the service-role
@@ -35,82 +36,7 @@ vi.mock("@/lib/auth/require-auth", () => ({
   getUserId: () => getUserId(),
 }));
 
-/**
- * One query, recorded as a unit: which client made it ("user" is the caller's own, "admin" the service-role one),
- * of which table, and every call on its chain in order, the terminal `maybeSingle` or `single` included. A test
- * asserts the whole chain of one read: its columns, each filter, its order and its limit.
- */
-interface Query {
-  client: "user" | "admin";
-  table: string;
-  calls: unknown[][];
-}
-
-/**
- * A scripted answer: the value a query resolves to, or a function of the query that makes it (see rowsIn), for an
- * answer that should depend on what the code asked for.
- */
-type Answer = unknown | ((query: Query) => unknown);
-
-/**
- * Supabase's query builder is thenable, so `await from().select().eq()` resolves without a terminal call while
- * `.maybeSingle()` and `.single()` are their own promises. Every chain method returns the chain and is recorded on
- * the query; the chain resolves the next scripted answer for its table once the chain is complete.
- *
- * Answers are queued PER TABLE and taken in the order the queries resolve; the service-role client's are queued
- * under "admin:<table>". `queries` holds every query, in the order made. Tests added to this file later use the
- * same fake: script the answers, call the action, then read `asked()`, `tablesAsked()` or `adminInserts()`.
- */
-function createSupabaseMock(script: Record<string, Answer[]>) {
-  const queues: Record<string, Answer[]> = {};
-  for (const [table, answers] of Object.entries(script)) queues[table] = [...answers];
-  const queries: Query[] = [];
-
-  const client = (who: Query["client"]) => (table: string) => {
-    const query: Query = { client: who, table, calls: [] };
-    queries.push(query);
-    const queued = keyOf(query);
-    const next = () => {
-      const queue = queues[queued];
-      if (!queue || queue.length === 0) throw new Error(`No scripted Supabase answer left for "${queued}"`);
-      const answer = queue.shift();
-      return typeof answer === "function" ? answer(query) : answer;
-    };
-
-    const chain: Record<string, unknown> = {};
-    for (const method of [
-      "select", "insert", "update", "delete",
-      "eq", "neq", "in", "gt", "gte", "lt", "lte", "or", "not",
-      "order", "limit", "range",
-    ]) {
-      chain[method] = (...args: unknown[]) => {
-        query.calls.push([method, ...args]);
-        return chain;
-      };
-    }
-    chain.maybeSingle = async () => {
-      query.calls.push(["maybeSingle"]);
-      return next();
-    };
-    chain.single = async () => {
-      query.calls.push(["single"]);
-      return next();
-    };
-    chain.then = (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
-      Promise.resolve()
-        .then(next)
-        .then(resolve, reject);
-    return chain;
-  };
-
-  return { queries, from: client("user"), adminFrom: client("admin") };
-}
-
-/** A query's table as the script names it: "admin:<table>" for the service-role client. */
-function keyOf(query: Query): string {
-  return query.client === "admin" ? `admin:${query.table}` : query.table;
-}
-
+/** The fake Supabase client (lib/gifts/test-supabase.ts) this test is on now: each test makes its own. */
 let supabase: ReturnType<typeof createSupabaseMock>;
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -122,40 +48,19 @@ vi.mock("@/lib/supabase/admin", () => ({
 }));
 
 /** Every query made, by table as the script names it, each as its chain of calls, in the order made. */
-function asked(): Record<string, unknown[][][]> {
-  const byTable: Record<string, unknown[][][]> = {};
-  for (const query of supabase.queries) (byTable[keyOf(query)] ??= []).push(query.calls);
-  return byTable;
-}
+const asked = () => supabase.asked();
 
 /** The tables asked, as the script names them, in the order asked. */
-const tablesAsked = () => supabase.queries.map(keyOf);
+const tablesAsked = () => supabase.tablesAsked();
 
 /** Every insert the service-role client made, as [table, payload], in the order made. */
-const adminInserts = () =>
-  supabase.queries
-    .filter((query) => query.client === "admin")
-    .flatMap((query) => query.calls.filter(([method]) => method === "insert").map((call) => [query.table, call[1]]));
+const adminInserts = () => supabase.adminInserts();
 
 /** The row the latest gift insert wrote. */
 const storedGift = () => {
   const gifts = adminInserts().filter(([table]) => table === "group_gifts");
   return gifts[gifts.length - 1]?.[1] as Record<string, unknown>;
 };
-
-const ok = (data: unknown) => ({ data, error: null });
-const failed = (message: string, code = "XX000") => ({ data: null, error: { message, code } });
-
-/**
- * An answer holding only those of `rows` whose `column` is among the values the query asked for with
- * `.in(column, values)`, as the database would answer it: nobody the code did not ask for comes back.
- */
-const rowsIn =
-  (column: string, rows: Record<string, unknown>[]) =>
-  (query: Query) => {
-    const wanted = query.calls.find(([method, on]) => method === "in" && on === column)?.[2];
-    return ok(rows.filter((row) => Array.isArray(wanted) && wanted.includes(row[column])));
-  };
 
 const {
   createGroupGift,
