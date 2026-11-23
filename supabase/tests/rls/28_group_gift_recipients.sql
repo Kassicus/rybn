@@ -18,17 +18,21 @@
 --      foreign keys, group_gift_id to group_gifts and user_id to
 --      user_profiles, each on delete cascade.
 --   2. The triggers (assertions 3-5). group_gift_members has exactly one
---      enabled trigger running reject_group_gift_recipient_as_member, before
---      insert and update, for each row. group_gift_recipients has exactly one
---      enabled trigger running each of reject_group_gift_member_as_recipient
---      (before insert), reject_parent_reassignment on group_gift_id and
---      user_id (before update) and reject_group_gift_recipient_removal
---      (before delete), each for each row. The three trigger functions are
---      SECURITY DEFINER with search_path pinned, neither authenticated nor
---      anon may execute them, and each deployed definition holds no block
---      comment and holds its refusal on a line of its own (so not
---      line-commented); the two that lock the gift's row lock it on a line of
---      its own, before the refusal.
+--      enabled trigger running reject_group_gift_recipient_as_member, after
+--      insert and update, for each row, so the row's own policy and the pin
+--      on its gift and person decide first. group_gift_recipients has exactly
+--      one enabled trigger running each of
+--      reject_group_gift_member_as_recipient (before insert),
+--      reject_parent_reassignment on group_gift_id and user_id (before
+--      update) and reject_group_gift_recipient_removal (before delete), each
+--      for each row. The three trigger functions are SECURITY DEFINER with
+--      search_path pinned, and no API role (authenticated, anon,
+--      service_role) may execute them. Each deployed definition holds no
+--      block comment, and holds its refusal on a line of its own (so not
+--      line-commented) directly under the condition that guards it, each of
+--      that condition's lines whole and in order; the two that lock the
+--      gift's row lock it for no key update on a line of its own, before the
+--      refusal.
 --   3. The membership test and the policy (assertions 6-7).
 --      is_group_gift_member() is SECURITY DEFINER and stable, with
 --      search_path pinned; its definition holds no block comment, keeps its
@@ -38,7 +42,7 @@
 --      authenticated, is the only SELECT or ALL policy on group_gift_members;
 --      it goes through the gift's maker (created_by) and
 --      is_group_gift_member(), and compares no row's own user_id with the
---      caller.
+--      caller, written either way round.
 --   4. What each person is answered (assertions 8-10). Ggr Surprise is made
 --      by maker, has member rows for maker and member, and names for1 and
 --      for2. Asked by each person about themselves, is_group_gift_member() is
@@ -55,9 +59,11 @@
 -- and person both exist each raise check_violation, and one uncaught raise
 -- ends the whole batch this file is sent as; the runner bans handlers
 -- file-wide. The three refusals are held by the catalog checks of assertions
--- 3-5: each trigger is there, enabled, and fires before the write it refuses,
--- and each function's refusal is on a line of its own, with the
--- no-block-comment floor beneath it.
+-- 3-5: each trigger is there, enabled, and fires on the write it refuses
+-- (rule 2 after the row's own policy and pin, its raise undoing the
+-- statement; rules 3 and 5 before the write), and each function's refusal
+-- and the condition that guards it are on lines of their own, with the
+-- no-block-comment floor beneath them.
 --
 -- NO NAMED PERSON WITH A MEMBER ROW IS BUILT. The rule of assertion 3
 -- refuses that row, so the clause of is_group_gift_member() that answers
@@ -259,11 +265,12 @@ begin
   ---------------------------------------------------------------------------
   -- Assertion 3: group_gift_members has exactly one enabled, non-internal
   -- trigger running reject_group_gift_recipient_as_member, and it fires
-  -- before insert and before update, for each row, with no WHEN condition
-  -- (tgtype 23: row 1 + before 2 + insert 4 + update 16).
+  -- after insert and after update, for each row, with no WHEN condition
+  -- (tgtype 21: row 1 + insert 4 + update 16, with no before bit), so the
+  -- row's own policy and the pin on its gift and person decide first.
   ---------------------------------------------------------------------------
   select count(*),
-         count(*) filter (where tg.tgtype = 23 and tg.tgqual is null)
+         count(*) filter (where tg.tgtype = 21 and tg.tgqual is null)
     into v_count, v_count2
     from pg_trigger tg
    where tg.tgrelid = 'public.group_gift_members'::regclass
@@ -273,7 +280,7 @@ begin
 
   if v_count <> 1 or v_count2 <> 1 then
     raise exception
-      'GUARD FAIL: group_gift_members has % enabled trigger(s) running reject_group_gift_recipient_as_member, % of them before insert and update, for each row, with no condition; expected exactly 1 of each',
+      'GUARD FAIL: group_gift_members has % enabled trigger(s) running reject_group_gift_recipient_as_member, % of them after insert and update, for each row, with no condition; expected exactly 1 of each',
       v_count, v_count2;
   end if;
   v_checks := v_checks + 1;
@@ -316,16 +323,21 @@ begin
 
   ---------------------------------------------------------------------------
   -- Assertion 5: the three trigger functions are SECURITY DEFINER with
-  -- search_path pinned, and neither authenticated nor anon may execute them.
-  -- Each deployed definition holds no block comment, and holds its refusal
-  -- on a line of its own (so not line-commented). The two that lock the
-  -- gift's row lock it on a line of its own, before the refusal.
+  -- search_path pinned, and no API role (authenticated, anon, service_role)
+  -- may execute them. Each deployed definition holds no block comment, and
+  -- holds its refusal on a line of its own (so not line-commented). Each
+  -- refusal sits directly under the condition that guards it, read line by
+  -- line: every line of the condition whole, on its own and in order, then
+  -- the raise on the next line, so a condition with a line changed, dropped
+  -- or added fails here. The two that lock the gift's row lock it for no key
+  -- update on a line of its own, before the refusal.
   ---------------------------------------------------------------------------
   select count(*),
          count(*) filter (where p.prosecdef
                             and coalesce('search_path=public' = any(p.proconfig), false)
                             and not has_function_privilege('authenticated', p.oid, 'execute')
-                            and not has_function_privilege('anon', p.oid, 'execute'))
+                            and not has_function_privilege('anon', p.oid, 'execute')
+                            and not has_function_privilege('service_role', p.oid, 'execute'))
     into v_count, v_count2
     from pg_proc p
    where p.oid in ('public.reject_group_gift_recipient_as_member()'::regprocedure,
@@ -334,7 +346,7 @@ begin
 
   if v_count <> 3 or v_count2 <> 3 then
     raise exception
-      'GUARD FAIL: of % trigger function(s) found, % are SECURITY DEFINER with search_path=public and executable by neither authenticated nor anon; expected 3 of 3',
+      'GUARD FAIL: of % trigger function(s) found, % are SECURITY DEFINER with search_path=public and executable by none of authenticated, anon and service_role; expected 3 of 3',
       v_count, v_count2;
   end if;
 
@@ -351,25 +363,33 @@ begin
       position(v_block_open in v_def3);
   end if;
 
-  if not v_def ~ '(?n)^\s*perform 1 from group_gifts where id = new\.group_gift_id for update;$'
+  if not v_def ~ '(?n)^\s*perform 1 from group_gifts where id = new\.group_gift_id for no key update;$'
      or not v_def ~ '(?n)^\s*raise exception ''GROUP GIFT: a person a group gift is for cannot be in it'' using errcode = ''check_violation'';$'
-     or position('for update;' in v_def) > position('raise exception' in v_def) then
+     or not v_def ~ '(?n)^\s*if exists \(select 1 from group_gift_recipients\n\s*where group_gift_id = new\.group_gift_id\n\s*and user_id = new\.user_id\) then\n\s*raise exception ''GROUP GIFT: a person a group gift is for cannot be in it'' using errcode = ''check_violation'';$'
+     or position('for no key update;' in v_def) > position('raise exception' in v_def) then
     raise exception
-      'GUARD FAIL: reject_group_gift_recipient_as_member no longer locks the gift''s row and then refuses a member row for a person named on the gift, each on a line of its own, not line-commented (lock at character %, refusal at %; expected both present, the lock first)',
-      position('for update;' in v_def), position('raise exception' in v_def);
+      'GUARD FAIL: reject_group_gift_recipient_as_member no longer locks the gift''s row for no key update and then refuses a member row for a person named on the gift, directly under its condition (a group_gift_recipients row for the row''s gift and person), each line whole and on its own, not line-commented (lock at character %, condition at %, refusal at %; expected all three present, the lock first, the refusal on the line after the condition)',
+      position('for no key update;' in v_def),
+      position('if exists (select 1 from group_gift_recipients' in v_def),
+      position('raise exception' in v_def);
   end if;
 
-  if not v_def2 ~ '(?n)^\s*select created_by into v_maker from group_gifts where id = new\.group_gift_id for update;$'
+  if not v_def2 ~ '(?n)^\s*select created_by into v_maker from group_gifts where id = new\.group_gift_id for no key update;$'
      or not v_def2 ~ '(?n)^\s*raise exception ''GROUP GIFT: someone in a group gift, or its maker, cannot be a person it is for'' using errcode = ''check_violation'';$'
-     or position('for update;' in v_def2) > position('raise exception' in v_def2) then
+     or not v_def2 ~ '(?n)^\s*if new\.user_id = v_maker\n\s*or exists \(select 1 from group_gift_members\n\s*where group_gift_id = new\.group_gift_id\n\s*and user_id = new\.user_id\) then\n\s*raise exception ''GROUP GIFT: someone in a group gift, or its maker, cannot be a person it is for'' using errcode = ''check_violation'';$'
+     or position('for no key update;' in v_def2) > position('raise exception' in v_def2) then
     raise exception
-      'GUARD FAIL: reject_group_gift_member_as_recipient no longer locks the gift''s row and then refuses a name for someone in the gift or for its maker, each on a line of its own, not line-commented (lock at character %, refusal at %; expected both present, the lock first)',
-      position('for update;' in v_def2), position('raise exception' in v_def2);
+      'GUARD FAIL: reject_group_gift_member_as_recipient no longer locks the gift''s row for no key update and then refuses a name for someone in the gift or for its maker, directly under its condition (the name''s person is the maker, or a group_gift_members row holds the gift and person), each line whole and on its own, not line-commented (lock at character %, condition at %, refusal at %; expected all three present, the lock first, the refusal on the line after the condition)',
+      position('for no key update;' in v_def2),
+      position('if new.user_id = v_maker' in v_def2),
+      position('raise exception' in v_def2);
   end if;
 
-  if not v_def3 ~ '(?n)^\s*raise exception ''GROUP GIFT: who a group gift is for cannot be changed'' using errcode = ''check_violation'';$' then
+  if not v_def3 ~ '(?n)^\s*raise exception ''GROUP GIFT: who a group gift is for cannot be changed'' using errcode = ''check_violation'';$'
+     or not v_def3 ~ '(?n)^\s*if exists \(select 1 from group_gifts where id = old\.group_gift_id\)\n\s*and exists \(select 1 from user_profiles where id = old\.user_id\) then\n\s*raise exception ''GROUP GIFT: who a group gift is for cannot be changed'' using errcode = ''check_violation'';$' then
     raise exception
-      'GUARD FAIL: reject_group_gift_recipient_removal no longer refuses the delete of a name on a line of its own, not line-commented (refusal at character %; expected present)',
+      'GUARD FAIL: reject_group_gift_recipient_removal no longer refuses the delete of a name directly under its condition (the name''s gift exists and its person exists), each line whole and on its own, not line-commented (condition at character %, refusal at %; expected both present, the refusal on the line after the condition)',
+      position('if exists (select 1 from group_gifts where id = old.group_gift_id)' in v_def3),
       position('raise exception' in v_def3);
   end if;
   v_checks := v_checks + 1;
@@ -416,8 +436,8 @@ begin
   -- authenticated, is the only SELECT or ALL policy on group_gift_members.
   -- Its qual goes through the gift's maker (created_by) and
   -- is_group_gift_member(), and holds no comparison of the row's own user_id
-  -- with the caller, so a person reads their own member row only as a
-  -- member.
+  -- with the caller, written either way round ("(user_id = " or
+  -- "= user_id)"), so a person reads their own member row only as a member.
   ---------------------------------------------------------------------------
   select count(*) into v_count
     from pg_policies
@@ -437,9 +457,10 @@ begin
      or v_qual is null
      or position('is_group_gift_member' in v_qual) = 0
      or position('created_by' in v_qual) = 0
-     or position('(user_id = ' in v_qual) <> 0 then
+     or position('(user_id = ' in v_qual) <> 0
+     or position('= user_id)' in v_qual) <> 0 then
     raise exception
-      'GUARD FAIL: group_gift_members has % SELECT or ALL polic(y/ies) and % SELECT policy named group_gift_members_select, to %, with qual %; expected 1 and 1, to {authenticated}, through is_group_gift_member and created_by, with no (user_id = comparison',
+      'GUARD FAIL: group_gift_members has % SELECT or ALL polic(y/ies) and % SELECT policy named group_gift_members_select, to %, with qual %; expected 1 and 1, to {authenticated}, through is_group_gift_member and created_by, with no (user_id = comparison and no = user_id) comparison',
       v_count, v_count2, v_roles, v_qual;
   end if;
   v_checks := v_checks + 1;
