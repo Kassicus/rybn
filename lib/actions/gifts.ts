@@ -54,8 +54,9 @@ async function myGroupNames(userId: string, groupIds: string[]): Promise<Map<str
  * Start a group gift in one of the caller's groups, saying who it is for: people the caller shares a group with,
  * or nobody (an empty list: someone not on Rybn). Each refusal is a sentence from GIFT_SENTENCES and writes nothing.
  *
- * The gift, its names and its maker's member row are written in that order with the service-role client. If the
- * names or the member row cannot be written, the gift is deleted, which takes its names with it.
+ * The gift, its names and its maker's member row are written in that order with the service-role client. A new gift
+ * is always active, whatever the form sent. If the names or the member row cannot be written, the gift is deleted,
+ * which takes its names with it.
  */
 export async function createGroupGift(
   formData: GroupGiftFormData
@@ -120,7 +121,7 @@ export async function createGroupGift(
       description: description === "" ? null : description,
       group_id: formData.group_id,
       target_amount: typeof target === "number" && target !== 0 ? target : null,
-      is_active: formData.is_active,
+      is_active: true,
       created_by: userId,
     })
     .select(GIFT_COLUMNS)
@@ -309,14 +310,20 @@ export async function getGroupGiftById(
   const { gift, membership } = seen;
 
   try {
+    // The chat's count and its newest message are read, as every read of the chat is, from messages with a time.
     const [members, names, count, newest, groupNames] = await Promise.all([
       adminClient.from("group_gift_members").select(MEMBERSHIP_COLUMNS).eq("group_gift_id", gift.id),
       recipientIds(adminClient, [gift.id]),
-      adminClient.from("messages").select("id", { count: "exact", head: true }).eq("group_gift_id", gift.id),
+      adminClient
+        .from("messages")
+        .select("id", { count: "exact", head: true })
+        .eq("group_gift_id", gift.id)
+        .not("created_at", "is", null),
       adminClient
         .from("messages")
         .select("user_id, content")
         .eq("group_gift_id", gift.id)
+        .not("created_at", "is", null)
         .order("created_at", { ascending: false })
         .order("id", { ascending: false })
         .limit(1),
@@ -475,7 +482,9 @@ async function addablePeople(
  * Add people to a gift the caller made, each at 0 and unpaid, in one insert. Every id must be one
  * getAvailableGroupMembers would answer, and there must be 1 to 50 of them once repeats are dropped; otherwise
  * GIFT_SENTENCES.cannotAdd, whichever the reason, and nobody is added. The database refuses a member row for a
- * person the gift is for (check_violation, 23514); that refusal is answered with the same sentence.
+ * person the gift is for (check_violation, 23514) and a second row for someone already in it, added by another
+ * request since the list was read (unique_violation, 23505); each refusal is answered with the same sentence, and
+ * any other failure with its own words.
  */
 export async function addMembersToGroupGift(
   groupGiftId: string,
@@ -513,7 +522,7 @@ export async function addMembersToGroupGift(
   );
 
   if (error) {
-    return { error: error.code === "23514" ? GIFT_SENTENCES.cannotAdd : error.message };
+    return { error: error.code === "23514" || error.code === "23505" ? GIFT_SENTENCES.cannotAdd : error.message };
   }
 
   revalidatePath(`/gifts/${groupGiftId}`);

@@ -14,8 +14,8 @@ import {
  * check (seeGift) before anything of the chat is read or written. The chat opens on its newest messages and is read
  * a page at a time from a place in it: a message of this gift, by when it was sent and then by its id.
  *
- * The chat's reads are answered by rowsWhere from a table of messages that holds another gift's too, so a filter
- * the code leaves out lets rows through that a test sees.
+ * The chat's reads are answered by rowsWhere from a table of messages that holds another gift's too (and, in two
+ * tests, a message with no time), so a filter the code leaves out lets rows through that a test sees.
  *
  * The sentences, the columns and the filters are written out rather than imported: if they change, these
  * assertions fail -- which is the intent.
@@ -182,14 +182,24 @@ const OLDEST_FIRST = [
   ["order", "id", { ascending: true }],
 ];
 
-/** The read for a chat opened without a place: this gift's newest messages, one more than a page. */
-const NEWEST_READ = [["select", MESSAGE_COLUMNS], ["eq", "group_gift_id", WEEKEND], ...NEWEST_FIRST, ["limit", 51]];
+/** Every read of the chat leaves out a message with no time. */
+const HAS_A_TIME = ["not", "created_at", "is", null];
 
-/** Looking a place up: that message, in this gift. */
+/** The read for a chat opened without a place: this gift's newest messages, one more than a page. */
+const NEWEST_READ = [
+  ["select", MESSAGE_COLUMNS],
+  ["eq", "group_gift_id", WEEKEND],
+  HAS_A_TIME,
+  ...NEWEST_FIRST,
+  ["limit", 51],
+];
+
+/** Looking a place up: that message, in this gift, if it has a time. */
 const placeRead = (id: string) => [
   ["select", "id, created_at"],
   ["eq", "id", id],
   ["eq", "group_gift_id", WEEKEND],
+  HAS_A_TIME,
   ["maybeSingle"],
 ];
 
@@ -258,6 +268,7 @@ describe("getMessages", () => {
         [
           ["select", MESSAGE_COLUMNS],
           ["eq", "group_gift_id", WEEKEND],
+          HAS_A_TIME,
           [
             "or",
             'created_at.lt."2026-11-16T18:02:11.000000+00:00",and(created_at.eq."2026-11-16T18:02:11.000000+00:00",id.lt.a1000000-0000-4000-8000-000000000002)',
@@ -322,6 +333,7 @@ describe("getMessages", () => {
         [
           ["select", MESSAGE_COLUMNS],
           ["eq", "group_gift_id", WEEKEND],
+          HAS_A_TIME,
           [
             "or",
             'created_at.gt."2026-11-16T18:02:11.000000+00:00",and(created_at.eq."2026-11-16T18:02:11.000000+00:00",id.gt.a1000000-0000-4000-8000-000000000001)',
@@ -369,6 +381,38 @@ describe("getMessages", () => {
         placeRead(page.before ?? page.after ?? ""),
         NEWEST_READ,
       ]);
+    }
+  });
+
+  it("leaves out a message with no time", async () => {
+    const rows = chat(3);
+    // A message of this gift with no time, which the newest-first order would put first.
+    const undated = { ...message(4, at(3)), created_at: null };
+
+    supabase = createSupabaseMock(chatScript([...rows, undated, ...TEACHER_CHAT]));
+    expect(await getMessages(WEEKEND)).toStrictEqual({ data: rows.map((row) => answered(row)), hasEarlier: false });
+    expect(asked()["admin:messages"]).toEqual([NEWEST_READ]);
+
+    // Paging back from the newest, or on from the first, leaves it out too.
+    supabase = createSupabaseMock(chatScript([...rows, undated, ...TEACHER_CHAT]));
+    expect(idsOf(await getMessages(WEEKEND, { before: messageId(3) }))).toEqual([messageId(1), messageId(2)]);
+    supabase = createSupabaseMock(chatScript([...rows, undated, ...TEACHER_CHAT]));
+    expect(idsOf(await getMessages(WEEKEND, { after: messageId(1) }))).toEqual([messageId(2), messageId(3)]);
+  });
+
+  it("answers the newest fifty when the place it was given has no time", async () => {
+    const rows = chat(51);
+    const undated = { ...message(52, at(51)), created_at: null };
+
+    for (const page of [{ before: messageId(52) }, { after: messageId(52) }]) {
+      supabase = createSupabaseMock(chatScript([...rows, undated, ...TEACHER_CHAT]));
+      const result = await getMessages(WEEKEND, page);
+      expect(result, JSON.stringify(page)).toStrictEqual({
+        data: rows.slice(1).map((row) => answered(row)),
+        hasEarlier: true,
+      });
+      // The place is looked up among messages with a time, so it is not found, and no page is read from it.
+      expect(asked()["admin:messages"], JSON.stringify(page)).toEqual([placeRead(messageId(52)), NEWEST_READ]);
     }
   });
 

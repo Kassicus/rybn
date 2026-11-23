@@ -227,7 +227,7 @@ export default function CreateGiftGroupPage() {
           <div>
             <label className="block mb-2">
               <Text size="sm" className="font-medium">
-                Gift Name<span className="text-error">*</span>
+                Gift Name <span className="text-error">*</span>
               </Text>
             </label>
             <Input

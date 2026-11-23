@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createSupabaseMock, failed, ok, rowsIn, type Answer } from "@/lib/gifts/test-supabase";
+import { createSupabaseMock, failed, ok, rowsIn, rowsWhere, type Answer } from "@/lib/gifts/test-supabase";
 
 /**
  * The group gift actions, with Supabase faked. A group gift's rows are read and written with the service-role
@@ -277,6 +277,14 @@ describe("createGroupGift", () => {
     expect(result).toEqual({ data: WEEKEND_ROW });
     expect(adminInserts().map(([table]) => table)).toEqual(["group_gifts", "group_gift_members"]);
     expect(tablesAsked()).not.toContain("admin:group_gift_recipients");
+  });
+
+  it("starts every gift active, whatever the form sent", async () => {
+    for (const is_active of [false, undefined, null, "false", 0]) {
+      supabase = createSupabaseMock(createScript());
+      await createGroupGift({ ...NEW_WEEKEND, is_active } as unknown as NewGift);
+      expect(storedGift().is_active, String(is_active)).toBe(true);
+    }
   });
 
   it("answers Choose who this gift is for. when the list is missing", async () => {
@@ -607,6 +615,23 @@ function seenScript(gift: unknown, membership: unknown, named: unknown): Record<
   };
 }
 
+/** The chat's count, read by the database: this gift's messages that have a time. */
+const CHAT_COUNT_READ = [
+  ["select", "id", { count: "exact", head: true }],
+  ["eq", "group_gift_id", WEEKEND],
+  ["not", "created_at", "is", null],
+];
+
+/** The chat's newest message: this gift's, of those that have a time, the last by time, then by id. */
+const CHAT_NEWEST_READ = [
+  ["select", "user_id, content"],
+  ["eq", "group_gift_id", WEEKEND],
+  ["not", "created_at", "is", null],
+  ["order", "created_at", { ascending: false }],
+  ["order", "id", { ascending: false }],
+  ["limit", 1],
+];
+
 /** Everything getGroupGiftById reads for Sam's weekend away, after seeGift. */
 function weekendScript(chat: { count: number; latest: unknown[] }): Record<string, Answer[]> {
   return {
@@ -673,7 +698,7 @@ describe("getGroupGiftById", () => {
       },
     });
     // After the check, every read is about this gift alone: its members, its names, its chat. The count is the
-    // database's own, and the newest message is the last by time, then by id.
+    // database's own, and the newest message is the last by time, then by id; both read only messages with a time.
     expect(asked()).toEqual({
       "admin:group_gifts": [checkGift(WEEKEND)],
       "admin:group_gift_members": [checkMember(WEEKEND), [["select", MEMBER_COLUMNS], ["eq", "group_gift_id", WEEKEND]]],
@@ -681,16 +706,7 @@ describe("getGroupGiftById", () => {
         checkNamed(WEEKEND),
         [["select", "group_gift_id, user_id"], ["in", "group_gift_id", [WEEKEND]]],
       ],
-      "admin:messages": [
-        [["select", "id", { count: "exact", head: true }], ["eq", "group_gift_id", WEEKEND]],
-        [
-          ["select", "user_id, content"],
-          ["eq", "group_gift_id", WEEKEND],
-          ["order", "created_at", { ascending: false }],
-          ["order", "id", { ascending: false }],
-          ["limit", 1],
-        ],
-      ],
+      "admin:messages": [CHAT_COUNT_READ, CHAT_NEWEST_READ],
       "admin:user_profiles": [[["select", PERSON_COLUMNS], ["in", "id", [SAM, ALEX, JORDAN, MOM, DAD]]]],
       group_members: [[["select", "group_id, groups ( name )"], ["eq", "user_id", SAM], ["in", "group_id", [RIVERA]]]],
     });
@@ -713,6 +729,32 @@ describe("getGroupGiftById", () => {
     const result = await getGroupGiftById(WEEKEND);
 
     expect("data" in result && result.data?.group_gift_members.map((m) => m.user_id)).toEqual([SAM, JORDAN, ALEX]);
+  });
+
+  it("counts and answers only messages that have a time", async () => {
+    const messages = [
+      {
+        id: "a1000000-0000-4000-8000-000000000003",
+        group_gift_id: WEEKEND,
+        user_id: ALEX,
+        content: "I can book it on Friday",
+        created_at: "2026-11-18T09:14:27.000000+00:00",
+      },
+      // A row with no time, which the newest-first order would put first.
+      { id: "a1000000-0000-4000-8000-000000000009", group_gift_id: WEEKEND, user_id: GRAN, content: "Undated", created_at: null },
+    ];
+    supabase = createSupabaseMock({
+      ...weekendScript({ count: 1, latest: [] }),
+      "admin:messages": [{ data: null, count: 1, error: null }, rowsWhere(messages)],
+    });
+
+    const result = await getGroupGiftById(WEEKEND);
+
+    expect("data" in result && result.data?.chat).toEqual({
+      count: 1,
+      latest: { name: "Alex Rivera", text: "I can book it on Friday" },
+    });
+    expect(asked()["admin:messages"]).toEqual([CHAT_COUNT_READ, CHAT_NEWEST_READ]);
   });
 
   it("answers no newest message for an empty chat", async () => {
@@ -1015,6 +1057,21 @@ describe("addMembersToGroupGift", () => {
     // Any other failure answers the database's words.
     supabase = createSupabaseMock(addScript(failed("connection reset")));
     expect(await addMembersToGroupGift(WEEKEND, [GRAN])).toStrictEqual({ error: "connection reset" });
+  });
+
+  it("answers the same sentence when someone it adds is in the gift by the time the row is written", async () => {
+    // Another request added Gran after this one read who is in the gift: the database refuses her second row.
+    supabase = createSupabaseMock(
+      addScript(
+        failed('duplicate key value violates unique constraint "gift_group_members_gift_group_id_user_id_key"', "23505"),
+      ),
+    );
+
+    const result = await addMembersToGroupGift(WEEKEND, [GRAN]);
+
+    expect(result).toStrictEqual({ error: CANNOT_ADD });
+    expect(JSON.stringify(result)).not.toContain("duplicate");
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 
   it("is the maker's alone", async () => {

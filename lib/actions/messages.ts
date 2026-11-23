@@ -132,6 +132,9 @@ function placeAsked(page: unknown): { id: string; way: "before" | "after" } | nu
  * message: the GIFT_LIMITS.page messages just before it, and hasEarlier likewise. `after` a message: every message
  * after it, oldest first, up to GIFT_LIMITS.newer, and hasEarlier false. A place that is no message of this gift
  * (it was deleted, say), both places at once, or one that is not text is answered as no page.
+ *
+ * Every read here, the place's and each page's, leaves out a message with no time: such a row is never answered,
+ * and a place whose row has none is answered as no page.
  */
 export async function getMessages(
   groupGiftId: string,
@@ -159,12 +162,17 @@ export async function getMessages(
       .select("id, created_at")
       .eq("id", wanted.id)
       .eq("group_gift_id", giftId)
+      .not("created_at", "is", null)
       .maybeSingle();
     if (found.error) return { error: found.error.message };
     place = found.data;
   }
 
-  const chat = adminClient.from("messages").select(MESSAGE_COLUMNS).eq("group_gift_id", giftId);
+  const chat = adminClient
+    .from("messages")
+    .select(MESSAGE_COLUMNS)
+    .eq("group_gift_id", giftId)
+    .not("created_at", "is", null);
   let rows: Omit<ChatRow, "user_profiles">[];
   let hasEarlier: boolean;
 

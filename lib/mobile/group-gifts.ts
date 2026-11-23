@@ -186,7 +186,8 @@ export interface MobileMessage {
 
 /** A message as the chat shows it. A sender whose profile cannot be read is a person of their id alone, named "Someone". */
 export function mobileMessage(row: ChatRow, callerId: string): MobileMessage {
-  // The column is never null in the database, so a row without a time is a fault (500), not a message to guess a time for.
+  // The chat's reads leave out a row with no time, so a row without one here is a fault (500), not a message to guess a
+  // time for.
   if (row.created_at === null) throw new Error(`message ${row.id} has no created_at`);
   return {
     id: row.id,
@@ -229,9 +230,6 @@ export function parseMessagesQuery(query: {
   return { ok: true, page: before !== undefined ? { before: id } : { after: id } };
 }
 
-/** The most people one request can add. */
-const MOST_ADDED = 50;
-
 /**
  * The body that adds people to a gift: `ids` is a list of 1 to 50 person ids, a repeated id counting once. A list
  * that is empty, too long, or holds anything that is not a person's id answers the one cannot-add sentence, the same
@@ -241,7 +239,7 @@ export function parseAddPeopleBody(raw: unknown): { ok: true; ids: string[] } | 
   if (!isRecord(raw) || !Array.isArray(raw.ids)) return { ok: false, message: RULES.request };
   const asked = [...new Set<unknown>(raw.ids)];
   const ids = asked.filter((id): id is string => typeof id === "string" && PERSON_ID.test(id));
-  if (ids.length === 0 || ids.length !== asked.length || ids.length > MOST_ADDED) {
+  if (ids.length === 0 || ids.length !== asked.length || ids.length > GIFT_LIMITS.adding) {
     return { ok: false, message: GIFT_SENTENCES.cannotAdd };
   }
   return { ok: true, ids };

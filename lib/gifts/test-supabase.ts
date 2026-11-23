@@ -121,6 +121,16 @@ const compare = (a: unknown, b: unknown) => {
   return x < y ? -1 : x > y ? 1 : 0;
 };
 
+/** Whether a column holds a value. As in the database, a comparison with none (null) keeps nothing. */
+const held = (value: unknown) => value != null;
+
+/**
+ * Two values in ascending order as the database sorts them by default: every value before none (null), so none comes
+ * first in descending order.
+ */
+const ascending = (a: unknown, b: unknown) =>
+  held(a) && held(b) ? compare(a, b) : Number(!held(a)) - Number(!held(b));
+
 const OPERATORS: Record<string, (order: number) => boolean> = {
   eq: (o) => o === 0,
   neq: (o) => o !== 0,
@@ -167,25 +177,37 @@ function condition(text: string): Keep {
   const quoted = /^".*"$/.test(raw);
   if (!quoted && /[,.:()]/.test(raw)) throw new Error(`The value "${raw}" holds a reserved character and is not quoted`);
   const value = quoted ? raw.slice(1, -1) : raw;
-  return (row) => OPERATORS[operator](compare(row[column], value));
+  return (row) => held(row[column]) && OPERATORS[operator](compare(row[column], value));
 }
 
-/** What one call on a chain keeps of a row: a filter keeps what matches it, every other call keeps everything. */
+/**
+ * What one call on a chain keeps of a row: a filter keeps what matches it, every other call keeps everything.
+ * `not(column, "is", null)` keeps the rows whose column holds a value; the fake throws on any other `not`, so a test
+ * fails rather than read a filter it does not understand as keeping everything.
+ */
 function keepOf([method, ...args]: unknown[]): Keep {
   const column = args[0] as string;
   if (typeof method === "string" && Object.hasOwn(OPERATORS, method)) {
-    return (row) => OPERATORS[method](compare(row[column], args[1]));
+    return (row) => held(row[column]) && OPERATORS[method](compare(row[column], args[1]));
   }
-  if (method === "in") return (row) => (args[1] as unknown[]).some((value) => compare(row[column], value) === 0);
+  if (method === "in") {
+    return (row) => held(row[column]) && (args[1] as unknown[]).some((value) => compare(row[column], value) === 0);
+  }
   if (method === "or") return condition(`or(${args[0] as string})`);
+  if (method === "not") {
+    if (args[1] === "is" && args[2] === null) return (row) => held(row[column]);
+    throw new Error(`The fake cannot read the filter not(${column}, ${String(args[1])}, ${String(args[2])})`);
+  }
   return () => true;
 }
 
 /**
  * An answer that reads `rows` as the database would read a table for the query: the rows every filter on its chain
- * keeps (eq, neq, lt, lte, gt, gte, in, and an or of them with and inside it), in its order (each `order` after the
- * first breaks the earlier ones' ties), cut to its limit; for `maybeSingle` or `single`, the one row or null. So an
- * answer depends on what the code asked for: a filter left out lets rows through that the test can see.
+ * keeps (eq, neq, lt, lte, gt, gte, in, not is null, and an or of the comparisons with and inside it), in its order
+ * (each `order` after the first breaks the earlier ones' ties), cut to its limit; for `maybeSingle` or `single`, the
+ * one row or null. So an answer depends on what the code asked for: a filter left out lets rows through that the test
+ * can see. A row with no value (null) in a compared column is kept by no comparison, and in an ordered column it sorts
+ * after every value, so first in descending order, as the database's default order puts it.
  */
 export const rowsWhere = (rows: Row[]) => (query: Query) => {
   const keeps = query.calls.map(keepOf);
@@ -196,7 +218,7 @@ export const rowsWhere = (rows: Row[]) => (query: Query) => {
     .filter((row) => keeps.every((keep) => keep(row)))
     .sort((a, b) => {
       for (const [, column, options] of orders) {
-        const order = compare(a[column], b[column]);
+        const order = ascending(a[column], b[column]);
         if (order !== 0) return options?.ascending === false ? -order : order;
       }
       return 0;
