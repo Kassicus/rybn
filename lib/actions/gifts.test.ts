@@ -19,6 +19,9 @@ const DESCRIPTION_TOO_LONG = "Keep the description to 1000 characters or fewer."
 const AMOUNT = "Enter an amount from 0 to 1,000,000.";
 const CHARACTERS = "That has characters Rybn can't save. Try typing it again.";
 const CREATE_FAILED = "Failed to create group gift. Please try again.";
+const ONLY_MAKER_ADDS = "Only the person who made this group gift can add people.";
+const CANNOT_ADD = "One of those people can't be added to this gift.";
+const ONLY_MAKER_DELETES = "Only the creator can delete this group gift";
 
 const GIFT_COLUMNS = "id, group_id, name, description, target_amount, current_amount, is_active, created_by, created_at";
 const MEMBER_COLUMNS = "id, group_gift_id, user_id, contribution_amount, has_paid, joined_at";
@@ -154,7 +157,17 @@ const rowsIn =
     return ok(rows.filter((row) => Array.isArray(wanted) && wanted.includes(row[column])));
   };
 
-const { createGroupGift, getMyGroupGifts, getGroupGiftById, getGroupGiftChoices } = await import("./gifts");
+const {
+  createGroupGift,
+  getMyGroupGifts,
+  getGroupGiftById,
+  getGroupGiftChoices,
+  updateMyContribution,
+  getAvailableGroupMembers,
+  addMembersToGroupGift,
+  deleteGroupGift,
+} = await import("./gifts");
+const { revalidatePath } = await import("next/cache");
 
 // The contract's test world: Sam is the caller.
 const SAM = "user_2abcDEF";
@@ -246,6 +259,15 @@ const JORDAN_IN_WEEKEND = {
   contribution_amount: 100,
   has_paid: true,
   joined_at: "2026-11-16T18:20:00+00:00",
+};
+/** Sam's row in Priya's gift: he is in it, and did not make it. */
+const SAM_IN_TEACHER = {
+  id: "a0000000-0000-4000-8000-000000000004",
+  group_gift_id: TEACHER,
+  user_id: SAM,
+  contribution_amount: 15,
+  has_paid: true,
+  joined_at: "2026-11-10T09:30:00+00:00",
 };
 
 /** The caller's groups as groupMates reads them: Rivera and the Book Club. */
@@ -858,5 +880,307 @@ describe("getGroupGiftChoices", () => {
     getUserId.mockResolvedValue(null);
     supabase = createSupabaseMock({});
     expect(await getGroupGiftChoices()).toEqual({ error: "Not authenticated" });
+  });
+});
+
+/** The one check's three reads, for Sam and this gift, and nothing else: what asked() holds when an action stops there. */
+const checked = (id: string) => ({
+  "admin:group_gifts": [checkGift(id)],
+  "admin:group_gift_members": [checkMember(id)],
+  "admin:group_gift_recipients": [checkNamed(id)],
+});
+
+type Pledge = Parameters<typeof updateMyContribution>[1];
+
+/** The check's answers for Sam's weekend away, and the pledge update's answer. */
+const pledgeScript = (): Record<string, Answer[]> => ({
+  ...seenScript(WEEKEND_ROW, SAM_IN_WEEKEND, null),
+  group_gift_members: [ok(null)],
+});
+
+/** The pledge's update, made as the caller: their own member row in this gift, and no other. */
+const pledgeUpdate = (row: Record<string, unknown>) => [
+  ["update", row],
+  ["eq", "group_gift_id", WEEKEND],
+  ["eq", "user_id", SAM],
+];
+
+describe("updateMyContribution", () => {
+  it("saves the caller's pledge and whether they have paid", async () => {
+    supabase = createSupabaseMock(pledgeScript());
+
+    const result = await updateMyContribution(WEEKEND, { contribution_amount: 120, has_paid: true });
+
+    expect(result).toStrictEqual({ success: true });
+    expect(asked()).toEqual({
+      ...checked(WEEKEND),
+      group_gift_members: [pledgeUpdate({ contribution_amount: 120, has_paid: true })],
+    });
+
+    // Each end of the range is an amount, and anything but true is saved as not paid.
+    for (const [contribution_amount, has_paid] of [
+      [0, false],
+      [1000000, "true"],
+      [0.01, 1],
+      [80.5, undefined],
+      [5, null],
+    ] as const) {
+      supabase = createSupabaseMock(pledgeScript());
+      const saved = await updateMyContribution(WEEKEND, { contribution_amount, has_paid } as unknown as Pledge);
+      expect(saved, String(contribution_amount)).toStrictEqual({ success: true });
+      expect(asked().group_gift_members, String(has_paid)).toEqual([
+        pledgeUpdate({ contribution_amount, has_paid: false }),
+      ]);
+    }
+  });
+
+  it("refuses an amount that is not a number from 0 to 1,000,000", async () => {
+    for (const contribution_amount of [-5, -0.01, 1000000.01, NaN, Infinity, -Infinity, "80", "", null, undefined]) {
+      supabase = createSupabaseMock(pledgeScript());
+      const result = await updateMyContribution(WEEKEND, { contribution_amount, has_paid: true } as unknown as Pledge);
+      expect(result, String(contribution_amount)).toStrictEqual({ error: AMOUNT });
+      // The check is read, and nothing is written.
+      expect(asked(), String(contribution_amount)).toEqual(checked(WEEKEND));
+    }
+  });
+
+  it("answers Group gift not found to someone it is for, changing nothing", async () => {
+    // The database never lets a person a gift names hold a member row in it; the check refuses them even so.
+    supabase = createSupabaseMock({
+      ...pledgeScript(),
+      ...seenScript(WEEKEND_ROW, { ...SAM_IN_WEEKEND }, { user_id: SAM }),
+    });
+
+    const result = await updateMyContribution(WEEKEND, { contribution_amount: 120, has_paid: true });
+
+    expect(result).toStrictEqual({ error: NOT_THERE });
+    expect(asked()).toEqual(checked(WEEKEND));
+  });
+});
+
+/** Who is in the weekend away (Sam, Alex and jordan), as the read after the check answers it. */
+const WEEKEND_MEMBER_IDS = ok([{ user_id: SAM }, { user_id: ALEX }, { user_id: JORDAN }]);
+/** Who the weekend away is for (Mom and Dad), as recipientIds reads it. */
+const WEEKEND_NAMES = ok([
+  { group_gift_id: WEEKEND, user_id: MOM },
+  { group_gift_id: WEEKEND, user_id: DAD },
+]);
+
+/**
+ * Everything Sam's adding people to his weekend away reads: the check, then his group-mates, the gift's members
+ * and its names. `after` answers what follows on group_gift_members: the insert.
+ */
+const addScript = (...after: Answer[]): Record<string, Answer[]> => ({
+  "admin:group_gifts": [ok(WEEKEND_ROW)],
+  "admin:group_gift_members": [ok(SAM_IN_WEEKEND), WEEKEND_MEMBER_IDS, ...after],
+  "admin:group_gift_recipients": [ok(null), WEEKEND_NAMES],
+  group_members: [MY_GROUPS, THEIR_MEMBERS],
+  user_profiles: [rowsIn("id", EVERYONE)],
+});
+
+/**
+ * The reads behind who can be added to the weekend away: the check; groupMates' three, as the caller; then, with
+ * the service-role client, the ids of everyone in this gift and who this gift is for.
+ */
+const ADDABLE_READS = {
+  "admin:group_gifts": [checkGift(WEEKEND)],
+  "admin:group_gift_members": [checkMember(WEEKEND), [["select", "user_id"], ["eq", "group_gift_id", WEEKEND]]],
+  "admin:group_gift_recipients": [
+    checkNamed(WEEKEND),
+    [["select", "group_gift_id, user_id"], ["in", "group_gift_id", [WEEKEND]]],
+  ],
+  group_members: MATES_READS,
+  user_profiles: [MATES_PROFILES_READ],
+};
+
+describe("getAvailableGroupMembers", () => {
+  it("answers the maker's group-mates who are not in the gift and are not who it is for", async () => {
+    supabase = createSupabaseMock(addScript());
+
+    const result = await getAvailableGroupMembers(WEEKEND);
+
+    // Of Alex, Dad, Gran, jordan, Mom and Priya: Alex and jordan are in it, and it is for Mom and Dad.
+    expect(result).toStrictEqual({ data: [PEOPLE.gran, PEOPLE.priya] });
+    expect(asked()).toEqual(ADDABLE_READS);
+  });
+
+  it("answers Only the person who made this group gift can add people. to another member", async () => {
+    supabase = createSupabaseMock(seenScript(TEACHER_ROW, SAM_IN_TEACHER, null));
+
+    expect(await getAvailableGroupMembers(TEACHER)).toStrictEqual({ error: ONLY_MAKER_ADDS });
+    // Nothing is read after the check: not who is in it, who it is for, or who shares a group with the caller.
+    expect(asked()).toEqual(checked(TEACHER));
+  });
+
+  it("answers Group gift not found, and not who made it, to someone it is for and to someone not in it", async () => {
+    for (const [label, membership, named] of [
+      ["named on it", { ...SAM_IN_TEACHER }, { user_id: SAM }],
+      ["not in it", null, null],
+    ] as const) {
+      supabase = createSupabaseMock(seenScript(TEACHER_ROW, membership, named));
+      expect(await getAvailableGroupMembers(TEACHER), label).toStrictEqual({ error: NOT_THERE });
+      expect(asked(), label).toEqual(checked(TEACHER));
+    }
+  });
+});
+
+/** The rows that add these people to the weekend away: each at 0 and unpaid. */
+const added = (...ids: string[]) =>
+  ids.map((user_id) => ({ group_gift_id: WEEKEND, user_id, contribution_amount: 0, has_paid: false }));
+
+describe("addMembersToGroupGift", () => {
+  it("adds the people at 0 and unpaid", async () => {
+    supabase = createSupabaseMock(addScript(ok(null)));
+
+    const result = await addMembersToGroupGift(WEEKEND, [GRAN]);
+
+    expect(result).toStrictEqual({ success: true });
+    expect(adminInserts()).toEqual([["group_gift_members", added(GRAN)]]);
+    expect(asked()).toEqual({
+      ...ADDABLE_READS,
+      "admin:group_gift_members": [...ADDABLE_READS["admin:group_gift_members"], [["insert", added(GRAN)]]],
+    });
+
+    // Each person is added once however often they are given, all in one insert; sixty-two ids of two people are
+    // two people, not past the limit.
+    supabase = createSupabaseMock(addScript(ok(null)));
+    const twice = await addMembersToGroupGift(WEEKEND, [PRIYA, GRAN, PRIYA, ...Array.from({ length: 59 }, () => GRAN)]);
+    expect(twice).toStrictEqual({ success: true });
+    expect(adminInserts()).toEqual([["group_gift_members", added(PRIYA, GRAN)]]);
+  });
+
+  it("adds nobody when one id is someone the gift is for", async () => {
+    supabase = createSupabaseMock(addScript());
+
+    const result = await addMembersToGroupGift(WEEKEND, [GRAN, MOM]);
+
+    expect(result).toStrictEqual({ error: CANNOT_ADD });
+    expect(adminInserts()).toEqual([]);
+    expect(asked()).toEqual(ADDABLE_READS);
+  });
+
+  it("answers the same sentence whichever way an id fails", async () => {
+    for (const [label, id] of [
+      ["named on it", MOM],
+      ["already in it", ALEX],
+      ["a stranger", "user_stranger"],
+      ["the caller", SAM],
+      ["not an id", 7],
+    ] as const) {
+      supabase = createSupabaseMock(addScript());
+      const result = await addMembersToGroupGift(WEEKEND, [id] as unknown as string[]);
+      expect(result, label).toStrictEqual({ error: CANNOT_ADD });
+      expect(adminInserts(), label).toEqual([]);
+    }
+  });
+
+  it("refuses an empty list and more than fifty", async () => {
+    const fiftyOne = Array.from({ length: 51 }, (_, i) => `user_${i}`);
+
+    for (const [label, ids] of [
+      ["empty", []],
+      ["fifty-one", fiftyOne],
+      ["not a list", GRAN],
+      ["nothing", undefined],
+    ] as const) {
+      supabase = createSupabaseMock(addScript());
+      expect(await addMembersToGroupGift(WEEKEND, ids as unknown as string[]), label).toStrictEqual({
+        error: CANNOT_ADD,
+      });
+      // Refused after the check, before anyone is looked up.
+      expect(asked(), label).toEqual(checked(WEEKEND));
+    }
+
+    // Fifty are looked up, and refused here only because they are strangers.
+    supabase = createSupabaseMock(addScript());
+    expect(await addMembersToGroupGift(WEEKEND, fiftyOne.slice(0, 50))).toStrictEqual({ error: CANNOT_ADD });
+    expect(asked()).toEqual(ADDABLE_READS);
+  });
+
+  it("answers the same sentence when the database refuses the row", async () => {
+    supabase = createSupabaseMock(
+      addScript(failed("GROUP GIFT: a person a group gift is for cannot be in it", "23514")),
+    );
+
+    const result = await addMembersToGroupGift(WEEKEND, [GRAN]);
+
+    expect(result).toStrictEqual({ error: CANNOT_ADD });
+    expect(JSON.stringify(result)).not.toContain("GROUP GIFT");
+
+    // Any other failure answers the database's words.
+    supabase = createSupabaseMock(addScript(failed("connection reset")));
+    expect(await addMembersToGroupGift(WEEKEND, [GRAN])).toStrictEqual({ error: "connection reset" });
+  });
+
+  it("is the maker's alone", async () => {
+    supabase = createSupabaseMock(seenScript(TEACHER_ROW, SAM_IN_TEACHER, null));
+
+    expect(await addMembersToGroupGift(TEACHER, [GRAN])).toStrictEqual({ error: ONLY_MAKER_ADDS });
+    expect(adminInserts()).toEqual([]);
+    expect(asked()).toEqual(checked(TEACHER));
+
+    // Someone not in it, or someone it is for, is told it is not there, not who made it.
+    for (const [label, membership, named] of [
+      ["not in it", null, null],
+      ["named on it", { ...SAM_IN_TEACHER }, { user_id: SAM }],
+    ] as const) {
+      supabase = createSupabaseMock(seenScript(TEACHER_ROW, membership, named));
+      expect(await addMembersToGroupGift(TEACHER, [GRAN]), label).toStrictEqual({ error: NOT_THERE });
+      expect(asked(), label).toEqual(checked(TEACHER));
+    }
+  });
+});
+
+describe("deleteGroupGift", () => {
+  it("deletes the maker's gift", async () => {
+    supabase = createSupabaseMock({
+      ...seenScript(WEEKEND_ROW, SAM_IN_WEEKEND, null),
+      "admin:group_gifts": [ok(WEEKEND_ROW), ok(null)],
+    });
+
+    const result = await deleteGroupGift(WEEKEND);
+
+    expect(result).toStrictEqual({ success: true });
+    // Its members, names and chat go with it, by cascade.
+    expect(asked()).toEqual({
+      ...checked(WEEKEND),
+      "admin:group_gifts": [checkGift(WEEKEND), [["delete"], ["eq", "id", WEEKEND]]],
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/gifts");
+    expect(revalidatePath).toHaveBeenCalledWith(`/groups/${RIVERA}`);
+  });
+
+  it("answers Only the creator can delete this group gift to another member, and Group gift not found to anyone else", async () => {
+    supabase = createSupabaseMock(seenScript(TEACHER_ROW, SAM_IN_TEACHER, null));
+    expect(await deleteGroupGift(TEACHER)).toStrictEqual({ error: ONLY_MAKER_DELETES });
+    expect(asked()).toEqual(checked(TEACHER));
+
+    const gone = "9f9f9f9f-0000-4000-8000-000000000000";
+    for (const [label, id, script] of [
+      ["not in it", TEACHER, seenScript(TEACHER_ROW, null, null)],
+      ["named on it", TEACHER, seenScript(TEACHER_ROW, { ...SAM_IN_TEACHER }, { user_id: SAM })],
+      ["no such gift", gone, seenScript(null, null, null)],
+    ] as const) {
+      supabase = createSupabaseMock(script);
+      expect(await deleteGroupGift(id), label).toStrictEqual({ error: NOT_THERE });
+      // Nothing is deleted.
+      expect(asked(), label).toEqual(checked(id));
+    }
+  });
+});
+
+describe("pledging, adding people and deleting", () => {
+  it("answer Not authenticated to nobody signed in, reading nothing", async () => {
+    getUserId.mockResolvedValue(null);
+
+    const answers = [
+      await updateMyContribution(WEEKEND, { contribution_amount: 120, has_paid: true }),
+      await getAvailableGroupMembers(WEEKEND),
+      await addMembersToGroupGift(WEEKEND, [GRAN]),
+      await deleteGroupGift(WEEKEND),
+    ];
+
+    for (const answer of answers) expect(answer).toStrictEqual({ error: "Not authenticated" });
+    expect(supabase.queries).toEqual([]);
   });
 });

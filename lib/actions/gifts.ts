@@ -8,6 +8,7 @@ import {
   GIFT_COLUMNS,
   MEMBERSHIP_COLUMNS,
   giftPeople,
+  giftPerson,
   giftRow,
   groupMates,
   membershipRow,
@@ -388,28 +389,36 @@ export async function getGroupGiftChoices(): Promise<
 }
 
 /**
- * Update user's contribution to a group gift
+ * Save the caller's own pledge to a gift they can see (seeGift), and whether they have paid it. The amount is a
+ * finite number from 0 to 1,000,000, else GIFT_SENTENCES.amount and nothing is written; anything but true is saved
+ * as not paid. The update is made with the caller's own client, on their own member row in this gift.
  */
 export async function updateMyContribution(
   groupGiftId: string,
   data: ContributionUpdateData
-) {
-  const supabase = await createClient();
-
+): Promise<{ success: true; error?: never } | { error: string; success?: never }> {
   const userId = await getUserId();
 
   if (!userId) {
     return { error: "Not authenticated" };
   }
 
-  // Update the membership
+  const seen = await seeGift(createAdminClient(), groupGiftId, userId);
+  if (!seen.ok) return { error: seen.error };
+
+  const amount: unknown = data?.contribution_amount;
+  if (!(typeof amount === "number" && Number.isFinite(amount) && amount >= 0 && amount <= GIFT_LIMITS.amount)) {
+    return { error: GIFT_SENTENCES.amount };
+  }
+
+  const supabase = await createClient();
   const { error } = await supabase
     .from("group_gift_members")
     .update({
-      contribution_amount: data.contribution_amount,
-      has_paid: data.has_paid,
+      contribution_amount: amount,
+      has_paid: data.has_paid === true,
     })
-    .eq("group_gift_id", groupGiftId)
+    .eq("group_gift_id", seen.gift.id)
     .eq("user_id", userId);
 
   if (error) {
@@ -423,88 +432,88 @@ export async function updateMyContribution(
 }
 
 /**
- * Add members to a group gift
- * Any member of the group gift can invite users from groups they share with
+ * The gift, when the caller may add people to it: they can see it (seeGift's sentence when not) and they made it
+ * (GIFT_SENTENCES.onlyMakerAdds when not).
  */
-export async function addMembersToGroupGift(groupGiftId: string, userIds: string[]) {
-  const supabase = await createClient();
-  const adminClient = createAdminClient();
+async function giftToAddTo(
+  adminClient: ReturnType<typeof createAdminClient>,
+  groupGiftId: string,
+  userId: string
+): Promise<{ gift: GiftRow } | { error: string }> {
+  const seen = await seeGift(adminClient, groupGiftId, userId);
+  if (!seen.ok) return { error: seen.error };
+  if (seen.gift.created_by !== userId) return { error: GIFT_SENTENCES.onlyMakerAdds };
+  return { gift: seen.gift };
+}
 
+/**
+ * Who the maker can add to their gift: everyone who shares a group with them (groupMates, which leaves the maker
+ * out), less anyone with a member row in the gift and anyone the gift is for. By name, as groupMates orders them.
+ */
+async function addablePeople(
+  adminClient: ReturnType<typeof createAdminClient>,
+  gift: GiftRow,
+  userId: string
+): Promise<{ people: GiftPerson[] } | { error: string }> {
+  try {
+    const [mates, members, names] = await Promise.all([
+      groupMates(userId),
+      adminClient.from("group_gift_members").select("user_id").eq("group_gift_id", gift.id),
+      recipientIds(adminClient, [gift.id]),
+    ]);
+    if ("error" in mates) return { error: mates.error };
+    if (members.error) return { error: members.error.message };
+
+    const left = new Set([...(members.data ?? []).map((m) => m.user_id), ...(names.get(gift.id) ?? [])]);
+    return { people: mates.people.filter((p) => !left.has(p.id)).map(giftPerson) };
+  } catch (e) {
+    return { error: messageOf(e) };
+  }
+}
+
+/**
+ * Add people to a gift the caller made, each at 0 and unpaid, in one insert. Every id must be one
+ * getAvailableGroupMembers would answer, and there must be 1 to 50 of them once repeats are dropped; otherwise
+ * GIFT_SENTENCES.cannotAdd, whichever the reason, and nobody is added. The database refuses a member row for a
+ * person the gift is for (check_violation, 23514); that refusal is answered with the same sentence.
+ */
+export async function addMembersToGroupGift(
+  groupGiftId: string,
+  userIds: string[]
+): Promise<{ success: true; error?: never } | { error: string; success?: never }> {
   const userId = await getUserId();
 
   if (!userId) {
     return { error: "Not authenticated" };
   }
 
-  // Verify user is a member OR creator of the group gift (using admin client to avoid RLS recursion)
-  const { data: groupGift } = await adminClient
-    .from("group_gifts")
-    .select("created_by, group_id")
-    .eq("id", groupGiftId)
-    .single();
+  const adminClient = createAdminClient();
 
-  if (!groupGift) {
-    return { error: "Group gift not found" };
-  }
+  const target = await giftToAddTo(adminClient, groupGiftId, userId);
+  if ("error" in target) return { error: target.error };
+  const { gift } = target;
 
-  // Check if user is creator or member
-  const isCreator = groupGift.created_by === userId;
-  const { data: membership } = await adminClient
-    .from("group_gift_members")
-    .select("id")
-    .eq("group_gift_id", groupGiftId)
-    .eq("user_id", userId)
-    .maybeSingle();
+  const wanted = Array.isArray(userIds) ? [...new Set<unknown>(userIds)] : [];
+  if (wanted.length === 0 || wanted.length > GIFT_LIMITS.adding) return { error: GIFT_SENTENCES.cannotAdd };
 
-  if (!isCreator && !membership) {
-    return { error: "You must be a member of this group gift to invite others" };
-  }
+  const addable = await addablePeople(adminClient, gift, userId);
+  if ("error" in addable) return { error: addable.error };
 
-  // Get all groups the inviter is a member of
-  const { data: inviterGroups } = await supabase
-    .from("group_members")
-    .select("group_id")
-    .eq("user_id", userId);
+  const allowed = new Set(addable.people.map((p) => p.id));
+  const adding = wanted.filter((id): id is string => typeof id === "string" && allowed.has(id));
+  if (adding.length !== wanted.length) return { error: GIFT_SENTENCES.cannotAdd };
 
-  if (!inviterGroups || inviterGroups.length === 0) {
-    return { error: "You are not a member of any groups" };
-  }
-
-  const inviterGroupIds = inviterGroups.map(g => g.group_id);
-
-  // Verify all users being invited are from groups the inviter shares
-  const { data: inviteeGroupMemberships } = await supabase
-    .from("group_members")
-    .select("user_id, group_id")
-    .in("user_id", userIds)
-    .in("group_id", inviterGroupIds);
-
-  if (!inviteeGroupMemberships) {
-    return { error: "Failed to verify user memberships" };
-  }
-
-  // Check that each user being invited shares at least one group with the inviter
-  const validUserIds = new Set(inviteeGroupMemberships.map(m => m.user_id));
-  const invalidUsers = userIds.filter(userId => !validUserIds.has(userId));
-
-  if (invalidUsers.length > 0) {
-    return { error: "You can only invite users from groups you're a member of" };
-  }
-
-  // Add members using admin client to avoid RLS recursion
-  const membersToAdd = userIds.map((userId) => ({
-    group_gift_id: groupGiftId,
-    user_id: userId,
-    contribution_amount: 0,
-    has_paid: false,
-  }));
-
-  const { error } = await adminClient
-    .from("group_gift_members")
-    .insert(membersToAdd);
+  const { error } = await adminClient.from("group_gift_members").insert(
+    adding.map((user_id) => ({
+      group_gift_id: gift.id,
+      user_id,
+      contribution_amount: 0,
+      has_paid: false,
+    }))
+  );
 
   if (error) {
-    return { error: error.message };
+    return { error: error.code === "23514" ? GIFT_SENTENCES.cannotAdd : error.message };
   }
 
   revalidatePath(`/gifts/${groupGiftId}`);
@@ -551,40 +560,33 @@ export async function leaveGroupGift(groupGiftId: string) {
 }
 
 /**
- * Delete a group gift (creator only)
+ * Delete a gift the caller made. seeGift's sentence to anyone who cannot see it, GIFT_SENTENCES.onlyMakerDeletes
+ * to another member. Its members, names and chat go with it, by cascade.
  */
-export async function deleteGroupGift(groupGiftId: string) {
-  const adminClient = createAdminClient();
-
+export async function deleteGroupGift(
+  groupGiftId: string
+): Promise<{ success: true; error?: never } | { error: string; success?: never }> {
   const userId = await getUserId();
 
   if (!userId) {
     return { error: "Not authenticated" };
   }
 
-  // Verify user is the creator using admin client
-  const { data: groupGift } = await adminClient
-    .from("group_gifts")
-    .select("created_by, group_id")
-    .eq("id", groupGiftId)
-    .single();
+  const adminClient = createAdminClient();
 
-  if (!groupGift || groupGift.created_by !== userId) {
-    return { error: "Only the creator can delete this group gift" };
-  }
+  const seen = await seeGift(adminClient, groupGiftId, userId);
+  if (!seen.ok) return { error: seen.error };
+  const { gift } = seen;
+  if (gift.created_by !== userId) return { error: GIFT_SENTENCES.onlyMakerDeletes };
 
-  // Delete the group gift using admin client (cascade will handle members and messages)
-  const { error } = await adminClient
-    .from("group_gifts")
-    .delete()
-    .eq("id", groupGiftId);
+  const { error } = await adminClient.from("group_gifts").delete().eq("id", gift.id);
 
   if (error) {
     return { error: error.message };
   }
 
   revalidatePath("/gifts");
-  revalidatePath(`/groups/${groupGift.group_id}`);
+  revalidatePath(`/groups/${gift.group_id}`);
 
   return { success: true };
 }
@@ -632,98 +634,25 @@ export async function updateGroupGift(
 }
 
 /**
- * Get available users from all groups the current user is in who can be invited to the group gift
- * Any member of the group gift can invite users from groups they share with
+ * Who the caller can add to a gift they made: everyone who shares a group with them, less anyone already in it and
+ * anyone it is for, by name (byGiftPersonName). seeGift's sentence to anyone who cannot see the gift,
+ * GIFT_SENTENCES.onlyMakerAdds to another member.
  */
-export async function getAvailableGroupMembers(groupGiftId: string) {
-  const supabase = await createClient();
-  const adminClient = createAdminClient();
-
+export async function getAvailableGroupMembers(
+  groupGiftId: string
+): Promise<{ data: GiftPerson[]; error?: never } | { error: string; data?: never }> {
   const userId = await getUserId();
 
   if (!userId) {
     return { error: "Not authenticated" };
   }
 
-  // Get the group gift info (using admin client to avoid RLS issues)
-  const { data: groupGift, error: groupGiftError } = await adminClient
-    .from("group_gifts")
-    .select("group_id, created_by")
-    .eq("id", groupGiftId)
-    .single();
+  const adminClient = createAdminClient();
 
-  if (groupGiftError || !groupGift) {
-    return { error: "Group gift not found" };
-  }
+  const target = await giftToAddTo(adminClient, groupGiftId, userId);
+  if ("error" in target) return { error: target.error };
 
-  // Verify user is a member or creator of the group gift
-  const isCreator = groupGift.created_by === userId;
-  const { data: membership } = await adminClient
-    .from("group_gift_members")
-    .select("id")
-    .eq("group_gift_id", groupGiftId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (!isCreator && !membership) {
-    return { error: "You must be a member of this group gift to manage members" };
-  }
-
-  // Get all groups the current user is a member of
-  const { data: userGroups, error: userGroupsError } = await supabase
-    .from("group_members")
-    .select("group_id")
-    .eq("user_id", userId);
-
-  if (userGroupsError) {
-    return { error: userGroupsError.message };
-  }
-
-  if (!userGroups || userGroups.length === 0) {
-    return { data: [] };
-  }
-
-  const userGroupIds = userGroups.map(g => g.group_id);
-
-  // Get all members from all groups the user is in
-  const { data: groupMembers, error: groupMembersError } = await supabase
-    .from("group_members")
-    .select("user_id")
-    .in("group_id", userGroupIds);
-
-  if (groupMembersError) {
-    return { error: groupMembersError.message };
-  }
-
-  // Get current group gift members (using admin client)
-  const { data: currentMembers, error: currentMembersError } = await adminClient
-    .from("group_gift_members")
-    .select("user_id")
-    .eq("group_gift_id", groupGiftId);
-
-  if (currentMembersError) {
-    return { error: currentMembersError.message };
-  }
-
-  // Filter out users already in the group gift and the current user
-  const currentMemberIds = new Set(currentMembers?.map((m) => m.user_id) || []);
-  const uniqueUserIds = new Set(groupMembers?.map((gm) => gm.user_id) || []);
-  const availableUserIds = Array.from(uniqueUserIds)
-    .filter((memberId) => !currentMemberIds.has(memberId) && memberId !== userId);
-
-  if (availableUserIds.length === 0) {
-    return { data: [] };
-  }
-
-  // Get user profiles for available members
-  const { data: profiles, error: profilesError } = await supabase
-    .from("user_profiles")
-    .select("id, username, display_name, avatar_url")
-    .in("id", availableUserIds);
-
-  if (profilesError) {
-    return { error: profilesError.message };
-  }
-
-  return { data: profiles || [] };
+  const addable = await addablePeople(adminClient, target.gift, userId);
+  if ("error" in addable) return { error: addable.error };
+  return { data: addable.people };
 }

@@ -23,7 +23,7 @@ interface Member {
 
 interface AvailableUser {
   id: string;
-  username: string;
+  username: string | null;
   display_name?: string | null;
   avatar_url?: string | null;
 }
@@ -188,7 +188,7 @@ export function MemberManager({
                 <div className="max-h-96 overflow-y-auto space-y-2 mb-4">
                   {availableUsers.map((user) => {
                     const isSelected = selectedUserIds.includes(user.id);
-                    const displayName = user.display_name || user.username;
+                    const displayName = user.display_name || user.username || "Unknown User";
                     const initials = displayName.charAt(0).toUpperCase();
 
                     return (
