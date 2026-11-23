@@ -110,15 +110,23 @@ const message = (n: number, user: GiftPerson, content: string, created: string):
 });
 
 /**
+ * What getMessages answers for messages.json: the chat's three messages, oldest first. Each time is written as the
+ * database writes one, with microseconds and an offset (the second is sent from two hours ahead of UTC).
+ */
+export function chatRows(): ChatRow[] {
+  return [
+    message(1, alex, "Found a place with a sea view. $580 for two nights.", "2026-11-16T18:02:11.482913+00:00"),
+    message(2, sam, "Perfect. I'm in for 120.", "2026-11-16T20:05:40.918204+02:00"),
+    message(3, alex, "I can book it on Friday", "2026-11-18T09:14:27.000731+00:00"),
+  ];
+}
+
+/**
  * The group gift and chat actions, each succeeding as the website's does for Sam: the three gifts of group-gifts.json
  * (only Anniversary weekend away can be read whole), a gift made from the request fixture, and the chat's three messages.
  */
 export function groupGiftMocks(): GroupGiftMocks {
-  const messages = [
-    message(1, alex, "Found a place with a sea view. $580 for two nights.", "2026-11-16T18:02:11.000000+00:00"),
-    message(2, sam, "Perfect. I'm in for 120.", "2026-11-16T18:05:40.000000+00:00"),
-    message(3, alex, "I can book it on Friday", "2026-11-18T09:14:27.000000+00:00"),
-  ];
+  const messages = chatRows();
   return {
     createGroupGift: vi.fn(async () => ({ data: { ...weekendRow } })),
     getMyGroupGifts: vi.fn(async () => ({ data: myGroupGifts() })),
@@ -132,7 +140,7 @@ export function groupGiftMocks(): GroupGiftMocks {
     deleteGroupGift: vi.fn(async () => ({ success: true })),
     getMessages: vi.fn(async () => ({ data: messages, hasEarlier: false })),
     sendMessage: vi.fn(async (input: { group_gift_id: string; content: string }) => ({
-      data: message(4, sam, input.content, "2026-11-18T09:20:03.000000+00:00"),
+      data: message(4, sam, input.content, "2026-11-18T09:20:03.771002+00:00"),
     })),
   };
 }

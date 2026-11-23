@@ -6,13 +6,16 @@ import {
   giftChoices,
   groupGiftPage,
   groupGiftSummary,
+  mobileMessage,
   money,
   parseAddPeopleBody,
+  parseMessageBody,
+  parseMessagesQuery,
   parseNewGroupGiftBody,
   parsePledgeBody,
 } from "./group-gifts";
 import { fixture } from "./test-fixtures";
-import { groupMateRows, myGroupGifts, seenWeekend } from "./test-group-gifts";
+import { chatRows, groupMateRows, myGroupGifts, seenWeekend } from "./test-group-gifts";
 import { SAM } from "./test-shopping";
 import { RULES } from "./wishlist";
 
@@ -307,6 +310,100 @@ describe("parseAddPeopleBody", () => {
     "answers the plain sentence for %j",
     (body) => {
       expect(parseAddPeopleBody(body)).toEqual({ ok: false, message: RULES.request });
+    },
+  );
+});
+
+describe("the chat shapes", () => {
+  it("shapes the messages as the fixture, with times to the second", () => {
+    const messages = chatRows().map((row) => mobileMessage(row, SAM));
+    expect(messages).toEqual(fixture("messages").messages);
+    for (const m of messages) expect(m.sentAt).not.toContain(".");
+  });
+
+  it("names a sender with no profile Someone", () => {
+    const row = { ...chatRows()[0], user_profiles: null };
+    expect(mobileMessage(row, SAM)).toMatchObject({
+      person: { id: ALEX, name: "Someone", username: null, avatarUrl: null },
+      isYou: false,
+    });
+  });
+
+  it("refuses to shape a message with no time", () => {
+    expect(() => mobileMessage({ ...chatRows()[0], created_at: null }, SAM)).toThrow(/no created_at/);
+  });
+
+  it("marks only the caller's own messages as theirs", () => {
+    expect(chatRows().map((row) => mobileMessage(row, SAM).isYou)).toEqual([false, true, false]);
+    expect(chatRows().map((row) => mobileMessage(row, ALEX).isYou)).toEqual([true, false, true]);
+  });
+
+  it("sends named fields only", () => {
+    const row = { ...chatRows()[0], ...EXTRA, user_profiles: { ...chatRows()[0].user_profiles!, ...EXTRA } };
+    const answer = mobileMessage(row, SAM);
+    expect(Object.keys(answer)).toEqual(["id", "person", "text", "sentAt", "isYou"]);
+    expect(JSON.stringify(answer)).not.toMatch(/email|target_user_id|secret_column|attachment|is_edited|updated_at/);
+  });
+});
+
+describe("parseMessageBody", () => {
+  it("reads the request fixture", () => {
+    expect(parseMessageBody(fixture("message-request"))).toEqual({ ok: true, text: "Book it. I'll sort the card." });
+  });
+
+  it("trims the text and keeps its line breaks, and reads only text", () => {
+    expect(parseMessageBody({ text: "  one\r\n\ttwo \n", user_id: "x" })).toEqual({ ok: true, text: "one\r\n\ttwo" });
+  });
+
+  it("takes 5000 characters and refuses 5001", () => {
+    expect(parseMessageBody({ text: "x".repeat(5000) })).toMatchObject({ ok: true });
+    expect(parseMessageBody({ text: "x".repeat(5001) })).toEqual({ ok: false, message: GIFT_SENTENCES.messageTooLong });
+  });
+
+  it("counts the length of the trimmed text", () => {
+    expect(parseMessageBody({ text: ` ${"x".repeat(5000)} ` })).toMatchObject({ ok: true });
+  });
+
+  it.each([[""], [" \n\t "], [" "]])("answers the missing sentence for %j", (text) => {
+    expect(parseMessageBody({ text })).toEqual({ ok: false, message: GIFT_SENTENCES.messageMissing });
+  });
+
+  it("answers the characters sentence for a control character other than tab, line feed and carriage return", () => {
+    expect(parseMessageBody({ text: "a\u0007b" })).toEqual({ ok: false, message: GIFT_SENTENCES.characters });
+    expect(parseMessageBody({ text: "a\u0000b" })).toEqual({ ok: false, message: GIFT_SENTENCES.characters });
+  });
+
+  it.each([[{}], [{ text: 5 }], [{ text: null }], [[]], ["x"], [null], [undefined]])(
+    "answers the plain sentence for %j",
+    (body) => {
+      expect(parseMessageBody(body)).toEqual({ ok: false, message: RULES.request });
+    },
+  );
+});
+
+describe("parseMessagesQuery", () => {
+  const ID = "a1000000-0000-4000-8000-000000000003";
+
+  it("takes no place, a place before and a place after", () => {
+    expect(parseMessagesQuery({})).toEqual({ ok: true, page: {} });
+    expect(parseMessagesQuery({ before: ID })).toEqual({ ok: true, page: { before: ID } });
+    expect(parseMessagesQuery({ after: ID })).toEqual({ ok: true, page: { after: ID } });
+  });
+
+  it("reads a UUID in lower case", () => {
+    expect(parseMessagesQuery({ before: ID.toUpperCase() })).toEqual({ ok: true, page: { before: ID } });
+    expect(parseMessagesQuery({ after: ID.toUpperCase() })).toEqual({ ok: true, page: { after: ID } });
+  });
+
+  it("refuses both places at once", () => {
+    expect(parseMessagesQuery({ before: ID, after: ID })).toEqual({ ok: false });
+  });
+
+  it.each([["x"], [""], ["a1000000-0000-4000-8000-00000000000"], [`${ID}0`], ["user_2abcDEF"]])(
+    "refuses a place that is not a UUID: %j",
+    (place) => {
+      expect(parseMessagesQuery({ before: place })).toEqual({ ok: false });
+      expect(parseMessagesQuery({ after: place })).toEqual({ ok: false });
     },
   );
 });

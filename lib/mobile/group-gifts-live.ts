@@ -8,6 +8,7 @@ import {
   getMyGroupGifts,
   updateMyContribution,
 } from "@/lib/actions/gifts";
+import { getMessages, sendMessage } from "@/lib/actions/messages";
 import { actionAnswer, databaseFailure } from "./action-response";
 import { pathUuid } from "./database";
 import {
@@ -15,11 +16,15 @@ import {
   giftChoices,
   groupGiftPage,
   groupGiftSummary,
+  mobileMessage,
   parseAddPeopleBody,
+  parseMessageBody,
+  parseMessagesQuery,
   parseNewGroupGiftBody,
   parsePledgeBody,
   type MobileGroupGift,
   type MobileGroupGiftSummary,
+  type MobileMessage,
 } from "./group-gifts";
 import { byPersonName, mobilePerson, type MobilePerson } from "./occasions";
 import { mobileError } from "./route";
@@ -110,6 +115,42 @@ export async function pledgeAnswer(
   const failed = actionAnswer(result, "updateMyContribution", GROUP_GIFT_ROUTE_ANSWERS.pledge);
   if (failed) return failed;
   return giftAfterWrite(userId, id, "updateMyContribution");
+}
+
+/**
+ * A page of a gift's chat, oldest first, from where the query says: the newest, the ones before a message, or the ones
+ * after it. A query the door refuses is 422 before any action is called.
+ */
+export async function messagesAnswer(
+  userId: string,
+  rawId: string,
+  query: { before?: string; after?: string },
+): Promise<Response | { messages: MobileMessage[]; hasEarlier: boolean }> {
+  const id = pathUuid(rawId);
+  if (id === null) return mobileError("not_found");
+  const parsed = parseMessagesQuery(query);
+  if (!parsed.ok) return mobileError("invalid");
+  const result = await getMessages(id, parsed.page);
+  const failed = actionAnswer(result, "getMessages", GROUP_GIFT_ROUTE_ANSWERS.messages);
+  if (failed) return failed;
+  const { data, hasEarlier } = result as Extract<typeof result, { data: object }>;
+  return { messages: data.map((row) => mobileMessage(row, userId)), hasEarlier };
+}
+
+/** Send the caller's message to a gift's chat, from a body the door has checked, and answer it as the chat shows it. */
+export async function sendMessageAnswer(
+  userId: string,
+  rawId: string,
+  raw: unknown,
+): Promise<Response | { message: MobileMessage }> {
+  const id = pathUuid(rawId);
+  if (id === null) return mobileError("not_found");
+  const parsed = parseMessageBody(raw);
+  if (!parsed.ok) return mobileError("invalid", parsed.message);
+  const result = await sendMessage({ group_gift_id: id, content: parsed.text });
+  const failed = actionAnswer(result, "sendMessage", GROUP_GIFT_ROUTE_ANSWERS.send);
+  if (failed) return failed;
+  return { message: mobileMessage((result as Extract<typeof result, { data: object }>).data, userId) };
 }
 
 /** Who the maker can add to a gift: people in the caller's groups who are not in it and are not who it is for, by name. */

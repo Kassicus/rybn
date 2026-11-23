@@ -1,0 +1,41 @@
+{
+  "messages": [
+    {
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "person": {
+        "id": "user_2alxABC",
+        "name": "Alex Rivera",
+        "username": "alex",
+        "avatarUrl": "https://img.clerk.com/alex"
+      },
+      "text": "Found a place with a sea view. $580 for two nights.",
+      "sentAt": "2026-11-16T18:02:11Z",
+      "isYou": false
+    },
+    {
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "person": {
+        "id": "user_2abcDEF",
+        "name": "Sam Rivera",
+        "username": "sam",
+        "avatarUrl": "https://img.clerk.com/abc"
+      },
+      "text": "Perfect. I'm in for 120.",
+      "sentAt": "2026-11-16T18:05:40Z",
+      "isYou": true
+    },
+    {
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "person": {
+        "id": "user_2alxABC",
+        "name": "Alex Rivera",
+        "username": "alex",
+        "avatarUrl": "https://img.clerk.com/alex"
+      },
+      "text": "I can book it on Friday",
+      "sentAt": "2026-11-18T09:14:27Z",
+      "isYou": false
+    }
+  ],
+  "hasEarlier": false
+}

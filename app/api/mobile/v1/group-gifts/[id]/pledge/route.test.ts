@@ -6,6 +6,10 @@ import type { GroupGiftMocks } from "@/lib/mobile/test-group-gifts";
 const holder = vi.hoisted(() => ({ current: undefined as unknown as GroupGiftMocks }));
 
 vi.mock("@/lib/auth/ensure-profile", () => ({ ensureProfile: async () => "user_2abcDEF" }));
+vi.mock("@/lib/actions/messages", () => ({
+  getMessages: (...a: unknown[]) => holder.current.getMessages(...a),
+  sendMessage: (...a: unknown[]) => holder.current.sendMessage(...a),
+}));
 vi.mock("@/lib/actions/gifts", () => ({
   getGroupGiftById: (...a: unknown[]) => holder.current.getGroupGiftById(...a),
   updateMyContribution: (...a: unknown[]) => holder.current.updateMyContribution(...a),

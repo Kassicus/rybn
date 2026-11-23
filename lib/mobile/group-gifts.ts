@@ -1,4 +1,5 @@
 import type { MyGroupGift, SeenGroupGift } from "@/lib/actions/gifts";
+import type { ChatRow } from "@/lib/actions/messages";
 import type { GiftPerson } from "@/lib/gifts/access";
 import { GIFT_LIMITS, GIFT_SENTENCES } from "@/lib/gifts/sentences";
 import { CONTROL_EXCEPT_NOTES_WHITESPACE } from "@/lib/utils/characters";
@@ -6,7 +7,7 @@ import { tidyGroupText } from "@/lib/utils/groups";
 import type { ActionAnswers } from "./action-response";
 import { PERSON_ID, pathUuid } from "./database";
 import { byPersonName, mobilePerson, type MobilePerson } from "./occasions";
-import { RULES } from "./wishlist";
+import { RULES, utcSeconds } from "./wishlist";
 
 /** A gift as the list shows it. Named fields only, in the contract's order. */
 export interface MobileGroupGiftSummary {
@@ -171,6 +172,61 @@ export function parsePledgeBody(
   }
   if (typeof paid !== "boolean") return { ok: false, message: RULES.request };
   return { ok: true, amount, paid };
+}
+
+/** A message of a gift's chat. */
+export interface MobileMessage {
+  id: string;
+  person: MobilePerson;
+  text: string;
+  /** ISO 8601, UTC, whole seconds. */
+  sentAt: string;
+  isYou: boolean;
+}
+
+/** A message as the chat shows it. A sender whose profile cannot be read is a person of their id alone, named "Someone". */
+export function mobileMessage(row: ChatRow, callerId: string): MobileMessage {
+  // The column is never null in the database, so a row without a time is a fault (500), not a message to guess a time for.
+  if (row.created_at === null) throw new Error(`message ${row.id} has no created_at`);
+  return {
+    id: row.id,
+    person: memberPerson(row.user_id, row.user_profiles),
+    text: row.content,
+    sentAt: utcSeconds(row.created_at),
+    isYou: row.user_id === callerId,
+  };
+}
+
+/**
+ * A message's body: `text` is trimmed, and may hold line breaks. Nothing but white space answers the missing sentence,
+ * more than 5000 UTF-16 units the too-long sentence, and a control character other than tab, line feed and carriage
+ * return the characters sentence, as the action checks them. A body of another shape, or text that is not text, answers
+ * `That request wasn't valid.`. Nothing else in the body is read.
+ */
+export function parseMessageBody(raw: unknown): { ok: true; text: string } | { ok: false; message: string } {
+  if (!isRecord(raw) || typeof raw.text !== "string") return { ok: false, message: RULES.request };
+  const text = raw.text.trim();
+  if (text === "") return { ok: false, message: GIFT_SENTENCES.messageMissing };
+  if (text.length > GIFT_LIMITS.message) return { ok: false, message: GIFT_SENTENCES.messageTooLong };
+  if (CONTROL_EXCEPT_NOTES_WHITESPACE.test(text)) return { ok: false, message: GIFT_SENTENCES.characters };
+  return { ok: true, text };
+}
+
+/**
+ * Where a page of the chat starts: a message's id, before it or after it, or neither. Both given, or one that is not a
+ * UUID, is not ok. A UUID is read in lower case.
+ */
+export function parseMessagesQuery(query: {
+  before?: string;
+  after?: string;
+}): { ok: true; page: { before?: string; after?: string } } | { ok: false } {
+  const { before, after } = query;
+  if (before !== undefined && after !== undefined) return { ok: false };
+  const asked = before ?? after;
+  if (asked === undefined) return { ok: true, page: {} };
+  const id = pathUuid(asked);
+  if (id === null) return { ok: false };
+  return { ok: true, page: before !== undefined ? { before: id } : { after: id } };
 }
 
 /** The most people one request can add. */
