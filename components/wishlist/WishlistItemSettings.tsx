@@ -329,7 +329,11 @@ export function WishlistItemSettings({
                         <Label>Price</Label>
                         <Input
                           {...register("price", {
-                            setValueAs: (v) => v === "" ? null : parseFloat(v)
+                            // Empty, missing or unparseable reads as no price, never NaN (a remounted input can hand back undefined).
+                            setValueAs: (v) => {
+                              const n = typeof v === "number" ? v : parseFloat(v);
+                              return Number.isFinite(n) ? n : null;
+                            },
                           })}
                           type="number"
                           step="0.01"

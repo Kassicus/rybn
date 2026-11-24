@@ -28,18 +28,16 @@ const ITEM_ID = "5a1c9e2b-3d4f-4a6b-8c7d-9e0f1a2b3c4d";
 
 const base = {
   title: "Personalized name mug",
-  // A price, so the form is valid when the dialog is reopened and saved again (an empty price field reads back as NaN).
-  price: 25,
   priority: "medium" as const,
   privacy_settings: { visibleToGroupTypes: ["family" as const], restrictToGroup: null },
 };
 
-function openEditor(details?: unknown) {
+function openEditor(details?: unknown, extra: Record<string, unknown> = {}) {
   render(
     <WishlistItemSettings
       itemId={ITEM_ID}
       itemTitle={base.title}
-      item={{ ...base, details } as never}
+      item={{ ...base, details, ...extra } as never}
     />
   );
   fireEvent.click(screen.getByRole("button", { name: "Settings" }));
@@ -96,6 +94,24 @@ describe("WishlistItemSettings details", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
     await waitFor(() => expect(updateWishlistItem).toHaveBeenCalledTimes(2));
     expect("details" in (updateWishlistItem.mock.calls[1][1] as object)).toBe(false);
+  });
+
+  it("saves a second time for an item with no price, sending price null", async () => {
+    openEditor(undefined, { price: null });
+    const describe2 = (text: string) =>
+      fireEvent.change(screen.getByPlaceholderText(/Anything else that helps/), { target: { value: text } });
+    describe2("first");
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => expect(updateWishlistItem).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Edit Item" })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Item" }));
+    describe2("second");
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => expect(updateWishlistItem).toHaveBeenCalledTimes(2));
+    const sent = updateWishlistItem.mock.calls[1][1] as { price: unknown; description: unknown };
+    expect(sent.price).toBeNull();
+    expect(sent.description).toBe("second");
   });
 
   it("shows what was stored after a save, so a dropped empty row is gone on reopening", async () => {
