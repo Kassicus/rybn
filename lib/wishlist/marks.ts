@@ -2,7 +2,7 @@ import type { createClient } from "@/lib/supabase/server";
 
 /** The columns of a wishlist item a signed-in person's client reads. */
 export const WISHLIST_ITEM_COLUMNS =
-  "id, user_id, title, description, url, price, image_url, priority, category, privacy_settings, created_at, updated_at";
+  "id, user_id, title, description, details, url, price, image_url, priority, category, privacy_settings, created_at, updated_at";
 
 export type ItemMark = { purchased: boolean; outOfStockMarkedBy: string | null };
 

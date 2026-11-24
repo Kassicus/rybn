@@ -8,6 +8,8 @@ import {
   withSignedWishlistImages,
 } from "@/lib/supabase/signed-image";
 import { resolveStoredImageValue } from "@/lib/storage/image-value";
+import { cleanDetails, type StoredDetail } from "@/lib/wishlist/details";
+import type { Json } from "@/types/database";
 
 import { getUserId } from "@/lib/auth/require-auth";
 import { isClaimActive, todayISO } from "@/lib/claims/active";
@@ -17,6 +19,10 @@ import {
   unmarked,
   withMarks,
 } from "@/lib/wishlist/marks";
+
+// StoredDetail is an interface, which has no index signature, so it is not
+// assignable to Json though every value in it is.
+const asJson = (details: StoredDetail[]) => details as unknown as Json;
 
 /**
  * INVARIANT for this file: every wishlist_items row that leaves a server action
@@ -141,12 +147,20 @@ export async function createWishlistItem(formData: WishlistItemFormData) {
     return { error: image.error };
   }
 
+  // Checked here whatever the browser's form did: this is callable from a
+  // browser. No details means an empty list.
+  const details = cleanDetails(formData.details ?? []);
+  if (!details.ok) {
+    return { error: details.message };
+  }
+
   const { data: item, error } = await supabase
     .from("wishlist_items")
     .insert({
       user_id: userId,
       title: formData.title,
       description: formData.description || null,
+      details: asJson(details.details),
       url: formData.url || null,
       price: formData.price || null,
       image_url: image.value,
@@ -186,11 +200,24 @@ export async function updateWishlistItem(itemId: string, formData: WishlistItemF
     return { error: image.error };
   }
 
+  // A save that names no details (the key absent, undefined or null: the
+  // phone app's earlier versions send none) writes no `details` key, so the
+  // stored details stay as they are. A list, even an empty one, replaces them.
+  let detailsValues: { details?: Json } = {};
+  if (formData.details !== undefined && formData.details !== null) {
+    const details = cleanDetails(formData.details);
+    if (!details.ok) {
+      return { error: details.message };
+    }
+    detailsValues = { details: asJson(details.details) };
+  }
+
   const { data: item, error } = await supabase
     .from("wishlist_items")
     .update({
       title: formData.title,
       description: formData.description || null,
+      ...detailsValues,
       url: formData.url || null,
       price: formData.price || null,
       image_url: image.value,
