@@ -2,7 +2,7 @@
  * The rules for a wishlist item's details (Size, Color, and so on): the kinds, the limits, the sentences, how what a
  * form or a request sent is cleaned and checked, and how the stored column is read back. The website's forms, its
  * server actions and the mobile routes all go through here, so they accept and refuse the same things in the same
- * words. The database's check constraint on wishlist_items.details accepts exactly the shape cleanDetails answers.
+ * words. The database's check constraint on wishlist_items.details accepts every list cleanDetails answers.
  *
  * Imports only the shared character rules: the browser's forms load it.
  */
@@ -54,9 +54,20 @@ function isKind(kind: unknown): kind is DetailKind {
   return typeof kind === "string" && (DETAIL_KINDS as readonly string[]).includes(kind);
 }
 
-/** Trims, and turns every run of line breaks and tabs into one space. */
+/**
+ * Turns every run of carriage return, line feed, tab, U+0085, U+2028 and U+2029 into one space, then trims (which
+ * removes spaces and those characters at the ends).
+ */
 function tidy(text: string): string {
-  return text.trim().replace(/[\r\n\t]+/g, " ");
+  return text.replace(/[\r\n\t\u0085\u2028\u2029]+/g, " ").trim();
+}
+
+/** A high surrogate with no low one after it, or a low surrogate with no high one before it. */
+const UNPAIRED_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+/** Text Rybn does not save: a control character or an unpaired surrogate. */
+function unsavable(text: string): boolean {
+  return CONTROL.test(text) || UNPAIRED_SURROGATE.test(text);
 }
 
 /** What a form or a request sent, cleaned and checked: the list to store, or the sentence that says why not. */
@@ -64,6 +75,8 @@ export function cleanDetails(raw: unknown): Cleaned {
   if (!Array.isArray(raw)) return refuse(DETAIL_SENTENCES.refused);
 
   const details: StoredDetail[] = [];
+  const namedSeen = new Set<DetailKind>();
+  let own = 0;
   for (const entry of raw) {
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
       return refuse(DETAIL_SENTENCES.refused);
@@ -77,26 +90,29 @@ export function cleanDetails(raw: unknown): Cleaned {
 
     const text = tidy(value);
     if (text === "") continue;
-    if (CONTROL.test(text)) return refuse(CHARACTERS_REFUSED);
+    if (unsavable(text)) return refuse(CHARACTERS_REFUSED);
     if (text.length > DETAIL_LIMITS.value) return refuse(DETAIL_SENTENCES.valueTooLong);
 
+    // An entry's own rules are checked before its counting rule; the counting rules count entries kept, so an
+    // entry with no text has already been dropped.
+    let stored: StoredDetail;
     if (kind !== "other") {
-      details.push({ kind, value: text });
-      continue;
+      if (namedSeen.has(kind)) return refuse(DETAIL_SENTENCES.refused);
+      stored = { kind, value: text };
+    } else {
+      const name = tidy(typeof label === "string" ? label : "");
+      if (name === "") return refuse(DETAIL_SENTENCES.labelMissing);
+      if (unsavable(name)) return refuse(CHARACTERS_REFUSED);
+      if (name.length > DETAIL_LIMITS.label) return refuse(DETAIL_SENTENCES.labelTooLong);
+      if (own >= DETAIL_LIMITS.own) return refuse(DETAIL_SENTENCES.refused);
+      stored = { kind, label: name, value: text };
     }
+    if (details.length >= DETAIL_LIMITS.total) return refuse(DETAIL_SENTENCES.refused);
 
-    const name = tidy(typeof label === "string" ? label : "");
-    if (name === "") return refuse(DETAIL_SENTENCES.labelMissing);
-    if (CONTROL.test(name)) return refuse(CHARACTERS_REFUSED);
-    if (name.length > DETAIL_LIMITS.label) return refuse(DETAIL_SENTENCES.labelTooLong);
-    details.push({ kind, label: name, value: text });
+    if (kind === "other") own += 1;
+    else namedSeen.add(kind);
+    details.push(stored);
   }
-
-  // The counting rules run on the cleaned list, after entries with no text are gone.
-  if (details.length > DETAIL_LIMITS.total) return refuse(DETAIL_SENTENCES.refused);
-  const named = details.filter((d) => d.kind !== "other");
-  if (new Set(named.map((d) => d.kind)).size !== named.length) return refuse(DETAIL_SENTENCES.refused);
-  if (details.length - named.length > DETAIL_LIMITS.own) return refuse(DETAIL_SENTENCES.refused);
 
   return { ok: true, details };
 }

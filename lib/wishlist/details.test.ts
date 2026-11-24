@@ -141,6 +141,107 @@ describe("says why", () => {
   });
 });
 
+describe("counts entry by entry", () => {
+  it("answers the entry that breaks a counting rule first", () => {
+    expect(
+      refusal([
+        { kind: "size", value: "M" },
+        { kind: "size", value: "L" },
+        { kind: "other", value: "x" },
+      ]),
+    ).toBe(REFUSED);
+  });
+
+  it("answers the sixth other before a later entry's own rule", () => {
+    const six = Array.from({ length: 6 }, (_, i) => ({ kind: "other", label: `L${i}`, value: "x" }));
+    expect(refusal([...six, { kind: "size", value: "a".repeat(101) }])).toBe(REFUSED);
+  });
+
+  it("answers the eleventh entry before a later entry's own rule", () => {
+    const kept = Array.from({ length: 11 }, (_, i) => ({ kind: "other", label: `L${i}`, value: "x" }));
+    // Five other at most, so use the named kinds plus five other for ten, then an eleventh.
+    const ten = [
+      { kind: "size", value: "M" },
+      { kind: "color", value: "M" },
+      { kind: "style", value: "M" },
+      { kind: "version", value: "M" },
+      { kind: "brand", value: "M" },
+      ...kept.slice(0, 5),
+    ];
+    expect(refusal([...ten, { kind: "other", value: "x" }])).toBe(DETAIL_SENTENCES.labelMissing);
+    expect(refusal([...ten, { kind: "other", label: "F", value: "x" }, { kind: "size", value: "a".repeat(101) }])).toBe(
+      REFUSED,
+    );
+  });
+});
+
+describe("counts length after cleaning", () => {
+  it("passes text that is 101 units raw and 100 cleaned", () => {
+    const result = cleanDetails([{ kind: "size", value: "a".repeat(50) + "\n\n" + "a".repeat(49) + "\n" }]);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.details[0].value).toHaveLength(100);
+  });
+
+  it("refuses text that is 101 units cleaned", () => {
+    expect(refusal([{ kind: "size", value: "  " + "😀".repeat(50) + "a" + "\t" }])).toBe(
+      DETAIL_SENTENCES.valueTooLong,
+    );
+  });
+});
+
+describe("folds every line break", () => {
+  it.each([
+    ["U+0085", "\u0085"],
+    ["U+2028", " "],
+    ["U+2029", " "],
+  ])("turns %s inside a value into one space", (_name, ch) => {
+    expect(cleanDetails([{ kind: "size", value: `a${ch}${ch}b` }])).toEqual({
+      ok: true,
+      details: [{ kind: "size", value: "a b" }],
+    });
+    expect(cleanDetails([{ kind: "other", label: `x${ch}y`, value: "z" }])).toEqual({
+      ok: true,
+      details: [{ kind: "other", label: "x y", value: "z" }],
+    });
+  });
+
+  it("trims them at the ends", () => {
+    expect(cleanDetails([{ kind: "size", value: "\u0085a " }])).toEqual({
+      ok: true,
+      details: [{ kind: "size", value: "a" }],
+    });
+  });
+});
+
+describe("refuses text that is not well-formed", () => {
+  it("refuses a lone high or low surrogate in a value or a label", () => {
+    expect(refusal([{ kind: "size", value: "\uD800" }])).toBe(CHARACTERS_REFUSED);
+    expect(refusal([{ kind: "size", value: "a\uDC00b" }])).toBe(CHARACTERS_REFUSED);
+    expect(refusal([{ kind: "other", label: "a\uD800", value: "x" }])).toBe(CHARACTERS_REFUSED);
+    expect(refusal([{ kind: "other", label: "\uDC00", value: "x" }])).toBe(CHARACTERS_REFUSED);
+  });
+
+  it("passes a correctly paired emoji", () => {
+    expect(cleanDetails([{ kind: "size", value: "a😀b" }]).ok).toBe(true);
+  });
+});
+
+describe("pins two more readings", () => {
+  it("accepts a named kind whose label is not text and ignores it", () => {
+    expect(cleanDetails([{ kind: "size", label: 5, value: "M" }])).toEqual({
+      ok: true,
+      details: [{ kind: "size", value: "M" }],
+    });
+  });
+
+  it("counts an own label's emoji as two units", () => {
+    expect(cleanDetails([{ kind: "other", label: "😀".repeat(15), value: "x" }]).ok).toBe(true);
+    expect(refusal([{ kind: "other", label: "😀".repeat(15) + "a", value: "x" }])).toBe(
+      DETAIL_SENTENCES.labelTooLong,
+    );
+  });
+});
+
 describe("an empty row is no detail", () => {
   it("drops an other with a label and no value", () => {
     expect(cleanDetails([{ kind: "other", label: "Scent", value: "" }])).toEqual({ ok: true, details: [] });
@@ -181,20 +282,24 @@ describe("reads the column forgivingly", () => {
 });
 
 describe("what it cleans, the database accepts", () => {
-  const five = Array.from({ length: 5 }, (_, i) => ({ kind: "other" as const, label: `Own ${i}`, value: "x" }));
+  // The valid lists of supabase/tests/rls/30_item_details.sql, assertion 4, with its values.
   const lists = [
     [],
     [{ kind: "size", value: "M" }],
     [
       { kind: "size", value: "M" },
-      { kind: "color", value: "Blue" },
+      { kind: "color", value: "Red" },
       { kind: "style", value: "Slim" },
       { kind: "version", value: "Pro" },
-      { kind: "brand", value: "Nike" },
-      ...five,
+      { kind: "brand", value: "Acme" },
+      { kind: "other", label: "A", value: "1" },
+      { kind: "other", label: "B", value: "2" },
+      { kind: "other", label: "C", value: "3" },
+      { kind: "other", label: "D", value: "4" },
+      { kind: "other", label: "E", value: "5" },
     ],
     [{ kind: "size", value: "a".repeat(100) }],
-    [{ kind: "other", label: "a".repeat(30), value: "x" }],
+    [{ kind: "other", label: "b".repeat(30), value: "x" }],
   ];
 
   it.each(lists.map((l, i) => [i, l] as const))("answers list %i unchanged", (_i, list) => {
