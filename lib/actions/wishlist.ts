@@ -8,7 +8,7 @@ import {
   withSignedWishlistImages,
 } from "@/lib/supabase/signed-image";
 import { resolveStoredImageValue } from "@/lib/storage/image-value";
-import { cleanDetails, type StoredDetail } from "@/lib/wishlist/details";
+import { cleanDetails } from "@/lib/wishlist/details";
 import type { Json } from "@/types/database";
 
 import { getUserId } from "@/lib/auth/require-auth";
@@ -19,10 +19,6 @@ import {
   unmarked,
   withMarks,
 } from "@/lib/wishlist/marks";
-
-// StoredDetail is an interface, which has no index signature, so it is not
-// assignable to Json though every value in it is.
-const asJson = (details: StoredDetail[]) => details as unknown as Json;
 
 /**
  * INVARIANT for this file: every wishlist_items row that leaves a server action
@@ -160,7 +156,7 @@ export async function createWishlistItem(formData: WishlistItemFormData) {
       user_id: userId,
       title: formData.title,
       description: formData.description || null,
-      details: asJson(details.details),
+      details: details.details,
       url: formData.url || null,
       price: formData.price || null,
       image_url: image.value,
@@ -209,7 +205,7 @@ export async function updateWishlistItem(itemId: string, formData: WishlistItemF
     if (!details.ok) {
       return { error: details.message };
     }
-    detailsValues = { details: asJson(details.details) };
+    detailsValues = { details: details.details };
   }
 
   const { data: item, error } = await supabase

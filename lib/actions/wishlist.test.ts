@@ -355,10 +355,14 @@ describe("an item's details, written by the two actions", () => {
   const written = (spy: typeof insertSpy | typeof updateSpy) => spy.mock.calls[0][1] as Record<string, unknown>;
   const saved = () => ({ wishlist_items: [{ data: itemRow(ITEM_ID, ME), error: null }] });
 
-  it("a new item with no details stores none", async () => {
+  it.each([
+    ["the key absent", FORM],
+    ["details undefined", { ...FORM, details: undefined }],
+    ["details null", { ...FORM, details: null }],
+  ])("a new item with no details stores none: %s", async (_, form) => {
     supabase = createSupabaseMock(saved());
 
-    await createWishlistItem(FORM);
+    await createWishlistItem(form);
 
     expect(written(insertSpy).details).toEqual([]);
   });

@@ -33,11 +33,11 @@ export const DETAIL_SENTENCES = {
 };
 
 /** As stored: `label` only on `other`. */
-export interface StoredDetail {
+export type StoredDetail = {
   kind: DetailKind;
   value: string;
   label?: string;
-}
+};
 
 /** As answered and as a form holds it: `label` always. */
 export interface ShownDetail {
@@ -107,6 +107,7 @@ export function cleanDetails(raw: unknown): Cleaned {
       if (own >= DETAIL_LIMITS.own) return refuse(DETAIL_SENTENCES.refused);
       stored = { kind, label: name, value: text };
     }
+    // Kept as a backstop: five named and five own already make ten, so no list reaches this alone.
     if (details.length >= DETAIL_LIMITS.total) return refuse(DETAIL_SENTENCES.refused);
 
     if (kind === "other") own += 1;

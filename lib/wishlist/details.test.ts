@@ -157,9 +157,10 @@ describe("counts entry by entry", () => {
     expect(refusal([...six, { kind: "size", value: "a".repeat(101) }])).toBe(REFUSED);
   });
 
-  it("answers the eleventh entry before a later entry's own rule", () => {
+  it("answers an entry's own rule before its counting rules (the eleventh-entry rule cannot fire alone)", () => {
     const kept = Array.from({ length: 11 }, (_, i) => ({ kind: "other", label: `L${i}`, value: "x" }));
-    // Five other at most, so use the named kinds plus five other for ten, then an eleventh.
+    // Five named and five own already make ten, so "more than ten" cannot be the only rule an entry breaks: the
+    // eleventh is always also a repeated named kind or a sixth own one. The list below is ten, then an eleventh.
     const ten = [
       { kind: "size", value: "M" },
       { kind: "color", value: "M" },
@@ -176,7 +177,7 @@ describe("counts entry by entry", () => {
 });
 
 describe("counts length after cleaning", () => {
-  it("passes text that is 101 units raw and 100 cleaned", () => {
+  it("passes text that is 102 units raw and 100 cleaned", () => {
     const result = cleanDetails([{ kind: "size", value: "a".repeat(50) + "\n\n" + "a".repeat(49) + "\n" }]);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.details[0].value).toHaveLength(100);
@@ -192,8 +193,8 @@ describe("counts length after cleaning", () => {
 describe("folds every line break", () => {
   it.each([
     ["U+0085", "\u0085"],
-    ["U+2028", " "],
-    ["U+2029", " "],
+    ["U+2028", "\u2028"],
+    ["U+2029", "\u2029"],
   ])("turns %s inside a value into one space", (_name, ch) => {
     expect(cleanDetails([{ kind: "size", value: `a${ch}${ch}b` }])).toEqual({
       ok: true,
@@ -206,7 +207,7 @@ describe("folds every line break", () => {
   });
 
   it("trims them at the ends", () => {
-    expect(cleanDetails([{ kind: "size", value: "\u0085a " }])).toEqual({
+    expect(cleanDetails([{ kind: "size", value: "\u0085a\u2028" }])).toEqual({
       ok: true,
       details: [{ kind: "size", value: "a" }],
     });

@@ -28,9 +28,9 @@ export function ItemDetailLines({
   return (
     <dl className="space-y-1">
       {shown.map((d, i) => (
-        <div key={i} className="flex flex-wrap gap-x-2">
+        <div key={i} className="flex min-w-0 flex-wrap gap-x-2">
           <dt className="text-sm text-light-text-secondary">{d.label}</dt>
-          <dd>{d.value}</dd>
+          <dd className="min-w-0 break-words">{d.value}</dd>
         </div>
       ))}
     </dl>

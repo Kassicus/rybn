@@ -24,6 +24,20 @@ describe("ItemDetailLines", () => {
     expect(container.textContent).toBe("Size M · Scent Unscented");
   });
 
+  it("renders a value as text, not as markup", () => {
+    const { container } = render(
+      <ItemDetailLines details={[{ kind: "size", value: "<b>x</b>" }]} variant="lines" />,
+    );
+    expect(screen.getByRole("definition").textContent).toBe("<b>x</b>");
+    expect(container.querySelector("b")).toBeNull();
+  });
+
+  it("skips stored entries that are not readable and keeps the good one", () => {
+    render(<ItemDetailLines details={[1, { kind: "size" }, { kind: "size", value: "M" }]} variant="lines" />);
+    expect(screen.getAllByRole("term").map((t) => t.textContent)).toEqual(["Size"]);
+    expect(screen.getAllByRole("definition").map((d) => d.textContent)).toEqual(["M"]);
+  });
+
   it.each([
     ["an empty list", []],
     ["null", null],
