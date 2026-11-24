@@ -84,6 +84,19 @@ describe("WishlistItemSettings details", () => {
     expect(sent.details).toEqual([]);
   });
 
+  it("shows what was stored after a save, so a dropped empty row is gone on reopening", async () => {
+    updateWishlistItem.mockResolvedValue({ data: { details: [] } });
+    openEditor(undefined);
+    fireEvent.click(screen.getByRole("button", { name: "Add details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Size" }));
+    expect(screen.getByRole("button", { name: "Remove Size" })).toBeTruthy();
+    await save();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Edit Item" })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Item" }));
+    expect(screen.queryByRole("button", { name: "Remove Size" })).toBeNull();
+  });
+
   it("shows a detail's refusal under the control", async () => {
     updateWishlistItem.mockResolvedValue({ error: "Give the detail a name." });
     openEditor(stored);

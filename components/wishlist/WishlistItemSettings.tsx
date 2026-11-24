@@ -145,6 +145,8 @@ export function WishlistItemSettings({
       setError(result.error);
       setIsSaving(false);
     } else {
+      // Show what was stored: a row the server dropped (one left empty) is not there when the dialog reopens.
+      if ("data" in result && result.data) setDetails(shownDetails(result.data.details));
       setShowModal(false);
       setViewMode('menu');
       router.refresh();
@@ -282,7 +284,6 @@ export function WishlistItemSettings({
                     </div>
 
                     <div className="flex flex-col gap-1">
-                      <Label>Details</Label>
                       <ItemDetailsField
                         value={details}
                         onChange={setDetails}

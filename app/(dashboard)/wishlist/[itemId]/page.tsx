@@ -336,6 +336,7 @@ export default function WishlistItemDetailPage({
 
           {isOwnWishlist && (
             <WishlistItemSettings
+              key={item.id}
               itemId={item.id}
               itemTitle={item.title}
               item={item}

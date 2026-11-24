@@ -171,7 +171,6 @@ export default function AddWishlistItemPage() {
         <FormSection title="More about it" description="All optional.">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
-              <Label>Details</Label>
               <ItemDetailsField
                 value={details}
                 onChange={setDetails}

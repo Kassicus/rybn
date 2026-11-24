@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,6 +51,18 @@ interface ItemDetailsFieldProps {
 export function ItemDetailsField({ value, onChange, error }: ItemDetailsFieldProps) {
   const [open, setOpen] = useState(false);
   const id = useId();
+  const root = useRef<HTMLDivElement>(null);
+  const addButton = useRef<HTMLButtonElement>(null);
+  // Where focus goes once the next render has the row or button it names: a row index, or "add" for the button.
+  const pendingFocus = useRef<number | "add" | null>(null);
+
+  useEffect(() => {
+    const target = pendingFocus.current;
+    if (target === null) return;
+    pendingFocus.current = null;
+    if (target === "add") addButton.current?.focus();
+    else root.current?.querySelector<HTMLElement>(`[data-row="${target}"] input`)?.focus();
+  });
 
   const ownCount = value.filter((r) => r.kind === "other").length;
   const full = value.length >= DETAIL_LIMITS.total;
@@ -63,6 +75,7 @@ export function ItemDetailsField({ value, onChange, error }: ItemDetailsFieldPro
 
   const add = (kind: string) => {
     const label = kind === "other" ? "" : DETAIL_LABELS[kind as keyof typeof DETAIL_LABELS];
+    pendingFocus.current = value.length;
     onChange([...value, { kind, label, value: "" }]);
     setOpen(false);
   };
@@ -70,24 +83,38 @@ export function ItemDetailsField({ value, onChange, error }: ItemDetailsFieldPro
   const change = (index: number, patch: Partial<ShownDetail>) =>
     onChange(value.map((row, i) => (i === index ? { ...row, ...patch } : row)));
 
-  const remove = (index: number) => onChange(value.filter((_, i) => i !== index));
+  // Focus stays with the list: the row that took the removed one's place, else the row before it, else the button.
+  const remove = (index: number) => {
+    pendingFocus.current = index < value.length - 1 ? index : index > 0 ? index - 1 : "add";
+    onChange(value.filter((_, i) => i !== index));
+  };
+
+  const closeOnEscape = (e: React.KeyboardEvent) => {
+    if (e.key !== "Escape" || !open) return;
+    setOpen(false);
+    addButton.current?.focus();
+  };
 
   return (
-    <div className="flex flex-col gap-3">
+    <div ref={root} role="group" aria-labelledby={`${id}-heading`} className="flex flex-col gap-3">
+      <Label id={`${id}-heading`}>Details</Label>
       {value.length > 0 && (
         <ul className="flex flex-col gap-3">
           {value.map((row, index) => {
             const own = row.kind === "other";
+            // The nth own row, so a screen reader can tell several of them apart.
+            const position = value.slice(0, index + 1).filter((r) => r.kind === "other").length;
             const textId = `${id}-text-${index}`;
             const nameId = `${id}-name-${index}`;
             return (
-              <li key={index} className="flex items-start gap-2">
+              <li key={index} data-row={index} className="flex items-start gap-2">
                 <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row">
                   {own && (
                     <div className="flex flex-col gap-1.5 sm:w-2/5">
                       <Label htmlFor={nameId}>What it is</Label>
                       <Input
                         id={nameId}
+                        aria-label={`Detail ${position}, what it is`}
                         type="text"
                         value={row.label}
                         onChange={(e) => change(index, { label: e.target.value })}
@@ -100,6 +127,7 @@ export function ItemDetailsField({ value, onChange, error }: ItemDetailsFieldPro
                     <Label htmlFor={textId}>{own ? "Detail" : row.label || KIND_NAMES[row.kind] || row.kind}</Label>
                     <Input
                       id={textId}
+                      aria-label={own ? `Detail ${position}, text` : undefined}
                       type="text"
                       value={row.value}
                       onChange={(e) => change(index, { value: e.target.value })}
@@ -112,7 +140,7 @@ export function ItemDetailsField({ value, onChange, error }: ItemDetailsFieldPro
                   variant="secondary"
                   size="small"
                   className="mt-7"
-                  aria-label={`Remove ${row.label || "detail"}`}
+                  aria-label={row.label ? `Remove ${row.label}` : `Remove detail ${position}`}
                   onClick={() => remove(index)}
                 >
                   <X className="h-4 w-4" aria-hidden="true" />
@@ -123,9 +151,11 @@ export function ItemDetailsField({ value, onChange, error }: ItemDetailsFieldPro
         </ul>
       )}
 
-      <div className="flex flex-col items-start gap-2">
+      <div className="flex flex-col items-start gap-2" onKeyDown={closeOnEscape}>
         <Button
+          ref={addButton}
           type="button"
+          aria-controls={open ? `${id}-kinds` : undefined}
           variant="secondary"
           size="small"
           aria-expanded={open}
@@ -136,7 +166,7 @@ export function ItemDetailsField({ value, onChange, error }: ItemDetailsFieldPro
           Add details
         </Button>
         {open && (
-          <ul className="flex flex-wrap gap-2">
+          <ul id={`${id}-kinds`} aria-label="Kinds of detail" className="flex flex-wrap gap-2">
             {DETAIL_KINDS.map((kind) => (
               <li key={kind}>
                 <Button
