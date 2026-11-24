@@ -1038,6 +1038,7 @@ export type Database = {
           user_id: string
           title: string
           description: string | null
+          details: Json
           url: string | null
           price: number | null
           image_url: string | null
@@ -1056,6 +1057,7 @@ export type Database = {
           user_id: string
           title: string
           description?: string | null
+          details?: Json
           url?: string | null
           price?: number | null
           image_url?: StoredImageValue | null
@@ -1074,6 +1076,7 @@ export type Database = {
           user_id?: string
           title?: string
           description?: string | null
+          details?: Json
           url?: string | null
           price?: number | null
           image_url?: StoredImageValue | null
