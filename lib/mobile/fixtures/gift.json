@@ -3,6 +3,10 @@
     "id": "e1f2a3b4-0001-4b00-8000-000000000001",
     "name": "Cashmere scarf",
     "description": "Grey, the long one",
+    "details": [
+      { "kind": "color", "label": "Color", "value": "Grey" },
+      { "kind": "other", "label": "Length", "value": "The long one" }
+    ],
     "link": "https://www.example.com/cashmere-scarf",
     "price": 89,
     "imageUrl": "https://example.supabase.co/storage/v1/object/sign/wishlist-images/user_2momABC/1793100000000-s2c4.jpg?token=fixture",

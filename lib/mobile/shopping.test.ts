@@ -116,6 +116,15 @@ describe("list items", () => {
   const tagged = new Set([IDS.dutchOven, IDS.scarf]);
   const items = orderListRows(w.momItems, tagged).map((r) => mobileListItem(r, w.activeClaims[r.id], SAM, tagged.has(r.id)));
   it("matches the person-wishlist items: tagged first, then by priority, then newest", () => expect(items).toEqual(fixture("person-wishlist").items));
+  it("answers the row's details through shownDetails, and none for a row with none", () => {
+    expect(mobileListItem(w.momItems[3], undefined, SAM, false).details).toEqual([
+      { kind: "color", label: "Color", value: "Grey" },
+      { kind: "other", label: "Length", value: "The long one" },
+    ]);
+    expect(mobileListItem(w.momItems[0], undefined, SAM, false).details).toEqual([]);
+    expect(mobileListItem({ ...w.momItems[0], details: null }, undefined, SAM, false).details).toEqual([]);
+    expect(mobileListItem({ ...w.momItems[0], details: "junk" }, undefined, SAM, false).details).toEqual([]);
+  });
   it("turns a price of zero or less into none", () => {
     for (const price of [0, -5, null]) expect(mobileListItem({ ...w.momItems[1], price }, undefined, SAM, false).price).toBeNull();
     expect(mobileListItem({ ...w.momItems[1], price: 0.5 }, undefined, SAM, false).price).toBe(0.5);

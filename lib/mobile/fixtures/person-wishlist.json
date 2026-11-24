@@ -39,6 +39,10 @@
       "id": "e1f2a3b4-0001-4b00-8000-000000000001",
       "name": "Cashmere scarf",
       "description": "Grey, the long one",
+      "details": [
+        { "kind": "color", "label": "Color", "value": "Grey" },
+        { "kind": "other", "label": "Length", "value": "The long one" }
+      ],
       "link": "https://www.example.com/cashmere-scarf",
       "price": 89,
       "imageUrl": "https://example.supabase.co/storage/v1/object/sign/wishlist-images/user_2momABC/1793100000000-s2c4.jpg?token=fixture",
@@ -78,6 +82,7 @@
       "id": "e1f2a3b4-0002-4b00-8000-000000000002",
       "name": "Photo book",
       "description": "Our trip to Lisbon",
+      "details": [],
       "link": null,
       "price": 35,
       "imageUrl": "https://example.supabase.co/storage/v1/object/sign/gift-photos/user_2abcDEF/1794500000000-p4b8.jpg?token=fixture",
@@ -119,6 +124,10 @@
       "id": "d0a1b2c3-0001-4a00-8000-000000000001",
       "title": "Le Creuset Dutch oven",
       "description": "5.5 qt, Flame",
+      "details": [
+        { "kind": "size", "label": "Size", "value": "5.5 qt" },
+        { "kind": "color", "label": "Color", "value": "Flame" }
+      ],
       "url": "https://www.example.com/dutch-oven",
       "price": 419.95,
       "imageUrl": "https://example.supabase.co/storage/v1/object/sign/wishlist-images/user_2momABC/1793000000000-d7c1.jpg?token=fixture",
@@ -131,6 +140,10 @@
       "id": "d0a1b2c3-0002-4a00-8000-000000000002",
       "title": "Cashmere scarf",
       "description": "Grey, the long one",
+      "details": [
+        { "kind": "color", "label": "Color", "value": "Grey" },
+        { "kind": "other", "label": "Length", "value": "The long one" }
+      ],
       "url": "https://www.example.com/cashmere-scarf",
       "price": 89,
       "imageUrl": "https://example.supabase.co/storage/v1/object/sign/wishlist-images/user_2momABC/1793100000000-s2c4.jpg?token=fixture",
@@ -143,6 +156,7 @@
       "id": "d0a1b2c3-0003-4a00-8000-000000000003",
       "title": "Kindle Paperwhite",
       "description": null,
+      "details": [],
       "url": "https://www.example.com/kindle",
       "price": 159.99,
       "imageUrl": null,
@@ -155,6 +169,7 @@
       "id": "d0a1b2c3-0004-4a00-8000-000000000004",
       "title": "Garden gloves",
       "description": null,
+      "details": [],
       "url": null,
       "price": 18,
       "imageUrl": null,
