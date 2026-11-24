@@ -79,8 +79,10 @@ export function WishlistItemSettings({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Held in this order and sent whole on every save, so a save that touches nothing sends the list as it was.
   const [details, setDetails] = useState<ShownDetail[]>(() => shownDetails(item.details));
+  // Set when the person uses the details control, cleared when a save succeeds. A save carries `details` only while it
+  // is set; otherwise the server leaves the stored details as they are, however old this dialog's copy is.
+  const [detailsChanged, setDetailsChanged] = useState(false);
 
   const {
     register,
@@ -139,7 +141,10 @@ export function WishlistItemSettings({
     setIsSaving(true);
     setError(null);
 
-    const result = await updateWishlistItem(itemId, { ...data, details });
+    const result = await updateWishlistItem(
+      itemId,
+      detailsChanged ? { ...data, details } : data
+    );
 
     if (result.error) {
       setError(result.error);
@@ -147,6 +152,9 @@ export function WishlistItemSettings({
     } else {
       // Show what was stored: a row the server dropped (one left empty) is not there when the dialog reopens.
       if ("data" in result && result.data) setDetails(shownDetails(result.data.details));
+      setDetailsChanged(false);
+      // The dialog stays mounted, so the button must not stay in its saving state for the next save.
+      setIsSaving(false);
       setShowModal(false);
       setViewMode('menu');
       router.refresh();
@@ -270,7 +278,7 @@ export function WishlistItemSettings({
               // @ts-expect-error - Form submit handler type inference
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
                 {/* Basic Information */}
-                <FormSection title="Item Details" description="What would you like to receive?">
+                <FormSection title="The item" description="What would you like to receive?">
                   <div className="space-y-4">
                     <div>
                       <Label required>Title</Label>
@@ -286,7 +294,10 @@ export function WishlistItemSettings({
                     <div className="flex flex-col gap-1">
                       <ItemDetailsField
                         value={details}
-                        onChange={setDetails}
+                        onChange={(next) => {
+                          setDetails(next);
+                          setDetailsChanged(true);
+                        }}
                         error={detailError(error, details)}
                       />
                     </div>
