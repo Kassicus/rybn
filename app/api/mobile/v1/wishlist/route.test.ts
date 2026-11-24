@@ -3,7 +3,7 @@ import { INVALID_IMAGE_ERROR } from "@/lib/storage/image-value";
 import { fixture, groupRows, rowFor } from "@/lib/mobile/test-fixtures";
 import { IDS } from "@/lib/mobile/test-shopping";
 import { KEYS, TAG_IDS, groupDates, tagging, tagsFor } from "@/lib/mobile/test-wishlist";
-import { formDataFromBody } from "@/lib/mobile/wishlist";
+import { formDataFromBody, parseWishlistBody, type WishlistBody } from "@/lib/mobile/wishlist";
 
 const ensureProfile = vi.fn();
 const getMyWishlist = vi.fn();
@@ -207,10 +207,26 @@ describe("POST /api/mobile/v1/wishlist", () => {
     const res = await POST(post(fixture("wishlist-item-request")), ctx);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(fixture("wishlist-item"));
-    expect(createWishlistItem).toHaveBeenCalledWith(formDataFromBody(fixture("wishlist-item-request")));
+    expect(createWishlistItem).toHaveBeenCalledWith(
+      formDataFromBody((parseWishlistBody(fixture("wishlist-item-request")) as { body: WishlistBody }).body));
     expect(tagItemForMyOccasion).toHaveBeenCalledWith(TAG_IDS.tumbler, "birthday");
     expect(tagItemForGroupDate).toHaveBeenCalledWith(TAG_IDS.tumbler, IDS.xmas);
     expect(untagItem).not.toHaveBeenCalled();
+  });
+  it("hands the details on as stored, and none when the body had none", async () => {
+    createWishlistItem.mockResolvedValue({ data: rowFor(fixture("wishlist-item").item) });
+    await POST(post(fixture("wishlist-item-request")), ctx);
+    expect(createWishlistItem.mock.calls[0][0].details).toEqual([{ kind: "size", value: "40 oz" }, { kind: "color", value: "Rose quartz" }]);
+    const { details: _, ...without } = fixture("wishlist-item-request");
+    await POST(post(without), ctx);
+    expect("details" in createWishlistItem.mock.calls[1][0]).toBe(false);
+  });
+  it("answers 422 with the sentence for a list the rules refuse, and calls no action", async () => {
+    const res = await POST(post({ ...fixture("wishlist-item-request"), details: [{ kind: "shape", value: "x" }] }), ctx);
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toEqual({ code: "invalid", message: "That detail can't be saved. Try adding it again." });
+    expect(createWishlistItem).not.toHaveBeenCalled();
+    expect(tagWrites()).toEqual([]);
   });
   it("with no occasions, or null, tags nothing and reads neither tags nor dates: the new item has none", async () => {
     createWishlistItem.mockResolvedValue({ data: rowFor(fixture("wishlist-item").item) });
