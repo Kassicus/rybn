@@ -9,7 +9,8 @@
 --
 --   1. Every message has a time: messages.created_at is not null. A message
 --      that had no time, or a time later than the moment this migration
---      runs, takes that moment as its time.
+--      runs, takes that moment as its time. Every other message keeps the
+--      time it has.
 --   2. A new message's time is the moment its row is written
 --      (clock_timestamp()), whatever time the writer sent, or none
 --      (keep_message_time, before insert).
@@ -26,28 +27,16 @@
 -- one message's time (lib/actions/messages.ts), so the order of a chat is
 -- the database's own too.
 --
--- Safe to apply before the code that reads through it, and with the site as
--- it runs: the site never sends a message's time, on insert or on update.
+-- Safe to apply before or after this branch's code is merged, and with the
+-- site as it runs today: the site never sends a message's time, on insert or
+-- on update.
 -- =============================================================================
-
-
--- -----------------------------------------------------------------------------
--- 1. Every message has a time
--- -----------------------------------------------------------------------------
--- Before the trigger of rule 3 exists, which would keep each row's time as it
--- is: a message with no time, or with one later than now, takes now as its
--- time. Then the column is not null.
-update public.messages
-   set created_at = now()
- where created_at is null
-    or created_at > now();
-
-alter table public.messages alter column created_at set not null;
 
 
 -- -----------------------------------------------------------------------------
 -- 2 and 3. The time is set when the row is written, and kept after
 -- -----------------------------------------------------------------------------
+-- The function comes first, since the trigger of the next section runs it.
 -- Before a message is inserted, its time becomes the moment the row is
 -- written; before one is updated, its time becomes the time the row already
 -- had. The row's other columns are untouched, so the write goes on to the
@@ -73,9 +62,39 @@ begin
 end;
 $$;
 
-create trigger keep_message_time
-  before insert or update on public.messages
-  for each row execute function public.keep_message_time();
+
+-- -----------------------------------------------------------------------------
+-- 1. Every message has a time, and the trigger is on
+-- -----------------------------------------------------------------------------
+-- One block, so its four steps are one: the table is locked from the first
+-- to the last, and no message is written between them. The lock is the one
+-- the not-null step takes in any case.
+--
+--   a. The table is locked, and the moment is read once.
+--   b. A message with no time, or with one later than that moment, takes that
+--      moment as its time. This comes before the trigger exists, which would
+--      keep each row's time as it is.
+--   c. The column is not null.
+--   d. The trigger of rules 2 and 3 is on.
+do $$
+declare
+  v_moment timestamptz;
+begin
+  lock table public.messages in access exclusive mode;
+
+  v_moment := clock_timestamp();
+
+  update public.messages
+     set created_at = v_moment
+   where created_at is null
+      or created_at > v_moment;
+
+  alter table public.messages alter column created_at set not null;
+
+  create trigger keep_message_time
+    before insert or update on public.messages
+    for each row execute function public.keep_message_time();
+end $$;
 
 
 -- -----------------------------------------------------------------------------
@@ -84,7 +103,7 @@ create trigger keep_message_time
 revoke execute on function public.keep_message_time() from public, anon, authenticated, service_role;
 
 comment on function public.keep_message_time() is
-  'Trigger function of keep_message_time, before insert or update on messages: on insert a message''s created_at becomes the moment the row is written (clock_timestamp()), whatever the writer sent; on update it stays the time the row had. It refuses nothing and touches no other column. It holds for every role that writes messages, the service role included. No API role (anon, authenticated, service_role) may execute it; the trigger runs it without that privilege. Added by 20261124000000_message_times.sql.';
+  'Trigger function of keep_message_time, before insert or update on messages. It sets the time and then keeps it: on insert a message''s created_at becomes the moment the row is written (clock_timestamp()), whatever the writer sent; on update it stays the time the row had. It refuses nothing and touches no other column. It holds for every role that writes messages, the service role included. No API role (anon, authenticated, service_role) may execute it; the trigger runs it without that privilege. Added by 20261124000000_message_times.sql.';
 
 comment on column public.messages.created_at is
-  'When the message was written, by the database''s clock: set by keep_message_time on insert, whatever the writer sent, and kept by it on every update. Never null. The chat is read in this order.';
+  'When the message was written, by the database''s clock: set by keep_message_time on insert, whatever the writer sent, and kept by it on every update. Never null. The chat is read in this order. A new message''s updated_at is the start of its transaction, so it can be a moment earlier than this time; whether a message was edited is is_edited. Rows copied into the table (insert from a select, copy, a restore of data alone) take the moment of the copy as their time, unless keep_message_time is off for that copy (alter table messages disable trigger keep_message_time, or session_replication_role = replica).';

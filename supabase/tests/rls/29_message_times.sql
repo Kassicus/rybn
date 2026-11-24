@@ -4,36 +4,49 @@
 -- (clock_timestamp()) and keeps it on update, whatever the writer sends and
 -- whoever writes. This file proves:
 --
---   1. The column (assertion 1). messages.created_at is not null.
---   2. The trigger (assertions 2-3). messages has exactly one trigger running
+--   1. The column (assertions 1-2). messages.created_at is not null, and no
+--      message in the table has a time later than the moment it is checked.
+--   2. The trigger (assertions 3-4). messages has exactly one trigger running
 --      keep_message_time(); it is named keep_message_time, fires before
 --      insert or update, on every column, for each row, with no condition
 --      (its definition compared whole, as 09_privacy_pins.sql compares
 --      pin_group_type), and is enabled for ordinary writes. The function has
 --      search_path pinned, and no API role (authenticated, anon,
 --      service_role) may execute it.
---   3. A new message's time (assertions 4-6). member, signed in, sends three
---      messages to Mt Gift: one with a time far later than now, one with a
---      time far earlier, and one with its time given as null. Each is stored
---      with a time later than the start of this file's transaction (now(),
---      which the fixtures written before it put in the past) and no later
---      than the moment it is checked (clock_timestamp()): the moment the row
---      was written, and not the moment the transaction began.
---   4. A message's time is kept (assertions 7-8). After a pause, member
+--   3. A new message's time, sent from a member's own client (assertions
+--      5-7). member, signed in, sends three messages to Mt Gift: one with a
+--      time far later than now, one with a time far earlier, and one with its
+--      time given as null. Each is stored with a time later than the start of
+--      this file's statement (statement_timestamp(), which the fixtures
+--      written before it put in the past) and no later than the moment it is
+--      checked (clock_timestamp()): the moment the row was written, and not
+--      the moment the statement or its transaction began.
+--   4. A message's time is kept (assertions 8-9). After a pause, member
 --      updates the first of them twice: its words together with a far later
 --      time, then its time alone, to null. Each update changes one row. The
 --      words change, and the time is the one the row was written with: not
 --      the time sent, and not the moment of the update, which the pause puts
 --      later.
---   5. Whoever writes (assertions 9-10). The connecting role, which row-level
---      security does not apply to, inserts a message with a far later time,
---      pauses, and updates that time to a far earlier one. The message is
---      stored with a time within the same bounds, and the update changes one
---      row and leaves that time as it was.
+--   5. Whoever writes (assertions 10-11). The website sends every message
+--      as the service role, which row-level security does not apply to. The
+--      connecting role, which it does not apply to either, carrying the
+--      claims the service role carries (its role, and no sub), inserts a
+--      message with a far later time, pauses, and updates that time to a far
+--      earlier one. The message is stored with a time within the same
+--      bounds, and the update changes one row and leaves that time as it
+--      was.
+--   6. The function's body (assertion 12). The deployed body of
+--      keep_message_time(), its white space folded, is the one this file was
+--      written against, whole: it reads nothing of who writes, so no role and
+--      no claim is treated apart, the service role's among them. A body that
+--      changes fails here until it is read.
 --
--- EVERY RULE IS RUN LIVE. Neither rule refuses a write, so nothing here
--- raises: each write goes through, and what is read back is the time the
--- database gave it.
+-- RULES 2 AND 3 ARE RUN LIVE (assertions 5-11). Neither refuses a write, so
+-- nothing here raises: each write goes through, and what is read back is the
+-- time the database gave it. The column, the trigger, its grants and its
+-- function's body are read from the catalog. That a message from before the
+-- migration kept its time, unless it had none or a later one, is the
+-- migration's own step and cannot be read back afterwards.
 --
 -- THE PAUSES are what tell a kept time from one set again. Every statement
 -- of this file runs in one transaction, so now() never moves, and
@@ -63,7 +76,7 @@ declare
   v_time2      timestamptz;
   v_count      int;
   v_notnull    boolean;
-  v_bool       boolean;
+  v_pinned     boolean;
   v_api_privs  boolean[];
   v_text       text;
   v_def        text;
@@ -114,7 +127,22 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 2: messages has exactly one non-internal trigger running
+  -- Assertion 2: no message has a time later than now. Read as the
+  -- connecting role, which sees every row of the table.
+  ---------------------------------------------------------------------------
+  select count(*) into v_count
+    from messages m
+   where m.created_at > clock_timestamp();
+
+  if v_count <> 0 then
+    raise exception
+      'TIME FAIL: % message(s) have a time later than now; expected 0',
+      v_count;
+  end if;
+  v_checks := v_checks + 1;
+
+  ---------------------------------------------------------------------------
+  -- Assertion 3: messages has exactly one non-internal trigger running
   -- keep_message_time(). It is named keep_message_time, and it is BEFORE
   -- INSERT OR UPDATE, on every column, FOR EACH ROW, with no WHEN condition
   -- (compared whole), and enabled for ordinary writes. Enabled state is not
@@ -145,26 +173,26 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 3: keep_message_time() has search_path pinned, and no API role
+  -- Assertion 4: keep_message_time() has search_path pinned, and no API role
   -- (authenticated, anon, service_role) may execute it.
   ---------------------------------------------------------------------------
   select coalesce('search_path=public' = any(p.proconfig), false),
          array[has_function_privilege('authenticated', p.oid, 'execute'),
                has_function_privilege('anon', p.oid, 'execute'),
                has_function_privilege('service_role', p.oid, 'execute')]
-    into v_bool, v_api_privs
+    into v_pinned, v_api_privs
     from pg_proc p
    where p.oid = 'public.keep_message_time()'::regprocedure;
 
-  if v_bool is distinct from true or true = any(v_api_privs) then
+  if v_pinned is distinct from true or true = any(v_api_privs) then
     raise exception
       'GUARD FAIL: keep_message_time has search_path=public: %; execute held by authenticated, anon and service_role: %; expected true and all false',
-      v_bool, v_api_privs;
+      v_pinned, v_api_privs;
   end if;
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 4: a message sent with a time far later than now is stored
+  -- Assertion 5: a message sent with a time far later than now is stored
   -- with the moment it was written. member sends it, signed in.
   ---------------------------------------------------------------------------
   perform set_config('request.jwt.claims',
@@ -178,15 +206,15 @@ begin
   perform set_config('role', v_orig_role, true);
 
   if v_later_id is null or v_later is null
-     or v_later <= now() or v_later > clock_timestamp() then
+     or v_later <= statement_timestamp() or v_later > clock_timestamp() then
     raise exception
-      'TIME FAIL: a message member sent with the time 2099-01-01 was stored with %; expected a time later than % (the start of this transaction) and no later than % (now)',
-      v_later, now(), clock_timestamp();
+      'TIME FAIL: a message member sent with the time 2099-01-01 was stored with %; expected a time later than % (the start of this statement) and no later than % (now)',
+      v_later, statement_timestamp(), clock_timestamp();
   end if;
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 5: a message sent with a time far earlier than now is stored
+  -- Assertion 6: a message sent with a time far earlier than now is stored
   -- with the moment it was written.
   ---------------------------------------------------------------------------
   perform set_config('request.jwt.claims',
@@ -200,15 +228,15 @@ begin
   perform set_config('role', v_orig_role, true);
 
   if v_id is null or v_time is null
-     or v_time <= now() or v_time > clock_timestamp() then
+     or v_time <= statement_timestamp() or v_time > clock_timestamp() then
     raise exception
-      'TIME FAIL: a message member sent with the time 2001-01-01 was stored with %; expected a time later than % (the start of this transaction) and no later than % (now)',
-      v_time, now(), clock_timestamp();
+      'TIME FAIL: a message member sent with the time 2001-01-01 was stored with %; expected a time later than % (the start of this statement) and no later than % (now)',
+      v_time, statement_timestamp(), clock_timestamp();
   end if;
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 6: a message sent with its time given as null is stored with
+  -- Assertion 7: a message sent with its time given as null is stored with
   -- the moment it was written.
   ---------------------------------------------------------------------------
   perform set_config('request.jwt.claims',
@@ -222,17 +250,17 @@ begin
   perform set_config('role', v_orig_role, true);
 
   if v_id is null or v_time is null
-     or v_time <= now() or v_time > clock_timestamp() then
+     or v_time <= statement_timestamp() or v_time > clock_timestamp() then
     raise exception
-      'TIME FAIL: a message member sent with its time given as null was stored with %; expected a time later than % (the start of this transaction) and no later than % (now)',
-      v_time, now(), clock_timestamp();
+      'TIME FAIL: a message member sent with its time given as null was stored with %; expected a time later than % (the start of this statement) and no later than % (now)',
+      v_time, statement_timestamp(), clock_timestamp();
   end if;
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 7: an update that sends new words and a far later time changes
+  -- Assertion 8: an update that sends new words and a far later time changes
   -- the words and keeps the time. After a pause, member updates the message
-  -- of assertion 4; one row changes, its words are the new ones, and its
+  -- of assertion 5; one row changes, its words are the new ones, and its
   -- time is the one it was written with.
   ---------------------------------------------------------------------------
   perform pg_sleep(0.05);
@@ -262,7 +290,7 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 8: an update that sends the time as null keeps the time.
+  -- Assertion 9: an update that sends the time as null keeps the time.
   -- member updates the same message; one row changes, and its time is the
   -- one it was written with.
   ---------------------------------------------------------------------------
@@ -289,26 +317,29 @@ begin
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 9: the rule holds for a writer row-level security does not
-  -- apply to. The connecting role inserts a message with a far later time,
-  -- and it is stored with the moment it was written.
+  -- Assertion 10: the rule holds for a writer row-level security does not
+  -- apply to, carrying the service role's claims: its role, and no sub. The
+  -- connecting role inserts a message with a far later time, and it is
+  -- stored with the moment it was written.
   ---------------------------------------------------------------------------
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+
   insert into messages (group_gift_id, user_id, content, created_at)
     values (v_gift, v_maker, 'Mt from the connecting role', '2099-01-01T00:00:00Z')
     returning id, created_at into v_id, v_time;
 
   if v_id is null or v_time is null
-     or v_time <= now() or v_time > clock_timestamp() then
+     or v_time <= statement_timestamp() or v_time > clock_timestamp() then
     raise exception
-      'TIME FAIL: a message the connecting role wrote with the time 2099-01-01 was stored with %; expected a time later than % (the start of this transaction) and no later than % (now)',
-      v_time, now(), clock_timestamp();
+      'TIME FAIL: a message the connecting role wrote with the time 2099-01-01 was stored with %; expected a time later than % (the start of this statement) and no later than % (now)',
+      v_time, statement_timestamp(), clock_timestamp();
   end if;
   v_checks := v_checks + 1;
 
   ---------------------------------------------------------------------------
-  -- Assertion 10: and so does the keeping. After a pause, the connecting
-  -- role updates that message's time to a far earlier one; one row changes,
-  -- and its time is the one it was written with.
+  -- Assertion 11: and so does the keeping. After a pause, the connecting
+  -- role, with the same claims, updates that message's time to a far earlier
+  -- one; one row changes, and its time is the one it was written with.
   ---------------------------------------------------------------------------
   perform pg_sleep(0.05);
 
@@ -328,8 +359,26 @@ begin
   end if;
   v_checks := v_checks + 1;
 
-  if v_checks < 10 then
-    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 10', v_checks;
+  ---------------------------------------------------------------------------
+  -- Assertion 12: the deployed body of keep_message_time(), every run of
+  -- white space folded to one space, is this one, whole. It reads nothing of
+  -- who writes, so the rule cannot be set aside for one role or one claim.
+  -- Last, so a body whose rule is broken fails at the write that shows it.
+  ---------------------------------------------------------------------------
+  select btrim(regexp_replace(p.prosrc, '\s+', ' ', 'g')) into v_text
+    from pg_proc p
+   where p.oid = 'public.keep_message_time()'::regprocedure;
+
+  if v_text is distinct from
+     'begin if tg_op = ''INSERT'' then new.created_at := clock_timestamp(); else new.created_at := old.created_at; end if; return new; end;' then
+    raise exception
+      'GUARD FAIL: the body of keep_message_time reads: %; expected: begin if tg_op = ''INSERT'' then new.created_at := clock_timestamp(); else new.created_at := old.created_at; end if; return new; end;',
+      v_text;
+  end if;
+  v_checks := v_checks + 1;
+
+  if v_checks < 12 then
+    raise exception 'HARNESS FAIL: only % assertion(s) ran, expected at least 12', v_checks;
   end if;
 
   insert into _harness_result (token) values ('OK_29_message_times');
