@@ -1,0 +1,73 @@
+{
+  "groupGift": {
+    "id": "5a1c9e2b-3d4f-4a6b-8c7d-9e0f1a2b3c4d",
+    "name": "Anniversary weekend away",
+    "description": "Two nights at the coast.",
+    "groupName": "Rivera Family",
+    "recipients": [
+      {
+        "id": "user_2dadABC",
+        "name": "Dad",
+        "username": "luis",
+        "avatarUrl": null
+      },
+      {
+        "id": "user_2momABC",
+        "name": "Mom",
+        "username": "maria",
+        "avatarUrl": "https://img.clerk.com/mom"
+      }
+    ],
+    "targetAmount": 600,
+    "pledged": 340,
+    "memberCount": 3,
+    "myPledge": 120,
+    "myPaid": false,
+    "isMaker": true,
+    "active": true,
+    "members": [
+      {
+        "person": {
+          "id": "user_2abcDEF",
+          "name": "Sam Rivera",
+          "username": "sam",
+          "avatarUrl": "https://img.clerk.com/abc"
+        },
+        "pledge": 120,
+        "paid": false,
+        "isYou": true
+      },
+      {
+        "person": {
+          "id": "user_2alxABC",
+          "name": "Alex Rivera",
+          "username": "alex",
+          "avatarUrl": "https://img.clerk.com/alex"
+        },
+        "pledge": 120,
+        "paid": true,
+        "isYou": false
+      },
+      {
+        "person": {
+          "id": "user_2jrdABC",
+          "name": "jordan",
+          "username": "jordan",
+          "avatarUrl": null
+        },
+        "pledge": 100,
+        "paid": true,
+        "isYou": false
+      }
+    ],
+    "chat": {
+      "count": 3,
+      "latest": {
+        "name": "Alex Rivera",
+        "text": "I can book it on Friday"
+      }
+    },
+    "canAddPeople": true,
+    "canDelete": true
+  }
+}

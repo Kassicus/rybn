@@ -1,0 +1,10 @@
+{
+  "groupId": "7d1e5b3c-9a2f-4c6d-8e0b-1f2a3b4c5d6e",
+  "recipientIds": [
+    "user_2dadABC",
+    "user_2momABC"
+  ],
+  "name": "Anniversary weekend away",
+  "description": "Two nights at the coast.",
+  "targetAmount": 600
+}

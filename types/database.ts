@@ -414,6 +414,39 @@ export type Database = {
           }
         ]
       }
+      group_gift_recipients: {
+        Row: {
+          group_gift_id: string
+          user_id: string
+          created_at: string
+        }
+        Insert: {
+          group_gift_id: string
+          user_id: string
+          created_at?: string
+        }
+        Update: {
+          group_gift_id?: string
+          user_id?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "group_gift_recipients_group_gift_id_fkey"
+            columns: ["group_gift_id"]
+            isOneToOne: false
+            referencedRelation: "group_gifts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "group_gift_recipients_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       group_gifts: {
         Row: {
           id: string

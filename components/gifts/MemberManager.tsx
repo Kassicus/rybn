@@ -11,11 +11,11 @@ import { getAvailableGroupMembers, addMembersToGroupGift } from "@/lib/actions/g
 interface Member {
   id: string;
   user_id: string;
-  contribution_amount: number;
-  has_paid: boolean;
+  contribution_amount: number | null;
+  has_paid: boolean | null;
   user_profiles: {
     id: string;
-    username: string;
+    username: string | null;
     display_name?: string | null;
     avatar_url?: string | null;
   } | null;
@@ -23,7 +23,7 @@ interface Member {
 
 interface AvailableUser {
   id: string;
-  username: string;
+  username: string | null;
   display_name?: string | null;
   avatar_url?: string | null;
 }
@@ -131,7 +131,7 @@ export function MemberManager({
                 )}
               </div>
               <div className="text-right">
-                {member.contribution_amount > 0 && (
+                {member.contribution_amount !== null && member.contribution_amount > 0 && (
                   <Text size="sm" className="font-semibold text-primary">
                     ${member.contribution_amount.toFixed(2)}
                   </Text>
@@ -188,7 +188,7 @@ export function MemberManager({
                 <div className="max-h-96 overflow-y-auto space-y-2 mb-4">
                   {availableUsers.map((user) => {
                     const isSelected = selectedUserIds.includes(user.id);
-                    const displayName = user.display_name || user.username;
+                    const displayName = user.display_name || user.username || "Unknown User";
                     const initials = displayName.charAt(0).toUpperCase();
 
                     return (

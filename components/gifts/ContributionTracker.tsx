@@ -16,7 +16,7 @@ interface Member {
   has_paid: boolean | null;
   user_profiles: {
     id: string;
-    username: string;
+    username: string | null;
     display_name: string | null;
     avatar_url: string | null;
   } | null;

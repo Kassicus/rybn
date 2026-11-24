@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { Send, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Heading, Text } from "@/components/ui/text";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { sendMessage } from "@/lib/actions/messages";
+import { getMessages, sendMessage } from "@/lib/actions/messages";
 import { useSupabase } from "@/lib/supabase/use-supabase";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { formatDistanceToNow } from "date-fns";
@@ -20,7 +20,7 @@ interface Message {
   created_at: string | null;
   user_profiles: {
     id: string;
-    username: string;
+    username: string | null;
     display_name: string | null;
     avatar_url: string | null;
   } | null;
@@ -29,25 +29,69 @@ interface Message {
 interface ChatWindowProps {
   groupGiftId: string;
   initialMessages: Message[];
+  /** Whether messages older than initialMessages exist. */
+  initialHasEarlier: boolean;
   currentUserId: string;
 }
 
 export function ChatWindow({
   groupGiftId,
   initialMessages,
+  initialHasEarlier,
   currentUserId,
 }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [hasEarlier, setHasEarlier] = useState(initialHasEarlier);
+  const [isLoadingEarlier, setIsLoadingEarlier] = useState(false);
   const [newMessage, setNewMessage] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  // The scroll height before earlier messages were put on top, so the reader keeps their place.
+  const heightBeforeEarlier = useRef<number | null>(null);
+  const newestShown = useRef<string | undefined>(undefined);
   const supabase = useSupabase();
 
-  // Scroll to bottom when messages change
+  // Scroll to bottom when a newer message arrives, not when earlier ones are added above.
   useEffect(() => {
+    const newest = messages[messages.length - 1]?.id;
+    if (newest === newestShown.current) return;
+    newestShown.current = newest;
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Keep what the person is reading where it was once earlier messages sit above it.
+  useLayoutEffect(() => {
+    const before = heightBeforeEarlier.current;
+    const scroller = scrollerRef.current;
+    if (before === null || !scroller) return;
+    heightBeforeEarlier.current = null;
+    scroller.scrollTop += scroller.scrollHeight - before;
+  }, [messages]);
+
+  const showEarlier = async () => {
+    const first = messages[0];
+    if (!first || isLoadingEarlier) return;
+    setIsLoadingEarlier(true);
+    setError(null);
+
+    const result = await getMessages(groupGiftId, { before: first.id });
+
+    if (result.error !== undefined) {
+      setError(result.error);
+      setIsLoadingEarlier(false);
+      return;
+    }
+
+    heightBeforeEarlier.current = scrollerRef.current?.scrollHeight ?? null;
+    setMessages((prev) => {
+      const have = new Set(prev.map((m) => m.id));
+      return [...result.data.filter((m) => !have.has(m.id)), ...prev];
+    });
+    setHasEarlier(result.hasEarlier);
+    setIsLoadingEarlier(false);
+  };
 
   // Set up real-time subscription.
   //
@@ -140,7 +184,6 @@ export function ChatWindow({
     const result = await sendMessage({
       group_gift_id: groupGiftId,
       content: messageContent,
-      attachment_url: null,
     });
 
     if (result.error) {
@@ -195,7 +238,19 @@ export function ChatWindow({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div ref={scrollerRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+        {hasEarlier && (
+          <div className="flex justify-center">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={showEarlier}
+              disabled={isLoadingEarlier}
+            >
+              Show earlier messages
+            </Button>
+          </div>
+        )}
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <Text variant="secondary">No messages yet</Text>

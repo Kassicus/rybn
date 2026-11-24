@@ -1,0 +1,14 @@
+{
+  "message": {
+    "id": "a1000000-0000-4000-8000-000000000004",
+    "person": {
+      "id": "user_2abcDEF",
+      "name": "Sam Rivera",
+      "username": "sam",
+      "avatarUrl": "https://img.clerk.com/abc"
+    },
+    "text": "Book it. I'll sort the card.",
+    "sentAt": "2026-11-18T09:20:03Z",
+    "isYou": true
+  }
+}

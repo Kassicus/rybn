@@ -20,10 +20,8 @@ export const groupGiftSchema = z.object({
   group_id: z.string()
     .uuid('Invalid group ID'),
 
-  target_user_id: z.string()
-    .uuid('Invalid user ID')
-    .optional()
-    .nullable(),
+  /** Who the gift is for, by person id (not a UUID); an empty list is someone not on Rybn. */
+  recipient_ids: z.array(z.string().min(1)),
 
   target_amount: z.number()
     .min(0, 'Target amount must be positive')
@@ -57,7 +55,8 @@ export const groupGiftInviteSchema = z.object({
   group_gift_id: z.string()
     .uuid('Invalid group gift ID'),
 
-  user_ids: z.array(z.string().uuid('Invalid user ID'))
+  // A person's id is not a UUID.
+  user_ids: z.array(z.string().min(1))
     .min(1, 'At least one user must be selected'),
 });
 

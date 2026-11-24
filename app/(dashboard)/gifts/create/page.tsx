@@ -7,13 +7,20 @@ import { Heading, Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
-import { createGroupGift } from "@/lib/actions/gifts";
-import { getMyGroups } from "@/lib/actions/groups";
+import { createGroupGift, getGroupGiftChoices } from "@/lib/actions/gifts";
+import { giftPersonName, neverLine } from "@/lib/gifts/names";
+import { GIFT_SENTENCES } from "@/lib/gifts/sentences";
 import { useEffect } from "react";
 
+type Choices = Extract<Awaited<ReturnType<typeof getGroupGiftChoices>>, { data: unknown }>["data"];
+
 export default function CreateGiftGroupPage() {
-  const [groups, setGroups] = useState<any[]>([]);
+  const [groups, setGroups] = useState<Choices["groups"]>([]);
+  const [people, setPeople] = useState<Choices["people"]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState("");
+  // The ids ticked, kept across a change of group; "Someone not on Rybn" is ticked only while none is.
+  const [recipientIds, setRecipientIds] = useState<string[]>([]);
+  const [notOnRybn, setNotOnRybn] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [targetAmount, setTargetAmount] = useState("");
@@ -23,15 +30,39 @@ export default function CreateGiftGroupPage() {
 
   useEffect(() => {
     async function loadGroups() {
-      const { data } = await getMyGroups();
-      setGroups(data || []);
-      if (data && data.length > 0) {
-        setSelectedGroupId(data[0].id);
+      const { data } = await getGroupGiftChoices();
+      setGroups(data?.groups ?? []);
+      setPeople(data?.people ?? []);
+      if (data && data.groups.length > 0) {
+        setSelectedGroupId(data.groups[0].id);
       }
       setIsLoadingGroups(false);
     }
     loadGroups();
   }, []);
+
+  // The chosen group's people first, then everyone else, each in the order the action answered.
+  const inGroup = people.filter((p) => p.group_ids.includes(selectedGroupId));
+  const elsewhere = people.filter((p) => !p.group_ids.includes(selectedGroupId));
+  const listOrder = [...inGroup, ...elsewhere];
+  const tickedNames = listOrder.filter((p) => recipientIds.includes(p.id)).map(giftPersonName);
+
+  const togglePerson = (id: string) => {
+    setNotOnRybn(false);
+    setRecipientIds((ids) => (ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id]));
+  };
+
+  const toggleNotOnRybn = () => {
+    if (!notOnRybn) setRecipientIds([]);
+    setNotOnRybn(!notOnRybn);
+  };
+
+  const personBox = (p: (typeof people)[number]) => (
+    <label key={p.id} className="flex items-center gap-2 py-1">
+      <input type="checkbox" checked={recipientIds.includes(p.id)} onChange={() => togglePerson(p.id)} />
+      <Text size="sm">{giftPersonName(p)}</Text>
+    </label>
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,6 +74,11 @@ export default function CreateGiftGroupPage() {
 
     if (!selectedGroupId) {
       setError("Please select a group");
+      return;
+    }
+
+    if (recipientIds.length === 0 && !notOnRybn) {
+      setError(GIFT_SENTENCES.chooseWho);
       return;
     }
 
@@ -59,7 +95,7 @@ export default function CreateGiftGroupPage() {
       name: name.trim(),
       description: description.trim() || null,
       group_id: selectedGroupId,
-      target_user_id: null,
+      recipient_ids: listOrder.filter((p) => recipientIds.includes(p.id)).map((p) => p.id),
       target_amount: parsedAmount,
       is_active: true,
     });
@@ -69,7 +105,7 @@ export default function CreateGiftGroupPage() {
       setIsLoading(false);
     } else if (result.data) {
       // Use window.location for a full page reload to ensure auth context is fresh
-      window.location.href = `/gifts/${result.data.id}`;
+      window.location.assign(`/gifts/${result.data.id}`);
     }
   };
 
@@ -161,6 +197,32 @@ export default function CreateGiftGroupPage() {
               Choose which group this gift coordination is for
             </Text>
           </div>
+
+          <fieldset>
+            <legend className="mb-2">
+              <Text size="sm" className="font-medium">
+                Who is it for?
+              </Text>
+            </legend>
+            {inGroup.map(personBox)}
+            {elsewhere.length > 0 && (
+              <>
+                <Text size="sm" variant="secondary" className="mt-3 mb-1">
+                  From your other groups
+                </Text>
+                {elsewhere.map(personBox)}
+              </>
+            )}
+            <label className="flex items-center gap-2 py-1 mt-2">
+              <input type="checkbox" checked={notOnRybn} onChange={toggleNotOnRybn} />
+              <Text size="sm">Someone not on Rybn</Text>
+            </label>
+            {neverLine(tickedNames) && (
+              <Text size="sm" variant="secondary" className="mt-2">
+                {neverLine(tickedNames)}
+              </Text>
+            )}
+          </fieldset>
 
           <div>
             <label className="block mb-2">

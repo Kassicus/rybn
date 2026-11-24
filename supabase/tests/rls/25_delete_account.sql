@@ -410,6 +410,12 @@ begin
            (v_lone_gift, v_other4, 0,  now() - interval '30 days'),
            (v_lone_gift, v_gone,   0,  now() - interval '10 days');
 
+  -- gone is named on Dacc For, the gift owner4 made for gone, which gone is
+  -- not in: assertion 13 asks gone to hold a row in every column that
+  -- references user_profiles, group_gift_recipients.user_id among them.
+  insert into group_gift_recipients (group_gift_id, user_id)
+    values (v_for, v_gone);
+
   -- Chat: gone's message on Dacc Shared, other4's on Dacc Made.
   insert into messages (group_gift_id, user_id, content)
     values (v_shared, v_gone,   'Dacc from gone'),
@@ -780,7 +786,7 @@ begin
   ---------------------------------------------------------------------------
   -- Assertion 13: before the call, gone holds a row in every column that
   -- references user_profiles (every single-column foreign key to it, read
-  -- from the catalog, at least the 27 this schema has) but one,
+  -- from the catalog, at least the 28 this schema has) but one,
   -- anniversary_links.user_a: gone is the link's later id. So the call below
   -- reaches every cascade and set null there is, and a foreign key added
   -- later fails here until this fixture gives gone a row in it.
@@ -813,10 +819,10 @@ begin
      and c.confrelid = 'public.user_profiles'::regclass
      and cardinality(c.conkey) <> 1;
 
-  if v_fk_total < 27 or v_fk_multi <> 0
+  if v_fk_total < 28 or v_fk_multi <> 0
      or v_found is distinct from 'anniversary_links.user_a' then
     raise exception
-      'DELETE FAIL: before the call, of % single-column foreign key(s) to user_profiles (expected at least 27, and % on more than one column, expected 0), the columns holding no row naming % are: % (expected exactly anniversary_links.user_a)',
+      'DELETE FAIL: before the call, of % single-column foreign key(s) to user_profiles (expected at least 28, and % on more than one column, expected 0), the columns holding no row naming % are: % (expected exactly anniversary_links.user_a)',
       v_fk_total, v_fk_multi, v_gone, coalesce(v_found, 'none');
   end if;
   v_checks := v_checks + 1;
@@ -1573,9 +1579,9 @@ begin
     end if;
   end loop;
 
-  if v_fk_total < 27 or v_found is not null then
+  if v_fk_total < 28 or v_found is not null then
     raise exception
-      'DELETE FAIL: after the call, of % single-column foreign key(s) to user_profiles (expected at least 27), these still hold rows naming %: %; expected none',
+      'DELETE FAIL: after the call, of % single-column foreign key(s) to user_profiles (expected at least 28), these still hold rows naming %: %; expected none',
       v_fk_total, v_gone, v_found;
   end if;
   v_checks := v_checks + 1;
