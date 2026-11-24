@@ -54,8 +54,8 @@
 -- than the time the row was written with by at least the pause.
 --
 -- Convention: see 00_harness_smoke.sql. Fixtures are written as the
--- connecting (RLS-bypassing) role. member is signed in as the website signs a
--- person in: request.jwt.claims and role are set around each write, and
+-- connecting (RLS-bypassing) role. member writes as a signed-in person's own
+-- client does: request.jwt.claims and role are set around each write, and
 -- `role` goes back to the captured current_user before every catalog read
 -- and every read that verifies a write.
 
