@@ -18,6 +18,8 @@ import {
   type PrivacyChoice,
 } from "@/lib/wishlist/privacy-choice";
 import { FormSection } from "@/components/profile/FormSection";
+import { ItemDetailsField, detailError } from "@/components/wishlist/ItemDetailsField";
+import { shownDetails, type ShownDetail } from "@/lib/wishlist/details";
 import { useUser } from "@clerk/nextjs";
 import { deleteWishlistItem, updateWishlistItem } from "@/lib/actions/wishlist";
 import { wishlistItemSchema, type WishlistItemFormData, PRIORITY_INFO } from "@/lib/schemas/wishlist";
@@ -29,6 +31,8 @@ interface WishlistItemSettingsProps {
   item: {
     title: string;
     description?: string | null;
+    /** The details as stored (`{ kind, value }`, plus `label` for the person's own kind). */
+    details?: unknown;
     url?: string | null;
     price?: number | null;
     /** Signed, renderable. Expires -- never store it back. */
@@ -75,6 +79,8 @@ export function WishlistItemSettings({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Held in this order and sent whole on every save, so a save that touches nothing sends the list as it was.
+  const [details, setDetails] = useState<ShownDetail[]>(() => shownDetails(item.details));
 
   const {
     register,
@@ -133,7 +139,7 @@ export function WishlistItemSettings({
     setIsSaving(true);
     setError(null);
 
-    const result = await updateWishlistItem(itemId, data);
+    const result = await updateWishlistItem(itemId, { ...data, details });
 
     if (result.error) {
       setError(result.error);
@@ -175,7 +181,7 @@ export function WishlistItemSettings({
               </button>
             </div>
 
-            {error && (
+            {error && !detailError(error, details) && (
               <div className="mb-4 p-3 rounded bg-error-light border border-error">
                 <Text variant="error" size="sm">
                   {error}
@@ -275,11 +281,20 @@ export function WishlistItemSettings({
                       />
                     </div>
 
+                    <div className="flex flex-col gap-1">
+                      <Label>Details</Label>
+                      <ItemDetailsField
+                        value={details}
+                        onChange={setDetails}
+                        error={detailError(error, details)}
+                      />
+                    </div>
+
                     <div>
                       <Label>Description</Label>
                       <Textarea
                         {...register("description")}
-                        placeholder="Add details like size, color, specific brand, or why you want it..."
+                        placeholder="Anything else that helps someone get the right one."
                         error={errors.description?.message}
                         className="mt-1"
                         rows={3}
