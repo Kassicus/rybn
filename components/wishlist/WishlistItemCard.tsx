@@ -8,6 +8,7 @@ import type { GroupType } from "@/types/privacy";
 import { GROUP_TYPES } from "@/types/privacy";
 import { ClaimActions } from "./ClaimActions";
 import { ItemOccasionTags } from "./ItemOccasionTags";
+import { ItemDetailLines } from "./ItemDetailLines";
 import type { UpcomingOccasion } from "@/lib/occasions/display";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +16,8 @@ interface WishlistItem {
   id: string;
   title: string;
   description?: string | null;
+  /** As stored; ItemDetailLines reads it forgivingly. */
+  details?: unknown;
   url?: string | null;
   price?: number | null;
   /** Signed and renderable; expires. This is the one to put in an <img>. */
@@ -216,6 +219,8 @@ export function WishlistItemCard({
                       </span>
                     )}
                   </div>
+
+                  <ItemDetailLines details={item.details} variant="line" />
 
                   {item.description && (
                     <Text

@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { BreadcrumbSetter } from "@/components/layout/BreadcrumbSetter";
 import { WishlistItemSettings } from "@/components/wishlist/WishlistItemSettings";
 import { ClaimActions } from "@/components/wishlist/ClaimActions";
+import { ItemDetailLines } from "@/components/wishlist/ItemDetailLines";
 import { getWishlistItem } from "@/lib/actions/wishlist";
 import { getActiveClaims } from "@/lib/actions/claims";
 import { getUpcomingOccasions } from "@/lib/actions/occasions";
@@ -25,6 +26,8 @@ interface WishlistItem {
   user_id: string;
   title: string;
   description?: string | null;
+  /** As stored; ItemDetailLines reads it forgivingly. */
+  details?: unknown;
   url?: string | null;
   price?: number | null;
   /** Signed and renderable; expires. */
@@ -360,6 +363,9 @@ export default function WishlistItemDetailPage({
             />
           </div>
         )}
+
+        {/* Details: read only, for the owner and for anyone else who can open the item */}
+        <ItemDetailLines details={item.details} variant="lines" />
 
         {/* Description */}
         {item.description && (
