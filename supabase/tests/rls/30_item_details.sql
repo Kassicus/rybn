@@ -189,7 +189,7 @@ begin
     '[{"kind":"size","value":"M"}]',
     v_all_ten,
     '[{"kind":"size","value":"' || repeat('a', 100) || '"}]',
-    '[{"kind":"size","value":"' || repeat('é', 100) || '"}]',
+    '[{"kind":"size","value":"' || repeat(chr(233), 100) || '"}]',
     '[{"kind":"other","label":"' || repeat('b', 30) || '","value":"x"}]'
   ];
   v_bad := '';

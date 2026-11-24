@@ -132,7 +132,7 @@ describe("WishlistItemSettings details", () => {
     openEditor(stored);
     fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
     const group = await screen.findByRole("group", { name: "Details" });
-    const alerts = within(group).getAllByText("Give the detail a name.");
+    const alerts = await within(group).findAllByText("Give the detail a name.");
     expect(alerts).toHaveLength(1);
     expect(screen.getAllByText("Give the detail a name.")).toHaveLength(1);
   });
