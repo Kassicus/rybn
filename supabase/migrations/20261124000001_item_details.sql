@@ -136,8 +136,7 @@ $$;
 -- -----------------------------------------------------------------------------
 -- 2. The column, its constraint, the grants and the trigger
 -- -----------------------------------------------------------------------------
--- One block, so the steps land whole or not at all however the tool that
--- applies the file runs it.
+-- Plain statements, in this order.
 --
 --   a. The column. A column with a constant default is added without
 --      rewriting the table, and every existing item reads as the empty list.
@@ -157,31 +156,28 @@ $$;
 --   f. The table's comment is rewritten with the thirteenth selectable column
 --      and the ninth that moves updated_at, and the column and the function
 --      get theirs.
-do $$
-begin
-  alter table public.wishlist_items
-    add column details jsonb not null default '[]'::jsonb;
+alter table public.wishlist_items
+  add column details jsonb not null default '[]'::jsonb;
 
-  alter table public.wishlist_items
-    add constraint valid_item_details check (public.valid_item_details(details));
+alter table public.wishlist_items
+  add constraint valid_item_details check (public.valid_item_details(details));
 
-  revoke execute on function public.valid_item_details(jsonb) from public, anon;
-  grant execute on function public.valid_item_details(jsonb) to authenticated, service_role;
+revoke execute on function public.valid_item_details(jsonb) from public, anon;
+grant execute on function public.valid_item_details(jsonb) to authenticated, service_role;
 
-  grant select (details) on public.wishlist_items to authenticated;
+grant select (details) on public.wishlist_items to authenticated;
 
-  drop trigger update_wishlist_items_updated_at on public.wishlist_items;
-  create trigger update_wishlist_items_updated_at
-    before update of title, description, url, price, image_url, priority, category, privacy_settings, updated_at, details
-    on public.wishlist_items
-    for each row execute function public.update_updated_at_column();
+drop trigger update_wishlist_items_updated_at on public.wishlist_items;
+create trigger update_wishlist_items_updated_at
+  before update of title, description, url, price, image_url, priority, category, privacy_settings, updated_at, details
+  on public.wishlist_items
+  for each row execute function public.update_updated_at_column();
 
-  comment on table public.wishlist_items is
-    'Wishlist items. Claims live in wishlist_claims as of 20260911100003; the "Users can claim visible wishlist items" policy now governs purchased/out_of_stock only, the marks a giver writes. authenticated can select id, user_id, title, description, details, url, price, image_url, priority, category, privacy_settings, created_at and updated_at; the marks are read through visible_item_marks(), which answers only for items the caller can see and does not own. updated_at moves, to now(), only when an update writes one of the nine columns title, description, details, url, price, image_url, priority, category and privacy_settings, or updated_at itself. Column grants and trigger as of 20261124000001_item_details.sql.';
+comment on table public.wishlist_items is
+  'Wishlist items. Claims live in wishlist_claims as of 20260911100003; the "Users can claim visible wishlist items" policy now governs purchased/out_of_stock only, the marks a giver writes. authenticated can select id, user_id, title, description, details, url, price, image_url, priority, category, privacy_settings, created_at and updated_at; the marks are read through visible_item_marks(), which answers only for items the caller can see and does not own. updated_at moves, to now(), only when an update writes one of the nine columns title, description, details, url, price, image_url, priority, category and privacy_settings, or updated_at itself. Column grants and trigger as of 20261124000001_item_details.sql.';
 
-  comment on column public.wishlist_items.details is
-    'The item''s details: a list of at most 10 entries, each {"kind": ..., "value": ...} with a label added only when the kind is other. kind is size, color, style, version, brand or other; value is 1 to 100 characters; the label of an other entry is 1 to 30 characters; each named kind appears at most once and other at most 5 times. Shaped by the constraint valid_item_details, which runs valid_item_details(). Not null, default the empty list. Readable by authenticated like the item''s other columns; written by the owner only (pin_wishlist_item_owner_fields). Added by 20261124000001_item_details.sql.';
+comment on column public.wishlist_items.details is
+  'The item''s details: a list of at most 10 entries, each {"kind": ..., "value": ...} with a label added only when the kind is other. kind is size, color, style, version, brand or other; value is 1 to 100 characters; the label of an other entry is 1 to 30 characters; each named kind appears at most once and other at most 5 times. Shaped by the constraint valid_item_details, which runs valid_item_details(). Not null, default the empty list. Selectable by a signed-in person as the item''s other selectable columns are; written by the owner only (pin_wishlist_item_owner_fields). Added by 20261124000001_item_details.sql.';
 
-  comment on function public.valid_item_details(jsonb) is
-    'Whether a jsonb value is a valid list of item details: an array of at most 10 objects whose keys are kind, value and label only, with a kind of size, color, style, version, brand or other, a value of 1 to 100 characters (char_length), a label of 1 to 30 characters on an other entry and no label on any other, each named kind at most once and other at most 5 times. It answers false, and never raises, for anything else, null included. Immutable; reads no table. The check behind the constraint valid_item_details, so authenticated and service_role may execute it and anon may not. Added by 20261124000001_item_details.sql.';
-end $$;
+comment on function public.valid_item_details(jsonb) is
+  'Whether a jsonb value is a valid list of item details: an array of at most 10 objects whose keys are kind, value and label only, with a kind of size, color, style, version, brand or other, a value of 1 to 100 characters (char_length), a label of 1 to 30 characters on an other entry and no label on any other, each named kind at most once and other at most 5 times. It answers false, and never raises, for anything else, null included. Immutable; reads no table. The check behind the constraint valid_item_details, so authenticated and service_role may execute it and anon may not. Added by 20261124000001_item_details.sql.';

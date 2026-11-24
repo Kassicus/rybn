@@ -17,16 +17,18 @@
 --   4. What it accepts (assertion 4). It answers true for each of: the empty
 --      list; one named entry; all five named kinds once each with five
 --      entries of kind other (ten in all, the most a list can hold); a value
---      of exactly 100 characters; an other entry whose label is exactly 30
---      characters.
+--      of exactly 100 characters; a value of 100 multi-byte characters (so
+--      characters are counted, not bytes); an other entry whose label is
+--      exactly 30 characters.
 --   5. What it refuses (assertion 5). It answers false, and does not raise,
 --      for each of: jsonb null, an object, a string, an array of a number,
 --      an entry with no value, an entry with no kind, a kind that is not one
 --      of the six, an empty value, a value of 101 characters, a value that is
 --      a number, a label on a named kind, an other entry with no label, an
 --      other entry with an empty label, an other entry with a label of 31
---      characters, a key that is not kind, value or label, a named kind
---      twice, other six times, and eleven entries. Every case is a value
+--      characters, a key that is not kind, value or label, a kind that is a
+--      number, an other label that is a number, a named kind twice, other six
+--      times, and eleven entries (which also breaks named-once). Every case is a value
 --      passed to the function directly: a test file cannot catch an
 --      exception, so no refused write is attempted, and the function's own
 --      answer is what the constraint acts on.
@@ -35,8 +37,8 @@
 --   7. Writes, live (assertion 7). owner, signed in, inserts an item with two
 --      details and then updates them to a different list, in a different
 --      order, with an other entry; each write changes one row, and the
---      details read back as the connecting role are what was written, in
---      order.
+--      details read back, as the connecting role and as owner's own select
+--      as authenticated, are what was written, in order.
 --   8. Reads, live (assertions 8-9). family, who shares a family group with
 --      owner, reads the same list of the item, by selecting the column as
 --      authenticated. outsider, who is in no group with owner, reads no row
@@ -86,6 +88,8 @@ declare
   v_anon_col     boolean;
   v_read         jsonb;
   v_read2        jsonb;
+  v_own_read     jsonb;
+  v_own_read2    jsonb;
   v_all_ten      text :=
     '[{"kind":"size","value":"M"},{"kind":"color","value":"Red"},{"kind":"style","value":"Slim"},'
     '{"kind":"version","value":"Pro"},{"kind":"brand","value":"Acme"},'
@@ -185,6 +189,7 @@ begin
     '[{"kind":"size","value":"M"}]',
     v_all_ten,
     '[{"kind":"size","value":"' || repeat('a', 100) || '"}]',
+    '[{"kind":"size","value":"' || repeat('é', 100) || '"}]',
     '[{"kind":"other","label":"' || repeat('b', 30) || '","value":"x"}]'
   ];
   v_bad := '';
@@ -197,7 +202,7 @@ begin
 
   if v_bad <> '' then
     raise exception
-      'FUNCTION FAIL: valid_item_details did not answer true for: %; expected true for the empty list, one named entry, ten entries (five named kinds and five other), a value of 100 characters and an other label of 30 characters',
+      'FUNCTION FAIL: valid_item_details did not answer true for: %; expected true for the empty list, one named entry, ten entries (five named kinds and five other), a value of 100 characters, a value of 100 multi-byte characters and an other label of 30 characters',
       v_bad;
   end if;
   v_checks := v_checks + 1;
@@ -217,6 +222,8 @@ begin
     '[{"kind":"size","value":""}]',
     '[{"kind":"size","value":"' || repeat('a', 101) || '"}]',
     '[{"kind":"size","value":5}]',
+    '[{"kind":1,"value":"M"}]',
+    '[{"kind":"other","label":5,"value":"x"}]',
     '[{"kind":"size","value":"M","label":"Size"}]',
     '[{"kind":"other","value":"x"}]',
     '[{"kind":"other","label":"","value":"x"}]',
@@ -226,6 +233,7 @@ begin
     '[{"kind":"other","label":"A","value":"1"},{"kind":"other","label":"B","value":"2"},'
       '{"kind":"other","label":"C","value":"3"},{"kind":"other","label":"D","value":"4"},'
       '{"kind":"other","label":"E","value":"5"},{"kind":"other","label":"F","value":"6"}]',
+    -- Eleven entries. The 10-entry cap follows from "each named kind once" and "other at most 5", so this case also breaks named-once.
     left(v_all_ten, length(v_all_ten) - 1) || ',{"kind":"brand","value":"Again"}]'
   ];
   v_bad := '';
@@ -260,8 +268,9 @@ begin
 
   ---------------------------------------------------------------------------
   -- Assertion 7: owner, signed in, inserts an item with two details, then
-  -- updates them to a different list. Each write changes one row, and the
-  -- connecting role reads back what was written, in order.
+  -- updates them to a different list. Each write changes one row, and both the
+  -- connecting role and owner's own select (as authenticated) read back what
+  -- was written, in order.
   ---------------------------------------------------------------------------
   perform set_config('request.jwt.claims',
     '{"sub":"' || v_owner || '","role":"authenticated"}', true);
@@ -271,6 +280,11 @@ begin
     values (v_owner, 'Idet Item', v_family_only, v_first)
     returning id into v_item;
   get diagnostics v_count = row_count;
+
+  -- owner's own read of the column, still as authenticated.
+  select w.details into v_own_read
+    from wishlist_items w
+   where w.id = v_item;
 
   perform set_config('role', v_orig_role, true);
 
@@ -287,6 +301,10 @@ begin
    where id = v_item;
   get diagnostics v_count2 = row_count;
 
+  select w.details into v_own_read2
+    from wishlist_items w
+   where w.id = v_item;
+
   perform set_config('role', v_orig_role, true);
 
   select w.details into v_read2
@@ -294,10 +312,11 @@ begin
    where w.id = v_item;
 
   if v_count <> 1 or v_read is distinct from v_first
-     or v_count2 <> 1 or v_read2 is distinct from v_second then
+     or v_count2 <> 1 or v_read2 is distinct from v_second
+     or v_own_read is distinct from v_first or v_own_read2 is distinct from v_second then
     raise exception
-      'WRITE FAIL: owner''s insert changed % row(s) and the details read back as % (expected 1 and %); owner''s update changed % row(s) and the details read back as % (expected 1 and %)',
-      v_count, v_read, v_first, v_count2, v_read2, v_second;
+      'WRITE FAIL: owner''s insert changed % row(s) and the details read back as % (expected 1 and %); owner''s update changed % row(s) and the details read back as % (expected 1 and %); owner''s own select as authenticated read % after the insert (expected %) and % after the update (expected %)',
+      v_count, v_read, v_first, v_count2, v_read2, v_second, v_own_read, v_first, v_own_read2, v_second;
   end if;
   v_checks := v_checks + 1;
 
