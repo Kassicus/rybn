@@ -3,6 +3,7 @@ import { occasionInvolvesAny } from "@/lib/occasions/celebrant";
 import type { UpcomingOccasion } from "@/lib/occasions/display";
 import { itemsTaggedFor, partitionByOccasion } from "@/lib/occasions/order";
 import type { Priority } from "@/lib/schemas/wishlist";
+import { shownDetails, type ShownDetail } from "@/lib/wishlist/details";
 import {
   compareGifts,
   type GiftChoices,
@@ -156,6 +157,8 @@ export interface ListItemRow {
   user_id: string;
   title: string;
   description: string | null;
+  /** The stored column, as it came back: read through shownDetails. */
+  details: unknown;
   url: string | null;
   price: number | null;
   image_url: string | null;
@@ -171,6 +174,7 @@ export interface MobileListItem {
   id: string;
   title: string;
   description: string | null;
+  details: ShownDetail[];
   url: string | null;
   price: number | null;
   imageUrl: string | null;
@@ -197,6 +201,7 @@ export function mobileListItem(
     id: row.id,
     title: row.title,
     description: row.description,
+    details: shownDetails(row.details),
     url: row.url,
     price: row.price !== null && row.price > 0 ? row.price : null,
     imageUrl: row.image_url,

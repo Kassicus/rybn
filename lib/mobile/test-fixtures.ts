@@ -1,5 +1,6 @@
 // Tests only. Reads the JSON contract fixtures the app's repo copies byte for byte.
 import { readFileSync } from "node:fs";
+import type { ShownDetail } from "@/lib/wishlist/details";
 import { toStored } from "@/lib/wishlist/privacy-choice";
 import type { GroupRow, MobileItem, WishlistItemRow } from "./wishlist";
 
@@ -8,12 +9,18 @@ export function fixture(name: string): any {
   return JSON.parse(readFileSync(`lib/mobile/fixtures/${name}.json`, "utf8"));
 }
 
+/** A fixture item's details as the column holds them: no label on a named kind. */
+function storedDetails(details: ShownDetail[]): unknown {
+  return details.map(({ kind, label, value }) => (kind === "other" ? { kind, label, value } : { kind, value }));
+}
+
 /** The database row for a fixture item, with the columns that must never be sent. */
 export function rowFor(item: MobileItem): WishlistItemRow & Record<string, unknown> {
   return {
     id: item.id,
     title: item.title,
     description: item.description,
+    details: storedDetails(item.details),
     url: item.url,
     price: item.price,
     image_url: item.imageUrl,

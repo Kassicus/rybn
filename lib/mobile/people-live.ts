@@ -3,6 +3,7 @@ import { getSharedGroups } from "@/lib/actions/profile";
 import { createClient } from "@/lib/supabase/server";
 import { withSignedWishlistImages } from "@/lib/supabase/signed-image";
 import type { UpcomingOccasion } from "@/lib/occasions/display";
+import { shownDetails } from "@/lib/wishlist/details";
 import { readVisibleMarks } from "@/lib/wishlist/marks";
 import { databaseFailure } from "./action-response";
 import { failure } from "./database";
@@ -128,7 +129,7 @@ export async function linkedItems(ids: string[], viewerId: string): Promise<Map<
   if (wanted.length === 0) return items;
   const supabase = await createClient();
   const rows = await inChunks(wanted, async (chunk) => {
-    const { data, error } = await supabase.from("wishlist_items").select("id, user_id, image_url").in("id", chunk);
+    const { data, error } = await supabase.from("wishlist_items").select("id, user_id, image_url, details").in("id", chunk);
     if (error) throw failure("linkedItems", error);
     return data ?? [];
   });
@@ -142,6 +143,7 @@ export async function linkedItems(ids: string[], viewerId: string): Promise<Map<
       ownerId: r.user_id,
       purchased: marks.get(r.id)?.purchased === true,
       imageUrl: r.image_url,
+      details: shownDetails(r.details),
     });
   }
   return items;

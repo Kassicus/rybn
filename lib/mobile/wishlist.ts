@@ -13,6 +13,7 @@ import {
 import { priorityLevels, type Priority, type WishlistItemFormData } from "@/lib/schemas/wishlist";
 import { INVALID_IMAGE_ERROR } from "@/lib/storage/image-value";
 import { CHARACTERS_REFUSED, CONTROL, CONTROL_EXCEPT_NOTES_WHITESPACE } from "@/lib/utils/characters";
+import { cleanDetails, shownDetails, type ShownDetail, type StoredDetail } from "@/lib/wishlist/details";
 import type { GroupType } from "@/types/privacy";
 import {
   mobileOccasion,
@@ -57,6 +58,8 @@ export interface MobileItem {
   id: string;
   title: string;
   description: string | null;
+  /** Size, Color and the like, each with its label. */
+  details: ShownDetail[];
   url: string | null;
   price: number | null;
   imageUrl: string | null;
@@ -75,6 +78,8 @@ export interface WishlistItemRow {
   id: string;
   title: string;
   description: string | null;
+  /** The stored list; read through shownDetails, which reads anything unreadable as none. */
+  details: unknown;
   url: string | null;
   price: number | null;
   image_url: string | null;
@@ -99,6 +104,8 @@ export interface WishlistBody {
   privacy: PrivacyChoice;
   /** The occasion keys the item is to be tagged for, each once. Null when the body had none: its tags are left alone. */
   occasions: string[] | null;
+  /** The details to store, cleaned. Null when the body had none: the item's stored details are left alone. */
+  details: StoredDetail[] | null;
 }
 
 /** ISO 8601, UTC, whole seconds. The fraction is dropped, never rounded up. */
@@ -130,6 +137,7 @@ export function mobileItem(row: WishlistItemRow, groups: MobileGroup[], occasion
     id: row.id,
     title: row.title,
     description: row.description,
+    details: shownDetails(row.details),
     url: row.url,
     price: row.price !== null && row.price > 0 ? row.price : null,
     imageUrl: row.image_url,
@@ -221,6 +229,8 @@ const bodySchema = z.object(
       )
       .max(200, RULES.request)
       .nullish(),
+    // Cleaned and checked by cleanDetails in parseWishlistBody, which answers its own sentences.
+    details: z.unknown().nullish(),
   },
   { error: RULES.request },
 );
@@ -233,6 +243,12 @@ export function parseWishlistBody(
     return { ok: false, message: result.error.issues[0]?.message ?? RULES.request };
   }
   const v = result.data;
+  let details: StoredDetail[] | null = null;
+  if (v.details !== undefined && v.details !== null) {
+    const cleaned = cleanDetails(v.details);
+    if (!cleaned.ok) return { ok: false, message: cleaned.message };
+    details = cleaned.details;
+  }
   return {
     ok: true,
     body: {
@@ -245,11 +261,15 @@ export function parseWishlistBody(
       category: v.category ?? null,
       privacy: v.privacy,
       occasions: v.occasions == null ? null : [...new Set(v.occasions)],
+      details,
     },
   };
 }
 
-/** What createWishlistItem takes. The picture path travels in image_url, as it does on the site. */
+/**
+ * What createWishlistItem and updateWishlistItem take. The picture path travels in image_url, as it does on the site.
+ * `details` is handed on only when the body had some: a save without it leaves the stored details as they are.
+ */
 export function formDataFromBody(body: WishlistBody): WishlistItemFormData {
   const stored = toStored(body.privacy);
   return {
@@ -262,6 +282,7 @@ export function formDataFromBody(body: WishlistBody): WishlistItemFormData {
     category: body.category,
     visible_to_group_types: stored.visibleToGroupTypes,
     restrict_to_group: stored.restrictToGroup,
+    ...(body.details === null ? {} : { details: body.details }),
   };
 }
 

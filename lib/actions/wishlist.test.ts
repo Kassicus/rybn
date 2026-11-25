@@ -136,6 +136,7 @@ const itemRow = (id: string, owner: string) => ({
   user_id: owner,
   title: `Item ${id.slice(0, 4)}`,
   description: null,
+  details: [],
   url: null,
   price: 20,
   image_url: null,
@@ -342,6 +343,75 @@ describe.each([
     await save();
 
     expect(rpcSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("an item's details, written by the two actions", () => {
+  const REFUSED = { error: "That detail can't be saved. Try adding it again." };
+  const BAD = [{ kind: "shape", value: "x" }];
+  const SPACED = [{ kind: "size", label: "Size", value: " M " }];
+  const CLEAN = [{ kind: "size", value: "M" }];
+
+  const written = (spy: typeof insertSpy | typeof updateSpy) => spy.mock.calls[0][1] as Record<string, unknown>;
+  const saved = () => ({ wishlist_items: [{ data: itemRow(ITEM_ID, ME), error: null }] });
+
+  it.each([
+    ["the key absent", FORM],
+    ["details undefined", { ...FORM, details: undefined }],
+    ["details null", { ...FORM, details: null }],
+  ])("a new item with no details stores none: %s", async (_, form) => {
+    supabase = createSupabaseMock(saved());
+
+    await createWishlistItem(form);
+
+    expect(written(insertSpy).details).toEqual([]);
+  });
+
+  it("a new item stores its details cleaned", async () => {
+    supabase = createSupabaseMock(saved());
+
+    await createWishlistItem({ ...FORM, details: SPACED });
+
+    expect(written(insertSpy).details).toEqual(CLEAN);
+  });
+
+  it("a refused list writes nothing, on a create", async () => {
+    supabase = createSupabaseMock(saved());
+
+    expect(await createWishlistItem({ ...FORM, details: BAD })).toEqual(REFUSED);
+    expect(insertSpy).not.toHaveBeenCalled();
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("a refused list writes nothing, on an update", async () => {
+    supabase = createSupabaseMock(saved());
+
+    expect(await updateWishlistItem(ITEM_ID, { ...FORM, details: BAD })).toEqual(REFUSED);
+    expect(insertSpy).not.toHaveBeenCalled();
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["has no details key", FORM],
+    ["has details undefined", { ...FORM, details: undefined }],
+    ["has details null", { ...FORM, details: null }],
+  ])("an update that says nothing about details leaves them: the form %s", async (_, form) => {
+    supabase = createSupabaseMock(saved());
+
+    await updateWishlistItem(ITEM_ID, form);
+
+    expect("details" in written(updateSpy)).toBe(false);
+  });
+
+  it("an update with a list replaces them", async () => {
+    supabase = createSupabaseMock(saved());
+    await updateWishlistItem(ITEM_ID, { ...FORM, details: [] });
+    expect(written(updateSpy).details).toEqual([]);
+
+    updateSpy.mockClear();
+    supabase = createSupabaseMock(saved());
+    await updateWishlistItem(ITEM_ID, { ...FORM, details: SPACED });
+    expect(written(updateSpy).details).toEqual(CLEAN);
   });
 });
 

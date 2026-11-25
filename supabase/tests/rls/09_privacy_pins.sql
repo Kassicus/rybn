@@ -97,8 +97,8 @@ begin
   --    sees), and updated_at is the fifth name on the list.
   --    update_wishlist_items_updated_at sorts after 'pin_' and sets
   --    updated_at to now() only for a statement that writes one of the
-  --    item's own eight columns, or updated_at itself
-  --    (20261115000001_private_columns.sql), so a non-owner's write of the
+  --    item's own nine columns, or updated_at itself
+  --    (20261115000001_private_columns.sql and 20261124000001_item_details.sql), so a non-owner's write of the
   --    marks leaves updated_at as it was, and a write that names updated_at
   --    gets now().
   --

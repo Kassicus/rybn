@@ -4,6 +4,7 @@ import type { ClaimRow, ClaimedItem } from "./gifts";
 import { memoryGiftStore, type MemoryGiftStore } from "./test-gift-store";
 import { fixture, groupRows } from "./test-fixtures";
 import { BOOK_SWAP, RIVERA_DESCRIPTION, roleIn } from "./test-groups";
+import { shownDetails } from "@/lib/wishlist/details";
 import { IDS, SAM, TODAY, world } from "./test-shopping";
 
 export type WorldMocks = { store: MemoryGiftStore; rpc: Mock; todayISO: Mock } & Record<
@@ -40,7 +41,7 @@ export function worldMocks(): WorldMocks {
     fixture("groups").groups.map((g: { id: string; name: string; type: string }) => [g.id, g] as const),
   );
   const momLinked = new Map(
-    w.momItems.map((r) => [r.id, { id: r.id, ownerId: w.people.mom.id, purchased: false, imageUrl: r.image_url }] as const),
+    w.momItems.map((r) => [r.id, { id: r.id, ownerId: w.people.mom.id, purchased: false, imageUrl: r.image_url, details: shownDetails(r.details) }] as const),
   );
   const linked = new Map([...momLinked, [IDS.catan, w.linkedItems.get(IDS.catan)!]]);
   const restrict = <V>(record: Record<string, V>, ids: string[]) =>

@@ -56,8 +56,24 @@ describe("buildGiftViews", () => {
     for (const group of fixture("gifts").groups) for (const g of group.gifts) expect(view(g.id).gift).toEqual(g);
   });
   it("sends the named fields only", () => expect(Object.keys(view(IDS.giftScarf).gift).sort()).toEqual(["canGoBack", "canGoForward",
-    "canRelease", "canRemove", "description", "fromList", "held", "id", "imagePath", "imageUrl", "itemGone", "itemId", "itemNotBought",
+    "canRelease", "canRemove", "description", "details", "fromList", "held", "id", "imagePath", "imageUrl", "itemGone", "itemId", "itemNotBought",
     "link", "name", "notes", "occasion", "person", "price", "recipientName", "seasonYear", "status", "updatedAt"]));
+  it("answers its linked item's details, as they are now", () => {
+    const ctx = w.giftContext();
+    expect(view(IDS.giftScarf, buildGiftViews(w.giftRows(), ctx)).gift.details).toEqual([
+      { kind: "color", label: "Color", value: "Grey" },
+      { kind: "other", label: "Length", value: "The long one" },
+    ]);
+    ctx.items.set(IDS.scarf, { ...ctx.items.get(IDS.scarf)!, details: [{ kind: "size", label: "Size", value: "L" }] });
+    expect(view(IDS.giftScarf, buildGiftViews(w.giftRows(), ctx)).gift.details).toEqual([{ kind: "size", label: "Size", value: "L" }]);
+  });
+  it("answers no details when its item is gone or hidden from the caller, or when it has no item", () => {
+    const ctx = w.giftContext(); ctx.items.delete(IDS.scarf);
+    expect(view(IDS.giftScarf, buildGiftViews(w.giftRows(), ctx)).gift.details).toEqual([]);
+    const gone = withRows((r) => (r.id === IDS.giftScarf ? { ...r, wishlist_item_id: null } : r));
+    expect(view(IDS.giftScarf, gone).gift.details).toEqual([]);
+    expect(view(IDS.giftPhotoBook).gift.details).toEqual([]);
+  });
   it("is for the item's owner, whatever its recipient is called", () => {
     const ctx = w.giftContext(); ctx.recipients.set(IDS.recipientMom, { id: IDS.recipientMom, name: "Mum", person_id: null });
     const v = view(IDS.giftScarf, buildGiftViews(w.giftRows(), ctx));

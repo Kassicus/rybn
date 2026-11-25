@@ -13,6 +13,7 @@ import {
 } from "./gifts";
 import { occasionFromRow, type OccasionRow, type PersonRow } from "./occasions";
 import type { ListItemRow } from "./shopping";
+import { shownDetails } from "@/lib/wishlist/details";
 import type { UpcomingOccasion } from "@/lib/occasions/display";
 
 export const TODAY = "2026-11-11";
@@ -91,19 +92,22 @@ export function world() {
 
   const momItem = (
     id: string, title: string, description: string | null, url: string | null, price: number, image: string | null,
-    priority: ListItemRow["priority"], stockMarkedBy: string | null, created: string,
+    priority: ListItemRow["priority"], stockMarkedBy: string | null, created: string, details: unknown = [],
   ): ListItemRow => ({
-    id, user_id: people.mom.id, title, description, url, price, image_url: image, priority, purchased: false,
+    id, user_id: people.mom.id, title, description, details, url, price, image_url: image, priority, purchased: false,
     out_of_stock_marked_by: stockMarkedBy, created_at: created,
   });
+  const scarfDetails = [{ kind: "color", value: "Grey" }, { kind: "other", label: "Length", value: "The long one" }];
   const momItems: ListItemRow[] = [
     momItem(IDS.kindle, "Kindle Paperwhite", null, "https://www.example.com/kindle", 159.99, null, "high", null,
       "2026-09-15T10:00:00.000000+00:00"),
     momItem(IDS.dutchOven, "Le Creuset Dutch oven", "5.5 qt, Flame", "https://www.example.com/dutch-oven", 419.95,
-      SIGN("user_2momABC/1793000000000-d7c1.jpg"), "must-have", null, "2026-10-01T10:00:00.000000+00:00"),
+      SIGN("user_2momABC/1793000000000-d7c1.jpg"), "must-have", null, "2026-10-01T10:00:00.000000+00:00",
+      [{ kind: "size", value: "5.5 qt" }, { kind: "color", value: "Flame" }]),
     momItem(IDS.gloves, "Garden gloves", null, null, 18, null, "low", people.dad.id, "2026-08-01T10:00:00.000000+00:00"),
     momItem(IDS.scarf, "Cashmere scarf", "Grey, the long one", "https://www.example.com/cashmere-scarf", 89,
-      SIGN("user_2momABC/1793100000000-s2c4.jpg"), "high", null, "2026-10-20T10:00:00.000000+00:00"),
+      SIGN("user_2momABC/1793100000000-s2c4.jpg"), "high", null, "2026-10-20T10:00:00.000000+00:00",
+      scarfDetails),
   ];
   const activeClaims: Record<string, { claimedBy: string; occasionId: string | null }> = {
     [IDS.scarf]: { claimedBy: people.sam.id, occasionId: IDS.xmas },
@@ -160,8 +164,8 @@ export function world() {
   ];
   const linkedItems = new Map<string, LinkedItem>([
     [IDS.scarf, { id: IDS.scarf, ownerId: people.mom.id, purchased: false,
-      imageUrl: SIGN("user_2momABC/1793100000000-s2c4.jpg") }],
-    [IDS.catan, { id: IDS.catan, ownerId: people.alex.id, purchased: true, imageUrl: null }],
+      imageUrl: SIGN("user_2momABC/1793100000000-s2c4.jpg"), details: shownDetails(scarfDetails) }],
+    [IDS.catan, { id: IDS.catan, ownerId: people.alex.id, purchased: true, imageUrl: null, details: [] }],
   ]);
 
   function giftRows(): GiftRow[] {

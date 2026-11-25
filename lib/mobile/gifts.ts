@@ -3,6 +3,7 @@ import { isClaimActive } from "@/lib/claims/active";
 import type { UpcomingOccasion } from "@/lib/occasions/display";
 import type { GiftStatus } from "@/lib/schemas/gift-tracking";
 import { INVALID_IMAGE_ERROR } from "@/lib/storage/image-value";
+import type { ShownDetail } from "@/lib/wishlist/details";
 import {
   mobileOccasion,
   mobilePerson,
@@ -128,6 +129,8 @@ export interface LinkedItem {
   purchased: boolean;
   /** Signed. */
   imageUrl: string | null;
+  /** The item's details as they are now, labelled. */
+  details: ShownDetail[];
 }
 
 /** After withSignedGiftPhotos: photo_url is signed, photo_path is the stored value. */
@@ -148,6 +151,8 @@ export interface MobileGift {
   id: string;
   name: string;
   description: string | null;
+  /** The linked item's, as they are now: none when the caller can see no such item. */
+  details: ShownDetail[];
   link: string | null;
   price: number | null;
   imageUrl: string | null;
@@ -234,6 +239,7 @@ export function buildGiftViews(rows: GiftRow[], ctx: GiftContext): GiftView[] {
       id: row.id,
       name: row.name,
       description: row.description,
+      details: item?.details ?? [],
       link: row.product_link,
       price: row.price !== null && row.price > 0 ? row.price : null,
       imageUrl: row.photo_url ?? item?.imageUrl ?? null,

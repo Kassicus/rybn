@@ -20,6 +20,7 @@ interface WishlistItem {
   id: string;
   title: string;
   description?: string | null;
+  details?: unknown;
   url?: string | null;
   price?: number | null;
   /** Signed and renderable; expires. */

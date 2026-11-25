@@ -64,6 +64,11 @@ export const wishlistItemSchema = z.object({
     .nullable()
     .or(z.literal('')),
 
+  // Not checked here: the server actions check and clean it (cleanDetails in
+  // lib/wishlist/details.ts), whatever a form already did. Absent means "say
+  // nothing about details".
+  details: z.unknown().optional(),
+
   priority: z.enum(priorityLevels)
     .default('medium'),
 

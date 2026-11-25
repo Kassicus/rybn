@@ -24,6 +24,9 @@ import {
 } from "./wishlist";
 
 const list = fixture("wishlist"), one = fixture("wishlist-item"), groups = fixture("groups"), request = fixture("wishlist-item-request");
+/** The request fixture as parseWishlistBody answers it: its details as stored, no label on a named kind. */
+const stored = { ...request, details: [{ kind: "size", value: "40 oz" }, { kind: "color", value: "Rose quartz" }] };
+const SENTENCE = "That detail can't be saved. Try adding it again.";
 
 /** The fixtures' items' tags, as the list route builds them: the choices as offered, the passed one from its row. */
 function fixtureTags() {
@@ -38,11 +41,18 @@ describe("mobileItem", () => {
   it("matches the item fixture", () => expect(mobileItem(rowFor(one.item), groups.groups, occasionsOf(one.item.id))).toEqual(one.item));
   it("matches the list fixture, one item of each privacy kind", () =>
     expect({ items: list.items.map((i: MobileItem) => mobileItem(rowFor(i), groups.groups, occasionsOf(i.id))) }).toEqual(list));
-  it("sends the thirteen named fields and nothing else", () => {
+  it("sends the fourteen named fields and nothing else", () => {
     const item = mobileItem(rowFor(one.item), groups.groups, occasionsOf(one.item.id));
-    expect(Object.keys(item).sort()).toEqual(["category", "createdAt", "description", "id", "imagePath", "imageUrl",
+    expect(Object.keys(item).sort()).toEqual(["category", "createdAt", "description", "details", "id", "imagePath", "imageUrl",
       "occasions", "price", "priority", "privacy", "privacySummary", "title", "url"]);
     expect(JSON.stringify(item)).not.toMatch(/purchased|out_of_stock|user_id|privacy_settings|visibleToGroupTypes|occasionId/);
+  });
+  it("answers its details from the stored list, a named kind with its label", () =>
+    expect(mobileItem({ ...rowFor(one.item), details: [{ kind: "size", value: "M" }, { kind: "other", label: "Scent", value: "Unscented" }] }, [], []).details)
+      .toEqual([{ kind: "size", label: "Size", value: "M" }, { kind: "other", label: "Scent", value: "Unscented" }]));
+  it("answers no details for a row with none, or with a value it cannot read", () => {
+    for (const bad of [null, undefined, "x", {}, []])
+      expect(mobileItem({ ...rowFor(one.item), details: bad }, [], []).details).toEqual([]);
   });
   it("sends a missing priority as medium", () => expect(mobileItem({ ...rowFor(one.item), priority: null }, [], []).priority).toBe("medium"));
   it("sends a zero price as no price", () => expect(mobileItem({ ...rowFor(one.item), price: 0 }, [], []).price).toBeNull());
@@ -71,7 +81,7 @@ describe("mobileItem, a restrictToGroup that is neither null nor text", () => {
 
 describe("mobileItem, a picture whose address could not be signed", () => {
   it("matches the unsigned item fixture", () => {
-    const row = { ...rowFor(one.item), image_url: null };
+    const row = { ...rowFor(one.item), image_url: null, details: [] };
     expect(mobileItem(row, groups.groups, occasionsOf(one.item.id))).toEqual(fixture("wishlist-item-unsigned").item);
   });
 });
@@ -190,11 +200,37 @@ describe("mobileGroups", () => {
 });
 
 describe("parseWishlistBody", () => {
-  it("accepts the request fixture", () => expect(parseWishlistBody(request)).toEqual({ ok: true, body: request }));
+  it("accepts the request fixture", () => expect(parseWishlistBody(request)).toEqual({ ok: true, body: stored }));
   it("fills what is left out with null and trims the name", () =>
     expect(parseWishlistBody({ title: "  Wool socks  ", priority: "low", privacy: { kind: "private" } })).toEqual({ ok: true,
       body: { title: "Wool socks", description: null, url: null, price: null, imagePath: null, priority: "low", category: null,
-        privacy: { kind: "private" }, occasions: null } }));
+        privacy: { kind: "private" }, occasions: null, details: null } }));
+  it("reads the request fixture's details as stored, with no label on a named kind", () => {
+    const r = parseWishlistBody(request);
+    expect(r.ok && r.body.details).toEqual([{ kind: "size", value: "40 oz" }, { kind: "color", value: "Rose quartz" }]);
+  });
+  it("reads no details, or null, as leaving the item's details alone", () => {
+    const { details: _, ...without } = request;
+    for (const raw of [without, { ...request, details: null }]) {
+      const r = parseWishlistBody(raw);
+      expect(r.ok && r.body.details).toBeNull();
+    }
+  });
+  it("reads an empty list as no details", () => {
+    const r = parseWishlistBody({ ...request, details: [] });
+    expect(r.ok && r.body.details).toEqual([]);
+  });
+  it("keeps an own label and cleans each entry", () => {
+    const r = parseWishlistBody({ ...request, details: [{ kind: "other", label: " Scent ", value: "a\nb" }, { kind: "size", value: "  " }] });
+    expect(r.ok && r.body.details).toEqual([{ kind: "other", label: "Scent", value: "a b" }]);
+  });
+  it.each([
+    ["an unknown kind", [{ kind: "shape", value: "x" }], SENTENCE],
+    ["details that are not a list", { kind: "size", value: "M" }, SENTENCE],
+    ["text over 100", [{ kind: "size", value: "a".repeat(101) }], "Keep each detail to 100 characters or fewer."],
+    ["an own kind with no label", [{ kind: "other", value: "x" }], "Give the detail a name."],
+  ])("refuses %s with the detail's sentence", (_, details, message) =>
+    expect(parseWishlistBody({ ...request, details })).toEqual({ ok: false, message }));
   it("reads no occasions, or null, as leaving the item's tags alone", () => {
     const { occasions: _, ...without } = request;
     for (const raw of [without, { ...request, occasions: null }]) {
@@ -253,7 +289,7 @@ describe("parseWishlistBody", () => {
     expect(r.ok && r.body.description).toBe(notes);
   });
   it("ignores an unknown key and does not store it", () => {
-    expect(parseWishlistBody({ ...request, purchased: true })).toEqual({ ok: true, body: request });
+    expect(parseWishlistBody({ ...request, purchased: true })).toEqual({ ok: true, body: stored });
   });
   it("accepts 100 emoji, which is 200 UTF-16 units", () => expect(parseWishlistBody({ ...request, title: "🎁".repeat(100) }).ok).toBe(true));
   it.each([
@@ -293,7 +329,20 @@ describe("formDataFromBody", () => {
   it("turns the request fixture into what createWishlistItem takes", () =>
     expect(formDataFromBody(body({ kind: "groups" }))).toEqual({ title: "Stanley tumbler, 40 oz", description: null,
       url: "https://a.co/d/abc123", price: 29.99, image_url: "user_2abcDEF/1794400000000-k3j2.jpg", priority: "high",
-      category: null, visible_to_group_types: ["family", "friends", "work", "custom"], restrict_to_group: null }));
+      category: null, visible_to_group_types: ["family", "friends", "work", "custom"], restrict_to_group: null,
+      details: [{ kind: "size", value: "40 oz" }, { kind: "color", value: "Rose quartz" }] }));
+  it("hands no details key on when the body had none", () => {
+    for (const raw of [(({ details: _, ...r }) => r)(request), { ...request, details: null }]) {
+      const { body } = parseWishlistBody(raw) as { body: WishlistBody };
+      expect("details" in formDataFromBody(body)).toBe(false);
+    }
+  });
+  it("hands the list on when the body had one, an empty one included", () => {
+    for (const details of [[], [{ kind: "brand", value: "Stanley" }]]) {
+      const { body } = parseWishlistBody({ ...request, details }) as { body: WishlistBody };
+      expect(formDataFromBody(body).details).toEqual(details);
+    }
+  });
   it("stores each privacy choice the way the site does", () => {
     expect(formDataFromBody(body({ kind: "group", groupId: "g-1" }))).toMatchObject({ visible_to_group_types: [], restrict_to_group: "g-1" });
     expect(formDataFromBody(body({ kind: "private" }))).toMatchObject({ visible_to_group_types: [], restrict_to_group: null });

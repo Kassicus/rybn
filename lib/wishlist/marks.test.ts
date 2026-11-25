@@ -30,7 +30,7 @@ const row = (item_id: string, purchased: boolean, out_of_stock_marked_by: string
 describe("WISHLIST_ITEM_COLUMNS", () => {
   it("names the item's columns, never a mark or *", () => {
     expect(WISHLIST_ITEM_COLUMNS).toBe(
-      "id, user_id, title, description, url, price, image_url, priority, category, privacy_settings, created_at, updated_at"
+      "id, user_id, title, description, details, url, price, image_url, priority, category, privacy_settings, created_at, updated_at"
     );
     const named = WISHLIST_ITEM_COLUMNS.split(",").map((column) => column.trim());
     for (const column of [...MARK_COLUMNS, "*", ""]) {

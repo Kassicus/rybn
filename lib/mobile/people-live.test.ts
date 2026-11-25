@@ -219,8 +219,25 @@ describe("people-live", () => {
     withSignedWishlistImages.mockResolvedValue([{ ...rows[0], image_url: "https://signed", image_path: null }]);
     const found = await people.linkedItems(["i1"], "user_2abcDEF");
     expect(withSignedWishlistImages).toHaveBeenCalledWith(rows, "user_2abcDEF");
-    expect(callsOf("select")).toEqual([["id, user_id, image_url"]]);
-    expect(found).toEqual(new Map([["i1", { id: "i1", ownerId: "user_2momABC", purchased: false, imageUrl: "https://signed" }]]));
+    expect(callsOf("select")).toEqual([["id, user_id, image_url, details"]]);
+    expect(found).toEqual(new Map([["i1", { id: "i1", ownerId: "user_2momABC", purchased: false, imageUrl: "https://signed", details: [] }]]));
+  });
+
+  it("answers each linked item's details through shownDetails, and none when the column is unreadable", async () => {
+    const rows = [
+      { id: "i1", user_id: "user_2momABC", image_url: null, details: [{ kind: "size", value: "5.5 qt" }, { kind: "other", label: "Length", value: "Long" }] },
+      { id: "i2", user_id: "user_2momABC", image_url: null, details: "junk" },
+      { id: "i3", user_id: "user_2momABC", image_url: null, details: null },
+    ];
+    scripted = [{ data: rows, error: null }];
+    withSignedWishlistImages.mockImplementation(async (signed: unknown[]) => signed);
+    const found = await people.linkedItems(["i1", "i2", "i3"], "user_2abcDEF");
+    expect(found.get("i1")!.details).toEqual([
+      { kind: "size", label: "Size", value: "5.5 qt" },
+      { kind: "other", label: "Length", value: "Long" },
+    ]);
+    expect(found.get("i2")!.details).toEqual([]);
+    expect(found.get("i3")!.details).toEqual([]);
   });
 
   it("asks for nothing when given no ids", async () => {

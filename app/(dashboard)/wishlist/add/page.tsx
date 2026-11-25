@@ -27,6 +27,8 @@ import {
   type PrivacyChoice,
 } from "@/lib/wishlist/privacy-choice";
 import { cn } from "@/lib/utils";
+import { ItemDetailsField, detailError } from "@/components/wishlist/ItemDetailsField";
+import type { ShownDetail } from "@/lib/wishlist/details";
 
 const PRIORITIES = Object.keys(PRIORITY_INFO) as Array<keyof typeof PRIORITY_INFO>;
 
@@ -35,6 +37,7 @@ export default function AddWishlistItemPage() {
   const { user } = useUser();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [details, setDetails] = useState<ShownDetail[]>([]);
 
   const {
     register,
@@ -73,7 +76,7 @@ export default function AddWishlistItemPage() {
     setIsLoading(true);
     setError(null);
 
-    const result = await createWishlistItem(data);
+    const result = await createWishlistItem({ ...data, details });
 
     if (result.error) {
       setError(result.error);
@@ -105,7 +108,7 @@ export default function AddWishlistItemPage() {
 
       {/* @ts-expect-error - Form submit handler type inference */}
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-6">
-        {error && (
+        {error && !detailError(error, details) && (
           <div
             role="alert"
             className="rounded-md border border-error bg-error-light p-3"
@@ -165,13 +168,21 @@ export default function AddWishlistItemPage() {
           </div>
         </FormSection>
 
-        <FormSection title="Details" description="All optional.">
+        <FormSection title="More about it" description="All optional.">
           <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <ItemDetailsField
+                value={details}
+                onChange={setDetails}
+                error={detailError(error, details)}
+              />
+            </div>
+
             <div className="flex flex-col gap-1.5">
               <Label>Description</Label>
               <Textarea
                 {...register("description")}
-                placeholder="Size, colour, which version — anything that helps someone get the right one."
+                placeholder="Anything else that helps someone get the right one."
                 rows={3}
                 error={errors.description?.message}
               />

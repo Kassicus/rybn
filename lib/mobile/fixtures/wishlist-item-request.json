@@ -1,6 +1,10 @@
 {
   "title": "Stanley tumbler, 40 oz",
   "description": null,
+  "details": [
+    { "kind": "size", "label": "Size", "value": "40 oz" },
+    { "kind": "color", "label": "Color", "value": "Rose quartz" }
+  ],
   "url": "https://a.co/d/abc123",
   "price": 29.99,
   "imagePath": "user_2abcDEF/1794400000000-k3j2.jpg",

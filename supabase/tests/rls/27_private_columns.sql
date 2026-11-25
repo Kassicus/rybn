@@ -1,7 +1,7 @@
 -- 20261115000001_private_columns.sql: the columns a signed-in person's client
 -- (the role authenticated) can select on user_profiles and wishlist_items,
 -- and update_wishlist_items_updated_at, which sets an item's updated_at to
--- now() only when an update writes one of the item's own eight columns, or
+-- now() only when an update writes one of the item's own nine columns, or
 -- updated_at itself. This file proves:
 --
 --   1. The privileges (assertions 1-5). authenticated holds no table-level
@@ -9,20 +9,20 @@
 --      username, display_name, avatar_url, bio, created_at and updated_at,
 --      and cannot select exactly email and email_preferences. It holds no
 --      table-level SELECT on wishlist_items either; of its columns it can
---      select exactly id, user_id, title, description, url, price, image_url,
---      priority, category, privacy_settings, created_at and updated_at, and
---      cannot select exactly purchased, purchased_at, out_of_stock_marked_by
---      and out_of_stock_marked_at. Each list is compared whole, in name
---      order, so a column added to either table without a grant fails here
---      by name. authenticated still holds INSERT, UPDATE and DELETE on both
+--      select exactly id, user_id, title, description, details, url, price,
+--      image_url, priority, category, privacy_settings, created_at and
+--      updated_at, and cannot select exactly purchased, purchased_at,
+--      out_of_stock_marked_by and out_of_stock_marked_at. Each list is
+--      compared whole, in name order, so a column added to either table
+--      without a grant fails here by name. authenticated still holds INSERT, UPDATE and DELETE on both
 --      tables; anon can select no column of either; service_role holds
 --      table-level SELECT on both.
 --   2. The trigger (assertion 6). update_wishlist_items_updated_at, compared
---      whole as Postgres prints it, fires before an update of any of nine
---      names, the item's own eight columns (title, description, url, price,
---      image_url, priority, category, privacy_settings) and updated_at
---      itself, for each row, and runs update_updated_at_column(); and it is
---      enabled.
+--      whole as Postgres prints it, fires before an update of any of ten
+--      names, the item's own nine columns (title, description, url, price,
+--      image_url, priority, category, privacy_settings, details) and
+--      updated_at itself, for each row, and runs update_updated_at_column();
+--      and it is enabled.
 --   3. When updated_at moves, live (assertions 7-11). owner's five items A,
 --      B, C, D and E each have updated_at a day ago, written by the fixture.
 --      giver, who shares a family group with owner, marks A bought and B out
@@ -34,7 +34,7 @@
 --      updated_at to a year ago: one row, and E's updated_at is now, neither
 --      the value written nor the fixture's.
 --   4. Named columns, live (assertion 12). owner counts their own five items
---      and reads C by its twelve selectable columns; giver reads owner's
+--      and reads C by its thirteen selectable columns; giver reads owner's
 --      profile by its seven, and owner's username.
 --   5. The two functions, live (assertion 13). Asked about A, B, C and D,
 --      visible_item_marks answers giver A (bought, no marker) and B (not
@@ -211,7 +211,7 @@ begin
   ---------------------------------------------------------------------------
   -- Assertion 3: authenticated holds no table-level SELECT on
   -- wishlist_items; of its columns (not dropped, attnum > 0) it can select
-  -- exactly the twelve, and cannot select exactly the four marks. Each list
+  -- exactly the thirteen, and cannot select exactly the four marks. Each list
   -- in name order, compared whole.
   ---------------------------------------------------------------------------
   select has_table_privilege('authenticated', 'public.wishlist_items', 'SELECT')
@@ -230,10 +230,10 @@ begin
      and not a.attisdropped;
 
   if v_table_select is distinct from false
-     or v_selectable is distinct from 'category, created_at, description, id, image_url, price, priority, privacy_settings, title, updated_at, url, user_id'
+     or v_selectable is distinct from 'category, created_at, description, details, id, image_url, price, priority, privacy_settings, title, updated_at, url, user_id'
      or v_unselectable is distinct from 'out_of_stock_marked_at, out_of_stock_marked_by, purchased, purchased_at' then
     raise exception
-      'COLUMNS FAIL: authenticated holds table-level SELECT on wishlist_items: % (expected false); of its columns it can select % and cannot select %; expected exactly category, created_at, description, id, image_url, price, priority, privacy_settings, title, updated_at, url, user_id and exactly out_of_stock_marked_at, out_of_stock_marked_by, purchased, purchased_at',
+      'COLUMNS FAIL: authenticated holds table-level SELECT on wishlist_items: % (expected false); of its columns it can select % and cannot select %; expected exactly category, created_at, description, details, id, image_url, price, priority, privacy_settings, title, updated_at, url, user_id and exactly out_of_stock_marked_at, out_of_stock_marked_by, purchased, purchased_at',
       v_table_select, v_selectable, v_unselectable;
   end if;
   v_checks := v_checks + 1;
@@ -281,7 +281,7 @@ begin
 
   ---------------------------------------------------------------------------
   -- Assertion 6: update_wishlist_items_updated_at is exactly the trigger
-  -- Postgres prints for a BEFORE UPDATE OF nine names, the item's own eight
+  -- Postgres prints for a BEFORE UPDATE OF ten names, the item's own nine
   -- columns and updated_at itself, FOR EACH ROW, running
   -- update_updated_at_column() (compared whole, as 09_privacy_pins.sql
   -- compares pin_wishlist_item_owner_fields), and it is enabled for
@@ -300,10 +300,10 @@ begin
      and not t.tgisinternal;
 
   if v_def is distinct from
-     'CREATE TRIGGER update_wishlist_items_updated_at BEFORE UPDATE OF title, description, url, price, image_url, priority, category, privacy_settings, updated_at ON public.wishlist_items FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()'
+     'CREATE TRIGGER update_wishlist_items_updated_at BEFORE UPDATE OF title, description, url, price, image_url, priority, category, privacy_settings, updated_at, details ON public.wishlist_items FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()'
      or v_enabled is distinct from 'O' then
     raise exception
-      'TRIGGER FAIL: update_wishlist_items_updated_at reads % with tgenabled %; expected CREATE TRIGGER update_wishlist_items_updated_at BEFORE UPDATE OF title, description, url, price, image_url, priority, category, privacy_settings, updated_at ON public.wishlist_items FOR EACH ROW EXECUTE FUNCTION update_updated_at_column(), enabled (O)',
+      'TRIGGER FAIL: update_wishlist_items_updated_at reads % with tgenabled %; expected CREATE TRIGGER update_wishlist_items_updated_at BEFORE UPDATE OF title, description, url, price, image_url, priority, category, privacy_settings, updated_at, details ON public.wishlist_items FOR EACH ROW EXECUTE FUNCTION update_updated_at_column(), enabled (O)',
       coalesce(v_def, '<no such trigger>'), coalesce(v_enabled, '<no such trigger>');
   end if;
   v_checks := v_checks + 1;
@@ -463,7 +463,7 @@ begin
 
   ---------------------------------------------------------------------------
   -- Assertion 12: reads that name their columns work. owner counts their
-  -- own five items with count(*) and reads C by the twelve columns
+  -- own five items with count(*) and reads C by the thirteen columns
   -- authenticated can select; giver, who shares a family group with owner,
   -- reads owner's profile by its seven, and owner's username.
   ---------------------------------------------------------------------------
@@ -477,7 +477,7 @@ begin
 
   select count(*) into v_count2
     from (select w.id, w.user_id, w.title, w.description, w.url, w.price, w.image_url,
-                 w.priority, w.category, w.privacy_settings, w.created_at, w.updated_at
+                 w.priority, w.category, w.privacy_settings, w.created_at, w.updated_at, w.details
             from wishlist_items w
            where w.id = v_c
              and w.title = 'Pcol Edited') s;
@@ -500,7 +500,7 @@ begin
   if v_count <> 5 or v_count2 <> 1 or v_count3 <> 1
      or v_username is distinct from 'pcolowner' then
     raise exception
-      'READ FAIL: % counts % of their own items (expected 5) and reads C by its twelve columns in % row(s) (expected 1); % reads %''s profile by its seven columns in % row(s) (expected 1), with username % (expected pcolowner)',
+      'READ FAIL: % counts % of their own items (expected 5) and reads C by its thirteen columns in % row(s) (expected 1); % reads %''s profile by its seven columns in % row(s) (expected 1), with username % (expected pcolowner)',
       v_owner, v_count, v_count2, v_giver, v_owner, v_count3, v_username;
   end if;
   v_checks := v_checks + 1;

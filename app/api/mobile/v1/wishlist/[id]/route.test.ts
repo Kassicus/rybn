@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fixture, groupRows, rowFor } from "@/lib/mobile/test-fixtures";
 import { IDS, world } from "@/lib/mobile/test-shopping";
 import { KEYS, TAG_IDS, groupDates, tagging, tagsFor } from "@/lib/mobile/test-wishlist";
-import { formDataFromBody } from "@/lib/mobile/wishlist";
+import { formDataFromBody, parseWishlistBody, type WishlistBody } from "@/lib/mobile/wishlist";
 
 const ensureProfile = vi.fn();
 const getWishlistItem = vi.fn();
@@ -57,6 +57,7 @@ const tagWrites = () => [...tagItemForMyOccasion.mock.calls, ...tagItemForGroupD
 /** The item as it stands, with these tags. */
 const taggedFor = (occasionIds: string[]) =>
   getTagsForItems.mockImplementation(async (ids: string[]) => tagsFor({ [ID]: occasionIds }, ids));
+const asSaved = (request: unknown) => formDataFromBody((parseWishlistBody(request) as { body: WishlistBody }).body);
 const saving = (occasions: string[]) => put({ ...fixture("wishlist-item-request"), occasions });
 const keysOf = async (res: Response) => (await res.json()).item.occasions.map((o: { key: string }) => o.key);
 
@@ -82,9 +83,41 @@ describe("PUT /api/mobile/v1/wishlist/[id]", () => {
     const res = await PUT(put(fixture("wishlist-item-request")), ctx(ID));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(fixture("wishlist-item"));
-    expect(updateWishlistItem).toHaveBeenCalledWith(ID, formDataFromBody(fixture("wishlist-item-request")));
+    expect(updateWishlistItem).toHaveBeenCalledWith(ID, asSaved(fixture("wishlist-item-request")));
     expect(getTagsForItems).toHaveBeenCalledWith([ID]);
     expect(tagWrites()).toEqual([]);
+  });
+  it("hands the action no details key when the body has none, or has null, so the item's details stay", async () => {
+    getWishlistItem.mockResolvedValue(mine());
+    updateWishlistItem.mockResolvedValue({ data: rowFor(fixture("wishlist-item").item) });
+    const { details: _, ...without } = fixture("wishlist-item-request");
+    for (const request of [without, { ...without, details: null }]) {
+      const res = await PUT(put(request), ctx(ID));
+      expect(res.status).toBe(200);
+    }
+    expect(updateWishlistItem).toHaveBeenCalledTimes(2);
+    for (const [, form] of updateWishlistItem.mock.calls) expect("details" in form).toBe(false);
+  });
+  it("hands the details on as stored when the body has them, an empty list included", async () => {
+    getWishlistItem.mockResolvedValue(mine());
+    updateWishlistItem.mockResolvedValue({ data: rowFor(fixture("wishlist-item").item) });
+    await PUT(put(fixture("wishlist-item-request")), ctx(ID));
+    expect(updateWishlistItem.mock.calls[0][1].details).toEqual([{ kind: "size", value: "40 oz" }, { kind: "color", value: "Rose quartz" }]);
+    await PUT(put({ ...fixture("wishlist-item-request"), details: [] }), ctx(ID));
+    expect(updateWishlistItem.mock.calls[1][1].details).toEqual([]);
+  });
+  it("answers 422 with the sentence for a list the rules refuse, before reading the item, and writes nothing", async () => {
+    const res = await PUT(put({ ...fixture("wishlist-item-request"), details: [{ kind: "shape", value: "x" }] }), ctx(ID));
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toEqual({ code: "invalid", message: "That detail can't be saved. Try adding it again." });
+    expect(getWishlistItem).not.toHaveBeenCalled();
+    expect(updateWishlistItem).not.toHaveBeenCalled();
+  });
+  it("answers the item with its details as the fixture has them", async () => {
+    getWishlistItem.mockResolvedValue(mine());
+    updateWishlistItem.mockResolvedValue({ data: rowFor(fixture("wishlist-item").item) });
+    const res = await PUT(put(fixture("wishlist-item-request")), ctx(ID));
+    expect((await res.json()).item.details).toEqual([{ kind: "size", label: "Size", value: "40 oz" }, { kind: "color", label: "Color", value: "Rose quartz" }]);
   });
   it("leaves the tags alone when the body has no occasions, and answers them", async () => {
     getWishlistItem.mockResolvedValue(mine());

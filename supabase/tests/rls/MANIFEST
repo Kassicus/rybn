@@ -47,3 +47,4 @@
 27_private_columns.sql
 28_group_gift_recipients.sql
 29_message_times.sql
+30_item_details.sql
